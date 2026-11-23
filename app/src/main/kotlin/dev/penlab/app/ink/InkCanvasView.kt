@@ -1373,7 +1373,7 @@ class InkCanvasView(
   private var projectorBuiltHidden: Set<Int>? = null
   private val projectorBuiltMatrix = FloatArray(9)
   private val projectorMatrixValues = FloatArray(9)
-  private var projectorStrokes: List<Stroke> = emptyList()
+  private var projectorStrokes: List<dev.penlab.app.projector.ProjectorInk> = emptyList()
   private var projectorPageRects: FloatArray? = null
 
   private fun publishProjector(tick: Boolean) {
@@ -1409,7 +1409,7 @@ class InkCanvasView(
       System.arraycopy(projectorMatrixValues, 0, projectorBuiltMatrix, 0, 9)
       val visible = chunkCache.strokesIn(projectorVisible).filter { !isHiddenLayer(it) }
       // Highlighters sit under the ink.
-      projectorStrokes = visible.filter { it.isHighlighter }.map(::screenVersion) + visible.filter { !it.isHighlighter }.map(::screenVersion)
+      projectorStrokes = (visible.filter { it.isHighlighter } + visible.filter { !it.isHighlighter }).map(::projectorInk)
       projectorPageRects = if (layout == null) null else {
         val first = layout.pageAt(projectorVisible.top)
         val last = layout.pageAt(projectorVisible.bottom)
@@ -1424,10 +1424,18 @@ class InkCanvasView(
     }
     val live = liveMirror.active
     val livePts = if (live) liveMirror.copyPoints() else null
+    val zoom = pageToProjector.mapRadius(1f)
+    val accent = pageEdgeAccent
+    val edgePx = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * zoom /
+      pageToScreen.mapRadius(1f).coerceAtLeast(1e-6f)
     sink.onSnapshot(
       ProjectorSnapshot(
         projectorMatrixValues.copyOf(), desk, if (layout == null) 0 else InkColors.pageOnScreen(darkPage), projectorPageRects,
         projectorStrokes, livePts, livePts?.size?.div(2) ?: 0, liveMirror.colorArgb, liveMirror.size,
+        pageStyle, rulingMm, if (layout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP, darkPage,
+        layout?.pageWidth ?: 0f, layout?.pageHeight ?: 0f,
+        floatArrayOf(projectorVisible.left, projectorVisible.top, projectorVisible.right, projectorVisible.bottom), zoom,
+        if (layout == null) 0 else (accent ?: InkColors.pageEdgeOnScreen(darkPage)), edgePx.coerceAtLeast(1f),
       ),
     )
   }
@@ -1930,6 +1938,13 @@ class InkCanvasView(
     clearThumbnails()
     finishedView.invalidate()
     onLayersChanged()
+  }
+
+  /** A committed stroke for the projector: screen colour and size, drawn there as a round polyline. */
+  private fun projectorInk(ink: InkStroke): dev.penlab.app.projector.ProjectorInk {
+    val color = ink.brush.colorIntArgb
+    val shown = if (!darkPage || isOnLightPage(ink)) color else InkColors.onScreen(color, true)
+    return dev.penlab.app.projector.ProjectorInk(ink, shown, ink.brush.size, ink.isHighlighter)
   }
 
   /** The stroke as it should look on screen: itself, or its lightness-inverted twin. */

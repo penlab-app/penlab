@@ -13,9 +13,11 @@ import android.view.Choreographer
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
-import androidx.ink.strokes.Stroke
 import dev.penlab.app.ink.InkCanvasView
+import dev.penlab.app.ink.InkStroke
+import dev.penlab.app.ink.PageBackground
+import dev.penlab.app.ink.PageStyle
+import java.util.IdentityHashMap
 
 /**
  * PROTOTYPE. Immutable hand-off from the tablet's main thread to the projector's render thread.
@@ -30,13 +32,31 @@ class ProjectorSnapshot(
   val pageColor: Int,
   /** left,top,right,bottom per visible page, page units. */
   val pageRects: FloatArray?,
-  val strokes: List<Stroke>,
+  val strokes: List<ProjectorInk>,
   /** Live stroke points x,y,x,y... (page units) or null when no stroke is live. */
   val livePoints: FloatArray?,
   val liveCount: Int,
   val liveColor: Int,
   val liveSize: Float,
+  /** Paper ruling; null style = none (e.g. empty snapshot). */
+  val pageStyle: PageStyle? = null,
+  val spacingMm: Float = 0f,
+  val unitsPerDp: Float = 1f,
+  val darkPage: Boolean = false,
+  /** Page size in page units (Cornell etc.); 0 on an endless canvas. */
+  val pageWidth: Float = 0f,
+  val pageHeight: Float = 0f,
+  /** The visible area in page units: left,top,right,bottom. */
+  val visible: FloatArray? = null,
+  /** Projector pixels per page unit. */
+  val zoom: Float = 1f,
+  /** Page edge colour (ARGB) and its width in projector pixels. */
+  val edgeColor: Int = 0,
+  val edgeWidthPx: Float = 1f,
 )
+
+/** A committed stroke for the projector: the immutable ink, drawn as a round polyline in its screen colour. */
+class ProjectorInk(val ink: InkStroke, val color: Int, val size: Float, val highlighter: Boolean)
 
 /** What the canvas publishes to. */
 interface ProjectorSink {
@@ -69,7 +89,46 @@ internal class ProjectorSurfaceView(context: Context) : SurfaceView(context), Su
   private var lastDrawn: ProjectorSnapshot? = null // render thread only
   private var lastFrameAt = 0L // render thread only
 
-  private val renderer = CanvasStrokeRenderer.create()
+  // Render thread only: one Path per committed stroke, built once.
+  private val pathCache = IdentityHashMap<InkStroke, android.graphics.Path>()
+  private val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    style = Paint.Style.STROKE
+    strokeCap = Paint.Cap.ROUND
+    strokeJoin = Paint.Join.ROUND
+  }
+  private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+  private val ruled = RectF()
+  private val vis = RectF()
+  private var background: PageBackground? = null
+  private var backgroundKey: List<Any>? = null
+
+  private fun backgroundFor(s: ProjectorSnapshot): PageBackground {
+    val key = listOf(s.unitsPerDp, s.darkPage, s.pageWidth, s.pageHeight)
+    var b = background
+    if (b == null || key != backgroundKey) {
+      b = PageBackground(s.unitsPerDp, s.darkPage)
+      b.pageWidth = s.pageWidth
+      b.pageHeight = s.pageHeight
+      background = b
+      backgroundKey = key
+    }
+    b.spacingMm = s.spacingMm
+    return b
+  }
+
+  private fun pathOf(ink: InkStroke): android.graphics.Path {
+    pathCache[ink]?.let { return it }
+    val p = android.graphics.Path()
+    val n = ink.pointCount
+    if (n > 0) {
+      p.moveTo(ink.x(0), ink.y(0))
+      if (n == 1) p.lineTo(ink.x(0) + 0.01f, ink.y(0))
+      for (i in 1 until n) p.lineTo(ink.x(i), ink.y(i))
+    }
+    if (pathCache.size > 4000) pathCache.clear()
+    pathCache[ink] = p
+    return p
+  }
   private val matrix = Matrix()
   private val paint = Paint()
   private val rect = RectF()
@@ -128,19 +187,44 @@ internal class ProjectorSurfaceView(context: Context) : SurfaceView(context), Su
       val m = s.matrix ?: return
       matrix.setValues(m)
       val rects = s.pageRects
+      val style = s.pageStyle
+      val v = s.visible
+      if (v != null) vis.set(v[0], v[1], v[2], v[3])
+      canvas.save()
+      canvas.concat(matrix)
       if (rects != null && s.pageColor != 0) {
         paint.color = s.pageColor
-        canvas.save()
-        canvas.concat(matrix)
         var i = 0
         while (i + 3 < rects.size) {
           rect.set(rects[i], rects[i + 1], rects[i + 2], rects[i + 3])
           canvas.drawRect(rect, paint)
+          if (style != null && v != null) {
+            canvas.save()
+            canvas.clipRect(rect)
+            canvas.translate(0f, rect.top)
+            ruled.set(vis)
+            ruled.intersect(rect)
+            ruled.offset(0f, -rect.top)
+            backgroundFor(s).draw(canvas, style, ruled, s.zoom)
+            canvas.restore()
+          }
+          if (s.edgeColor != 0) {
+            edgePaint.color = s.edgeColor
+            edgePaint.strokeWidth = s.edgeWidthPx / s.zoom
+            canvas.drawRect(rect, edgePaint)
+          }
           i += 4
         }
-        canvas.restore()
+      } else if (rects == null && style != null && v != null) {
+        backgroundFor(s).draw(canvas, style, vis, s.zoom)
       }
-      for (stroke in s.strokes) renderer.draw(canvas, stroke, matrix)
+      // Committed ink as round polylines (Ink's renderer draws nothing on this surface). Highlighters come first in the list.
+      for (pi in s.strokes) {
+        inkPaint.color = pi.color
+        inkPaint.strokeWidth = pi.size
+        canvas.drawPath(pathOf(pi.ink), inkPaint)
+      }
+      canvas.restore()
       val pts = s.livePoints
       if (pts != null && s.liveCount > 0) {
         canvas.save()

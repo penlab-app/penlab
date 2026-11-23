@@ -10,6 +10,24 @@ import androidx.ink.strokes.MutableStrokeInputBatch
 import androidx.ink.strokes.StrokeInput
 
 /**
+ * A stroke whose pen has lifted but whose committed version has not reached the projector yet.
+ * Immutable copy of what the projector drew live, so it keeps showing until the page's own
+ * stroke takes over (Ink's hand-off is delayed and batched, so fast hatching would otherwise
+ * lose its last strokes for a moment). [committedVersion] is -1 until Ink reports the stroke
+ * finished; then it is the page's change counter after the stroke was inserted.
+ */
+class PendingLine(
+  val points: FloatArray,
+  val count: Int,
+  val color: Int,
+  val size: Float,
+  val liftedAt: Long,
+) {
+  var committedVersion = -1
+}
+
+
+/**
  * The stroke under the pen right now, as the projector's follower view draws it.
  *
  * PERFORMANCE CONTRACT. The pen's own path (InkCanvasView.onTouchEvent -> Jetpack Ink's front
@@ -38,9 +56,15 @@ internal class LiveStrokeMirror(
   /** The current stroke's points in page units, appended by the tablet; read-only here. */
   private val points: List<Point>,
 ) {
-  /** A stroke is being drawn (or has been lifted but not yet committed to the page). */
+  /** The pen is down on a stroke (it is the one line still growing). */
   var active = false
     private set
+
+  /** Lifted, not yet committed lines, oldest first, keyed by Ink's stroke id. Main thread only. */
+  private val pending = LinkedHashMap<Any, PendingLine>()
+
+  /** Anything the projector still has to draw by itself: the live line or a waiting one. */
+  val needsFrames: Boolean get() = active || pending.isNotEmpty()
 
   private var owner: Any? = null
   private var brush: Brush? = null
@@ -67,7 +91,6 @@ internal class LiveStrokeMirror(
     count = 0
     generation++
     active = true
-    endingFrames = -1
   }
 
   /** One more point was added to the list given to the constructor. Pen path: two array stores. */
@@ -81,24 +104,47 @@ internal class LiveStrokeMirror(
     count++
   }
 
-  /** The stroke [id] is on the page now (or was cancelled): stop drawing it. A newer stroke is left alone. */
-  fun end(id: Any?) {
-    // Not off at once: the committed stroke reaches the projector on its next frame, so the
-    // preview stays for a few more projector frames and the two overlap instead of leaving a
-    // one-frame gap (the flash at pen-up). They sit in the same place, so the overlap is invisible.
-    if (id != null && owner === id && active && endingFrames < 0) endingFrames = HANDOFF_FRAMES
+  /**
+   * Pen-up: the stroke [id] is finished. Its points, colour and size are copied (once, here) into a
+   * pending line that the projector keeps drawing until the committed stroke replaces it.
+   */
+  fun lift(id: Any?, nowMs: Long) {
+    if (id == null || owner !== id || !active) return
+    pending[id] = PendingLine(copyPoints(), minOf(points.size, count), colorArgb, size, nowMs)
+    active = false
   }
 
-  /** Frames left before the preview stops after pen-up; -1 while the pen is down. */
-  private var endingFrames = -1
+  /**
+   * Ink reported the stroke [id] finished and the page has taken it ([version] is the page's
+   * change counter after that). The pending line is dropped by [dropCommitted] once a snapshot
+   * built at or after [version] has been published.
+   */
+  fun committed(id: Any, version: Int) {
+    val line = pending[id]
+    if (line != null) line.committedVersion = version
+    else if (owner === id) active = false // never lifted (no projector at pen-up): just stop
+  }
+
+  /** Cancelled, replaced by a clean shape, or otherwise gone without a commit: forget the stroke [id]. */
+  fun end(id: Any?) {
+    if (id == null) return
+    pending.remove(id)
+    if (owner === id) active = false
+  }
 
   /**
-   * PROTOTYPE (render-thread projector): one main-thread frame step. Counts down the pen-up
-   * overlap exactly like [draw] does, but without drawing. Call once per published frame, before
-   * reading [active].
+   * Drops lines whose committed stroke is in a snapshot built at [builtVersion] or later, and any
+   * line that never got committed within [TIMEOUT_MS] (safety net). Returns the lines still pending.
    */
-  fun tick() {
-    if (active && endingFrames >= 0 && endingFrames-- == 0) active = false
+  fun dropCommitted(builtVersion: Int, nowMs: Long): List<PendingLine> {
+    if (pending.isEmpty()) return emptyList()
+    val it = pending.values.iterator()
+    while (it.hasNext()) {
+      val line = it.next()
+      val done = line.committedVersion in 0..builtVersion
+      if (done || nowMs - line.liftedAt > TIMEOUT_MS) it.remove()
+    }
+    return if (pending.isEmpty()) emptyList() else ArrayList(pending.values)
   }
 
   /** Brush colour of the live stroke (ARGB), or 0 when there is none. */
@@ -119,10 +165,10 @@ internal class LiveStrokeMirror(
     return out
   }
 
-  /** Stops whatever is live, whichever stroke it is (page cleared). */
+  /** Stops whatever is live or pending, whichever stroke it is (page cleared, notebook closed). */
   fun endAll() {
     active = false
-    endingFrames = -1
+    pending.clear()
   }
 
   /**
@@ -157,7 +203,6 @@ internal class LiveStrokeMirror(
     } else {
       canvas.drawPath(path, linePaint)
     }
-    if (endingFrames >= 0 && endingFrames-- == 0) active = false
   }
 
   private val path = android.graphics.Path()
@@ -169,7 +214,7 @@ internal class LiveStrokeMirror(
 
   private companion object {
     const val INITIAL = 512
-    /** Projector frames the preview overlaps the committed stroke after pen-up. */
-    const val HANDOFF_FRAMES = 3
+    /** A pending line that never got committed (should not happen) is dropped after this long. */
+    const val TIMEOUT_MS = 5000L
   }
 }

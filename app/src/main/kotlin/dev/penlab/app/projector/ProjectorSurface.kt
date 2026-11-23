@@ -38,6 +38,8 @@ class ProjectorSnapshot(
   val liveCount: Int,
   val liveColor: Int,
   val liveSize: Float,
+  /** Strokes whose pen has lifted but whose committed version is not in [strokes] yet; drawn like the live line. */
+  val pendingLines: List<dev.penlab.app.ink.PendingLine> = emptyList(),
   /** Paper ruling; null style = none (e.g. empty snapshot). */
   val pageStyle: PageStyle? = null,
   val spacingMm: Float = 0f,
@@ -226,23 +228,31 @@ internal class ProjectorSurfaceView(context: Context) : SurfaceView(context), Su
       }
       canvas.restore()
       val pts = s.livePoints
-      if (pts != null && s.liveCount > 0) {
+      if ((pts != null && s.liveCount > 0) || s.pendingLines.isNotEmpty()) {
         canvas.save()
         canvas.concat(matrix)
-        livePaint.color = s.liveColor
-        livePaint.strokeWidth = s.liveSize
-        if (s.liveCount == 1) {
-          canvas.drawPoint(pts[0], pts[1], livePaint)
-        } else {
-          liveStroke.rewind()
-          liveStroke.moveTo(pts[0], pts[1])
-          for (i in 1 until s.liveCount) liveStroke.lineTo(pts[2 * i], pts[2 * i + 1])
-          canvas.drawPath(liveStroke, livePaint)
-        }
+        // Lines the pen has lifted from but the page has not committed yet, oldest first, then the live one.
+        for (line in s.pendingLines) drawLine(canvas, line.points, line.count, line.color, line.size)
+        if (pts != null && s.liveCount > 0) drawLine(canvas, pts, s.liveCount, s.liveColor, s.liveSize)
         canvas.restore()
       }
     } finally {
       surf.unlockCanvasAndPost(canvas)
+    }
+  }
+
+  /** One hand-drawn line (x,y pairs in page units) as a round polyline; the canvas already maps page units. */
+  private fun drawLine(canvas: Canvas, pts: FloatArray, count: Int, color: Int, size: Float) {
+    if (count <= 0) return
+    livePaint.color = color
+    livePaint.strokeWidth = size
+    if (count == 1) {
+      canvas.drawPoint(pts[0], pts[1], livePaint)
+    } else {
+      liveStroke.rewind()
+      liveStroke.moveTo(pts[0], pts[1])
+      for (i in 1 until count) liveStroke.lineTo(pts[2 * i], pts[2 * i + 1])
+      canvas.drawPath(liveStroke, livePaint)
     }
   }
 

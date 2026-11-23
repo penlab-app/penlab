@@ -663,9 +663,10 @@ class InkCanvasView(
           // Draw them on the bottom layer first, then drop them from the top layer, so the
           // stroke never disappears for a frame in between.
           strokes.forEach { (id, drawn) -> store(drawn, pendingStrokes.remove(id)) }
-          // The committed stroke is in the chunk cache now: the projector's live copy can go
-          // (same main-thread message, so no frame shows neither or both).
-          strokes.keys.forEach(liveMirror::end)
+          // The committed stroke is in the chunk cache now. The projector keeps its own copy of the
+          // line until a snapshot that contains the committed stroke has been published.
+          strokes.keys.forEach { liveMirror.committed(it, projectorHistoryVersion) }
+          if (projectorSink != null) requestProjectorPublish()
           pageChanged()
           inProgressView.removeFinishedStrokes(strokes.keys)
         }
@@ -921,7 +922,11 @@ class InkCanvasView(
         if (event.getPointerId(event.actionIndex) == penPointerId) {
           val id = activeStrokeId
           if (id != null && rulerInstrument != null) finishRulerStroke(event, id)
-          else if (id != null) inProgressView.finishStroke(event, penPointerId, id)
+          else if (id != null) {
+            inProgressView.finishStroke(event, penPointerId, id)
+            // Pen-up: the projector keeps the line it drew live until the committed stroke arrives.
+            if (projectorSink != null) liveMirror.lift(id, SystemClock.uptimeMillis()) else liveMirror.end(id)
+          }
           if (lassoGesture != LassoGesture.NONE) finishLasso()
           endPenGesture(event)
         }
@@ -1352,14 +1357,15 @@ class InkCanvasView(
   var projectorSink: dev.penlab.app.projector.ProjectorSink? = null
     set(value) {
       field = value
-      if (value != null) requestProjectorPublish()
+      if (value == null) liveMirror.endAll() else requestProjectorPublish()
     }
 
   private val projectorPublishPending = java.util.concurrent.atomic.AtomicBoolean(false)
   private val projectorPublishRunnable = Runnable {
     projectorPublishPending.set(false)
-    publishProjector(tick = true)
-    if (liveMirror.active) requestProjectorPublish()
+    publishProjector()
+    // Keep publishing while a line is live or still waiting for its committed stroke.
+    if (liveMirror.needsFrames) requestProjectorPublish()
   }
 
   /** Publishes a snapshot at the next animation frame (coalesced). Any thread. */
@@ -1376,9 +1382,8 @@ class InkCanvasView(
   private var projectorStrokes: List<dev.penlab.app.projector.ProjectorInk> = emptyList()
   private var projectorPageRects: FloatArray? = null
 
-  private fun publishProjector(tick: Boolean) {
+  private fun publishProjector() {
     val sink = projectorSink ?: return
-    if (tick) liveMirror.tick()
     val widthPx = sink.targetWidth
     val heightPx = sink.targetHeight
     val layout = pageLayout
@@ -1424,6 +1429,9 @@ class InkCanvasView(
     }
     val live = liveMirror.active
     val livePts = if (live) liveMirror.copyPoints() else null
+    // Lines waiting for their committed stroke go out with every snapshot until one built from
+    // history at or after their commit has been published (that snapshot carries the real stroke).
+    val pendingLines = liveMirror.dropCommitted(projectorBuiltVersion, SystemClock.uptimeMillis())
     val zoom = pageToProjector.mapRadius(1f)
     val accent = pageEdgeAccent
     val edgePx = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * zoom /
@@ -1431,7 +1439,7 @@ class InkCanvasView(
     sink.onSnapshot(
       ProjectorSnapshot(
         projectorMatrixValues.copyOf(), desk, if (layout == null) 0 else InkColors.pageOnScreen(darkPage), projectorPageRects,
-        projectorStrokes, livePts, livePts?.size?.div(2) ?: 0, liveMirror.colorArgb, liveMirror.size,
+        projectorStrokes, livePts, livePts?.size?.div(2) ?: 0, liveMirror.colorArgb, liveMirror.size, pendingLines,
         pageStyle, rulingMm, if (layout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP, darkPage,
         layout?.pageWidth ?: 0f, layout?.pageHeight ?: 0f,
         floatArrayOf(projectorVisible.left, projectorVisible.top, projectorVisible.right, projectorVisible.bottom), zoom,

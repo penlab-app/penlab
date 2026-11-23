@@ -237,3 +237,19 @@ val SearchIcon =
 /** Material "fullscreen" / "fullscreen_exit" (Apache 2.0). */
 val FullScreenIcon = icon("Full screen", "M7,14H5v5h5v-2H7v-3zM5,10h2V7h3V5H5v5zM17,17h-3v2h5v-5h-2v3zM14,5v2h3v3h2V5h-5z")
 val FullScreenExitIcon = icon("Leave full screen", "M5,16h3v3h2v-5H5v2zM8,8H5v2h5V5H8v3zM14,19h2v-3h3v-2h-5v5zM16,8V5h-2v5h5V8h-3z")
+
+/** Present mode (Material "slideshow"): a screen with a play triangle. */
+val PresentIcon =
+  icon(
+    "Present",
+    "M10,8v8l5,-4zM19,3H5c-1.1,0 -2,0.9 -2,2v14c0,1.1 0.9,2 2,2h14c1.1,0 2,-0.9 2,-2V5c0,-1.1 -0.9,-2 -2,-2z" +
+      "M19,19H5V5h14v14z",
+  )
+
+/** Pen tools in present mode (Material "edit"): a pencil. */
+val PenToolsIcon =
+  icon(
+    "Pen tools",
+    "M3,17.25V21h3.75L17.81,9.94l-3.75,-3.75L3,17.25zM20.71,7.04c0.39,-0.39 0.39,-1.02 0,-1.41l-2.34,-2.34" +
+      "c-0.39,-0.39 -1.02,-0.39 -1.41,0l-1.83,1.83 3.75,3.75 1.83,-1.83z",
+  )

@@ -2160,6 +2160,18 @@ class InkCanvasView(
 
   private var lastPanZoomTime = 0L
 
+  /**
+   * Present mode (projecting in class): the selection's box, handles and the search highlight are
+   * not shown, and no new selection is made, so only the page and the ink are on screen.
+   */
+  var presenting = false
+    set(value) {
+      if (field == value) return
+      field = value
+      if (value) clearSelection()
+      selectionView.visibility = if (value) INVISIBLE else VISIBLE
+    }
+
   /** When true, two fingers no longer zoom (they still pan and turn, unless turning is locked). */
   var zoomLocked = false
 
@@ -3193,7 +3205,7 @@ class InkCanvasView(
   }
 
   private fun selectInsideLasso() {
-    if (lassoPath.size < 2) return
+    if (presenting || lassoPath.size < 2) return
     val loopBounds = lassoBounds()
     // About 10 dp on screen, in page units: how near a drawn line must pass to pick something up.
     val tolerance = 10f * resources.displayMetrics.density / pageToScreen.mapRadius(1f)

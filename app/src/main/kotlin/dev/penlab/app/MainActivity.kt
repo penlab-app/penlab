@@ -85,6 +85,7 @@ import dev.penlab.app.notes.NotebookKind
 import dev.penlab.app.notes.NotebookStore
 import dev.penlab.app.notes.cleanFolder
 import dev.penlab.app.ui.BackToLibrary
+import dev.penlab.app.notes.IncomingPdf
 import dev.penlab.app.ui.MenuAction
 import dev.penlab.app.ui.TopMoreMenu
 import dev.penlab.app.ui.SaveIcon
@@ -107,6 +108,14 @@ import dev.penlab.app.search.HandwritingIndex
 import dev.penlab.app.ui.FullScreenIcon
 import androidx.compose.ui.draw.alpha
 import dev.penlab.app.ui.FullScreenExitIcon
+import dev.penlab.app.ui.CORNER_BUTTON_ALPHA
+import dev.penlab.app.ui.CloseIcon
+import dev.penlab.app.ui.PEEK_TOOLS_MS
+import dev.penlab.app.ui.PenToolsIcon
+import dev.penlab.app.ui.PresentIcon
+import dev.penlab.app.ui.ScreenChrome
+import dev.penlab.app.ui.peekMayEnd
+import kotlinx.coroutines.delay
 import dev.penlab.app.search.LibrarySearch
 import androidx.core.view.doOnLayout
 import android.graphics.RectF
@@ -462,6 +471,7 @@ class MainActivity : ComponentActivity() {
         notebooks.migrateSinglePage()
         refreshLibrary()
       }
+      handleIncomingPdf(intent, restored = savedInstanceState != null) // queued after the migration (one io thread)
     }
   }
 
@@ -561,6 +571,61 @@ class MainActivity : ComponentActivity() {
       refreshLibrary()
       main.post { onDone(failed) }
     }
+  }
+
+  /** Marks an intent whose PDF has been taken, so the same intent is never imported twice. */
+  private val handledExtra = "dev.penlab.app.PDF_HANDLED"
+
+  /**
+   * "Open with PenLab" / "Share to PenLab" for a PDF (Files, WhatsApp, Drive): imports it into a
+   * new notebook, through the same importer plugins as the library's Import, and opens it.
+   * The intent is consumed first (marked, and stripped of its file), so a second delivery of the
+   * same intent (the tablet turning, the app restored) does nothing. [restored] is true when the
+   * activity is being recreated: its intent was already dealt with.
+   */
+  private fun handleIncomingPdf(incoming: Intent?, restored: Boolean = false) {
+    incoming ?: return
+    val stream = if (incoming.action == Intent.ACTION_SEND) androidx.core.content.IntentCompat.getParcelableExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java) else null
+    val uri = IncomingPdf.pick(
+      incoming.action,
+      incoming.type,
+      incoming.data,
+      stream,
+      handled = restored || incoming.getBooleanExtra(handledExtra, false),
+      fromHistory = incoming.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0,
+    ) ?: return
+    if (uri.scheme != "content" && uri.scheme != "file") return
+    // Consume it before doing anything slow.
+    incoming.putExtra(handledExtra, true)
+    incoming.data = null
+    incoming.removeExtra(Intent.EXTRA_STREAM)
+    // Keep read access only when the sender offered it as persistable (some file pickers do);
+    // otherwise the import below reads the file right now, while the temporary grant is valid.
+    if (incoming.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION != 0) {
+      try {
+        contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      } catch (e: SecurityException) {
+        Log.i("Import", "No persistable access to $uri; reading it now instead")
+      } catch (e: IllegalArgumentException) {
+        Log.i("Import", "Not a persistable uri: $uri")
+      }
+    }
+    val folder = libraryFolder
+    io.execute {
+      val info = importFile(uri, IncomingPdf.fileName(displayName(uri)), folder)
+      if (info == null) {
+        main.post { exportMessage = "That file could not be read as a PDF." }
+      } else {
+        refreshLibrary()
+        main.post { openNotebook(info) }
+      }
+    }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleIncomingPdf(intent)
   }
 
   /**
@@ -1199,7 +1264,6 @@ private fun NoteScreen(
   var rulingMm by remember { mutableStateOf(canvas.rulingMm) }
   // Layers as the canvas has them (refreshed when they change), and the one being renamed.
   var layerState by remember { mutableStateOf(canvas.layers) }
-  var renamingLayer by remember { mutableStateOf<Int?>(null) }
   // Which panel is open: a tool's index, PAPER_CELL, or null. [shownPanel] remembers the last
   // one so it can finish fading out after [openPanel] is cleared.
   var openPanel by remember { mutableStateOf<Int?>(null) }
@@ -1219,11 +1283,23 @@ private fun NoteScreen(
   var moreMenuOpen by remember { mutableStateOf(false) }
   // Full screen: the top bar and Android's status bar hide; the tools stay.
   var fullScreen by remember { mutableStateOf(false) }
+  // Present mode (projecting in class): only the page and the ink show. Never remembered across
+  // launches. The toolbar comes back for a few seconds ([PEEK_TOOLS_MS]) on request.
+  var present by remember { mutableStateOf(false) }
+  var toolsPeeking by remember { mutableStateOf(false) }
+  // Bumped by every use of the peeking toolbar, so the hide timer restarts from the last one.
+  var peekUses by remember { mutableIntStateOf(0) }
+  val chrome = ScreenChrome(fullScreen = fullScreen, present = present, toolsPeeking = toolsPeeking)
   val view = androidx.compose.ui.platform.LocalView.current
-  DisposableEffect(fullScreen) {
+  DisposableEffect(chrome.keepScreenOn) {
+    val window = (view.context as? android.app.Activity)?.window
+    if (chrome.keepScreenOn) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+  }
+  DisposableEffect(chrome.systemBarsHidden) {
     val window = (view.context as? android.app.Activity)?.window
     val bars = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
-    if (fullScreen) {
+    if (chrome.systemBarsHidden) {
       bars?.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
       bars?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     } else {
@@ -1288,6 +1364,37 @@ private fun NoteScreen(
   var colorWheelFor by remember { mutableStateOf<Int?>(null) }
   // The eyedropper is waiting for a touch on the page (a hint says so).
   var eyedropperOn by remember { mutableStateOf(false) }
+  var renamingLayer by remember { mutableStateOf<Int?>(null) }
+  fun hidePeekingTools() {
+    toolsPeeking = false
+    closeOverlays(topBarToo = true) // so a panel does not come back with the next peek
+    colorWheelFor = null
+  }
+  fun enterPresent() {
+    closeOverlays(topBarToo = true)
+    colorWheelFor = null
+    renamingLayer = null
+    eyedropperOn = false
+    canvas.onColorSampled = null
+    toolsPeeking = false
+    present = true
+  }
+  fun leavePresent() {
+    hidePeekingTools()
+    present = false
+  }
+  DisposableEffect(present) {
+    canvas.presenting = present // hides the selection box and handles, and stops new selections
+    onDispose { canvas.presenting = false }
+  }
+  BackHandler(enabled = chrome.backLeavesPresent) { leavePresent() }
+  // The peeking toolbar hides again a few seconds after it was last used.
+  LaunchedEffect(present, toolsPeeking, peekUses, openPanel, dock.wheelOpen, dock.dragging, colorWheelFor, eyedropperOn, renamingLayer) {
+    if (present && toolsPeeking && peekMayEnd(openPanel != null, dock.wheelOpen, dock.dragging, colorWheelFor != null || eyedropperOn || renamingLayer != null)) {
+      delay(PEEK_TOOLS_MS)
+      hidePeekingTools()
+    }
+  }
   val messages = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   LaunchedEffect(exportMessage) { showExportMessage(exportMessage, messages, onExportMessageShown) }
@@ -1314,11 +1421,12 @@ private fun NoteScreen(
     canvas.onPageTouched = {
       jumpBack = null // writing there means you've settled where you jumped to
       closeOverlays(topBarToo = true) // writing closes any open panel or menu
+      if (present && toolsPeeking) hidePeekingTools() // she is writing again: the tools step aside
     }
-    canvas.onPasteMenu = { x, y -> pasteMenuAt = Offset(x, y) }
+    canvas.onPasteMenu = { x, y -> if (!present) pasteMenuAt = Offset(x, y) }
     canvas.onCurrentPageChanged = { currentPage = it }
     canvas.onTextRequest = { id, existing -> editingText = id to existing }
-    canvas.onNotice = { text -> scope.launch { messages.currentSnackbarData?.dismiss(); messages.showSnackbar(text, duration = SnackbarDuration.Short) } }
+    canvas.onNotice = { text -> if (!present) scope.launch { messages.currentSnackbarData?.dismiss(); messages.showSnackbar(text, duration = SnackbarDuration.Short) } }
     canvas.onLayersChanged = {
       layerState = canvas.layers
       onPageEdited() // worth saving
@@ -1372,7 +1480,10 @@ private fun NoteScreen(
           val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
           if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Press) continue
           val at = event.changes.firstOrNull()?.position ?: continue
-          if (dock.isOnDock(at)) continue
+          if (dock.isOnDock(at)) {
+            if (toolsPeeking) peekUses++ // using the peeking toolbar keeps it a little longer
+            continue
+          }
           // A press on the top bar leaves its own surfaces to the bar's buttons (they toggle).
           val onTopBar = topBarBounds.any { it?.contains(at) == true }
           val somethingOpen = openPanel != null || dock.wheelOpen || pasteMenuAt != null || (!onTopBar && topBarOverlayOpen())
@@ -1452,7 +1563,7 @@ private fun NoteScreen(
         }
       }
     }
-    DockedToolbar(
+    if (chrome.toolbar) DockedToolbar(
       dock = dock,
       items = dockItems,
       tools = tools,
@@ -1574,7 +1685,7 @@ private fun NoteScreen(
         }
     }
 
-    if (selectionRect != null) {
+    if (selectionRect != null && chrome.selectionUi) {
       SelectionActions(
         onCut = canvas::cutSelection,
         onCopy = canvas::copySelection,
@@ -1588,7 +1699,7 @@ private fun NoteScreen(
         modifier = Modifier.besideSelection { selectionRect },
       )
     }
-    pasteMenuAt?.let { point ->
+    pasteMenuAt?.takeIf { chrome.selectionUi }?.let { point ->
       PasteMenu(
         onPaste = {
           canvas.pasteAtHeldPoint()
@@ -1612,7 +1723,7 @@ private fun NoteScreen(
     // The right-hand buttons' width: the left group stops short of it and scrolls instead of
     // sliding under it.
     var rightBarWidth by remember { mutableIntStateOf(0) }
-    if (!fullScreen) {
+    if (chrome.topBar) {
     // A band behind the top bar so its buttons read cleanly over any page (ink, page edges).
     // Solid under every row of buttons (both rows in portrait) and cut off with a hairline: the
     // earlier fade looked smeared (user request). The toolbar is drawn above it (zIndex).
@@ -1738,6 +1849,7 @@ private fun NoteScreen(
         actions = buildList {
           add(MenuAction(SaveIcon, "Save as PDF", onExport))
           add(MenuAction(ExportIcon, "Share as PDF", onShare))
+          add(MenuAction(PresentIcon, "Present", { enterPresent() }))
           add(MenuAction(ImageIcon, "Insert a photo", onInsertImage))
           if (canvas.pageLayout != null) add(MenuAction(FitWidthIcon, "Fit page to width", canvas::fitToWidth))
           else add(MenuAction(HomeIcon, "Back to where I was writing", canvas::goHome))
@@ -1789,8 +1901,8 @@ private fun NoteScreen(
         )
       }
     }
-    } // (full screen hides the top bar)
-    jumpBack?.let { (view, page) ->
+    } // (full screen and present mode hide the top bar)
+    jumpBack?.takeIf { chrome.messages }?.let { (view, page) ->
       val label = if (canvas.pageLayout != null) "Back to page ${page + 1}" else "Back to where I was"
       Box(Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 20.dp)) {
         dev.penlab.app.ui.ToolbarMessage(label, "Go", onAction = {
@@ -1799,10 +1911,27 @@ private fun NoteScreen(
         })
       }
     }
-    if (fullScreen) {
+    if (chrome.leaveFullScreenButton) {
       // The way back: small and faint in the corner, so it doesn't distract from the page.
-      Box(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp + railRight).alpha(0.55f)) {
+      Box(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA)) {
         TopIconButton(FullScreenExitIcon, "Leave full screen", onClick = { fullScreen = false })
+      }
+    }
+    if (chrome.presentButtons) {
+      // Present mode's only controls, just as faint: the pen tools for a few seconds, and the exit.
+      // Above the toolbar (zIndex) in case the toolbar sits in this corner.
+      Row(
+        Modifier.align(Alignment.TopEnd).zIndex(2f).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        TopIconButton(PenToolsIcon, if (toolsPeeking) "Hide pen tools" else "Show pen tools", onClick = {
+          if (toolsPeeking) hidePeekingTools() else {
+            peekUses++
+            toolsPeeking = true
+          }
+        })
+        Spacer(Modifier.width(8.dp))
+        TopIconButton(CloseIcon, "Leave present mode", onClick = { leavePresent() })
       }
     }
     // Locks are kept in the settings; the canvas reads its own copy for speed.
@@ -1846,7 +1975,7 @@ private fun NoteScreen(
     }
 
     if (eyedropperOn) {
-      ToolbarMessage(
+      if (chrome.toolbar) ToolbarMessage(
         "Tap ink on the page to take its colour",
         "Cancel",
         onAction = {
@@ -1885,7 +2014,9 @@ private fun NoteScreen(
       hostState = messages,
       modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 16.dp),
     ) { data ->
-      ToolbarMessage(data.visuals.message, data.visuals.actionLabel, onAction = data::performAction)
+      // Present mode keeps the host (so messages still time out) but shows nothing; whatever is
+      // still waiting appears when she leaves.
+      if (chrome.messages) ToolbarMessage(data.visuals.message, data.visuals.actionLabel, onAction = data::performAction)
     }
   }
 }

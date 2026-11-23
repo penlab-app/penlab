@@ -67,6 +67,7 @@ internal class LiveStrokeMirror(
     count = 0
     generation++
     active = true
+    endingFrames = -1
   }
 
   /** One more point was added to the list given to the constructor. Pen path: two array stores. */
@@ -82,12 +83,19 @@ internal class LiveStrokeMirror(
 
   /** The stroke [id] is on the page now (or was cancelled): stop drawing it. A newer stroke is left alone. */
   fun end(id: Any?) {
-    if (id != null && owner === id) active = false
+    // Not off at once: the committed stroke reaches the projector on its next frame, so the
+    // preview stays for a few more projector frames and the two overlap instead of leaving a
+    // one-frame gap (the flash at pen-up). They sit in the same place, so the overlap is invisible.
+    if (id != null && owner === id && active && endingFrames < 0) endingFrames = HANDOFF_FRAMES
   }
+
+  /** Frames left before the preview stops after pen-up; -1 while the pen is down. */
+  private var endingFrames = -1
 
   /** Stops whatever is live, whichever stroke it is (page cleared). */
   fun endAll() {
     active = false
+    endingFrames = -1
   }
 
   /**
@@ -122,6 +130,7 @@ internal class LiveStrokeMirror(
     } else {
       canvas.drawPath(path, linePaint)
     }
+    if (endingFrames >= 0 && endingFrames-- == 0) active = false
   }
 
   private val path = android.graphics.Path()
@@ -133,5 +142,7 @@ internal class LiveStrokeMirror(
 
   private companion object {
     const val INITIAL = 512
+    /** Projector frames the preview overlaps the committed stroke after pen-up. */
+    const val HANDOFF_FRAMES = 3
   }
 }

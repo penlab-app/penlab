@@ -1383,8 +1383,17 @@ private fun NoteScreen(
     hidePeekingTools()
     present = false
   }
+  // The space the toolbar covers beside the page, as the dock last reported it. Present mode
+  // hides the toolbar, so the page may use the whole screen; leaving restores these.
+  val dockSides = remember { floatArrayOf(0f, 0f) }
   DisposableEffect(present) {
     canvas.presenting = present // hides the selection box and handles, and stops new selections
+    if (present) {
+      canvas.setSideInsets(0f, 0f)
+      canvas.fitToWidth() // fills the screen; leaving keeps this zoom
+    } else {
+      canvas.setSideInsets(dockSides[0], dockSides[1])
+    }
     onDispose { canvas.presenting = false }
   }
   BackHandler(enabled = chrome.backLeavesPresent) { leavePresent() }
@@ -1580,7 +1589,9 @@ private fun NoteScreen(
       insets = insets,
       panelKey = openPanel,
       onSidesCovered = { left, right ->
-        canvas.setSideInsets(left, right)
+        dockSides[0] = left
+        dockSides[1] = right
+        if (!present) canvas.setSideInsets(left, right) // the peeking toolbar overlays the page
       },
       // Above the top bar's band, which is composed later (user request: the band covered the toolbar).
       modifier = Modifier.fillMaxSize().zIndex(1f),

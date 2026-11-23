@@ -244,6 +244,34 @@ class StrokeChunkCache(
     return moreToDo
   }
 
+  /**
+   * Draws the same chunks for a second view of the page (the projector's follower), replaying the
+   * recordings [draw] keeps for the tablet. It starts no background work and discards nothing;
+   * the tablet's own frame owns that. [pageToView] maps page units to the second view, [visible]
+   * is the page area it shows, and [recordWith] is the tablet's page-to-screen matrix, used if a
+   * chunk has to be recorded here (so a recording is always made for the tablet's zoom and the
+   * tablet does not have to redo it).
+   *
+   * A chunk is recorded here only when the tablet has not yet done it (a stroke committed in
+   * the same frame, or Android threw the recording away), using the same few-strokes rule as
+   * [draw]; otherwise the recording that exists, however old, is replayed.
+   */
+  fun drawShared(canvas: Canvas, pageToView: Matrix, visible: RectF, recordWith: Matrix) {
+    val recordZoom = recordWith.mapRadius(1f)
+    canvas.save()
+    canvas.concat(pageToView)
+    for (chunk in chunks) {
+      chunk.updateBounds()
+      if (!RectF.intersects(chunk.bounds, visible)) continue
+      if (chunk.needsRecording || !chunk.node.hasDisplayList()) {
+        if (unbuiltCount(chunk) <= SYNC_BUILD_LIMIT) record(chunk, recordWith, recordZoom)
+        else if (!chunk.node.hasDisplayList()) continue // being built in the background; the tablet's frame prefetches it
+      }
+      canvas.drawRenderNode(chunk.node)
+    }
+    canvas.restore()
+  }
+
   private fun allBuilt(chunk: Chunk): Boolean = chunk.strokes.all { StrokeMeshes.isBuilt(it) }
 
   private fun unbuiltCount(chunk: Chunk): Int {

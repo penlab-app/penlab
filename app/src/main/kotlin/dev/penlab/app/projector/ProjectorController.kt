@@ -1,17 +1,14 @@
 package dev.penlab.app.projector
 
 import android.app.Activity
-import android.graphics.Bitmap
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.Display
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.penlab.app.ink.InkCanvasView
-import java.util.concurrent.Executors
 
 /**
  * Projector view: while a projector or monitor is cabled to the tablet, show only the page on it,
@@ -20,9 +17,10 @@ import java.util.concurrent.Executors
  *
  * One controller lives with the activity ([start] and [stop] follow onStart and onStop). It
  * watches for a presentation display, offers the feature once per connection, and, while on,
- * redraws the picture from the open notebook's canvas whenever something changes (see
- * [RenderScheduler]). It never works inside the touch or draw code: the canvas only tells it
- * "something changed" ([markDirty]) and it draws later, on its own thread.
+ * points the presentation's live follower view at the open notebook's canvas. The follower draws
+ * the same scene as the tablet every frame (see [ProjectorFollowerView]); this class only asks it
+ * to redraw when something changes ([markDirty], one cheap call, coalesced to once per frame by
+ * Android) and never renders anything itself.
  *
  * All methods are for the main thread.
  *
@@ -51,18 +49,6 @@ class ProjectorController(private val activity: Activity) {
   private var offered = false
   private var display: Display? = null
   private var presentation: ProjectorPresentation? = null
-  private var sizeW = 0
-  private var sizeH = 0
-
-  // One render at a time, on a thread of its own; it gives way to the page work (low priority).
-  private val renderThread = Executors.newSingleThreadExecutor { Thread(it, "penlab-projector").apply { priority = Thread.MIN_PRIORITY; isDaemon = true } }
-
-  private val scheduler = RenderScheduler(
-    PROJECTOR_DEBOUNCE_MS,
-    SystemClock::uptimeMillis,
-    { delay, action -> main.postDelayed(action, delay) },
-    ::renderNow,
-  )
 
   private val listener = object : DisplayManager.DisplayListener {
     override fun onDisplayAdded(displayId: Int) = refresh()
@@ -88,7 +74,6 @@ class ProjectorController(private val activity: Activity) {
     started = false
     resumeAtStart = active
     displays.unregisterDisplayListener(listener)
-    scheduler.cancel()
     closeWindow()
     available = false
     offerPending = false
@@ -101,7 +86,7 @@ class ProjectorController(private val activity: Activity) {
     canvas.onViewMoved = ::markDirty
     canvas.addOnLayoutChangeListener(layoutListener)
     evaluateOffer()
-    if (active) markDirty()
+    presentation?.follow(canvas)
   }
 
   /**
@@ -113,17 +98,16 @@ class ProjectorController(private val activity: Activity) {
     canvas.onViewMoved = {}
     canvas.removeOnLayoutChangeListener(layoutListener)
     this.canvas = null
-    scheduler.cancel()
-    presentation?.show(null, 0xFF0C0D0E.toInt())
+    presentation?.follow(null)
   }
 
   private val layoutListener = android.view.View.OnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
     if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) markDirty()
   }
 
-  /** Something on the page changed: draw the projector's picture again soon (cheap). */
+  /** Something on the page changed: the projector redraws at the next frame (cheap). */
   fun markDirty() {
-    if (active) scheduler.markDirty()
+    presentation?.redraw()
   }
 
   /** The screen has shown the offer. */
@@ -140,7 +124,7 @@ class ProjectorController(private val activity: Activity) {
   fun begin() {
     val target = display ?: return
     if (active) return
-    val window = ProjectorPresentation(activity, target, ::onWindowSize, ::onWindowGone)
+    val window = ProjectorPresentation(activity, target, ::onWindowGone)
     try {
       window.show()
     } catch (e: android.view.WindowManager.InvalidDisplayException) {
@@ -151,12 +135,11 @@ class ProjectorController(private val activity: Activity) {
     active = true
     offered = true
     offerPending = false
-    markDirty()
+    window.follow(canvas)
   }
 
   /** Ends Projector view; the projector goes back to mirroring the tablet. */
   fun end() {
-    scheduler.cancel()
     closeWindow()
   }
 
@@ -164,23 +147,13 @@ class ProjectorController(private val activity: Activity) {
     val window = presentation
     presentation = null
     active = false
-    sizeW = 0
-    sizeH = 0
     window?.setOnDismissListener(null)
     if (window?.isShowing == true) window.dismiss()
-  }
-
-  /** The projector's window was laid out (or resized): draw at its size. */
-  private fun onWindowSize(w: Int, h: Int) {
-    sizeW = w
-    sizeH = h
-    markDirty()
   }
 
   /** Android closed the window itself (display unplugged): end quietly. */
   private fun onWindowGone() {
     if (presentation == null) return // we closed it ourselves
-    scheduler.cancel()
     presentation = null
     active = false
     refresh()
@@ -203,38 +176,5 @@ class ProjectorController(private val activity: Activity) {
 
   private fun evaluateOffer() {
     offerPending = offerPending || shouldOfferProjector(available, canvas != null, active, offered)
-  }
-
-  /** Takes the snapshot on the main thread, draws it on the render thread, shows it back on the main thread. */
-  private fun renderNow(done: () -> Unit) {
-    val target = canvas
-    val window = presentation
-    if (target == null || window == null || sizeW <= 0 || sizeH <= 0) {
-      done()
-      return
-    }
-    // The window's own size, but never more than 4K on the long side (memory and time).
-    val limit = 3840f / maxOf(sizeW, sizeH).coerceAtLeast(1)
-    val scale = if (limit < 1f) limit else 1f
-    val w = (sizeW * scale).toInt().coerceAtLeast(1)
-    val h = (sizeH * scale).toInt().coerceAtLeast(1)
-    val frame = target.projectorSnapshot(w, h)
-    if (frame == null) {
-      done()
-      return
-    }
-    renderThread.execute {
-      val bitmap: Bitmap? =
-        try {
-          frame.render()
-        } catch (e: Exception) {
-          android.util.Log.e("PenLabProjector", "Could not draw the projector picture", e)
-          null
-        }
-      main.post {
-        if (bitmap != null && presentation === window) window.show(bitmap, frame.backgroundColor)
-        done()
-      }
-    }
   }
 }

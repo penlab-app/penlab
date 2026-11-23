@@ -592,6 +592,9 @@ class InkCanvasView(
   // the pen last moved noticeably, and whether this stroke was already replaced by a shape.
   private val strokePoints = ArrayList<Point>()
   private var pressureSum = 0f
+
+  /** The stroke under the pen as the projector draws it live; reads [strokePoints] (see [LiveStrokeMirror]). */
+  private val liveMirror = LiveStrokeMirror(strokePoints)
   private var holdAnchorX = 0f
   private var holdAnchorY = 0f
   private var shapeSnapped = false
@@ -657,6 +660,9 @@ class InkCanvasView(
           // Draw them on the bottom layer first, then drop them from the top layer, so the
           // stroke never disappears for a frame in between.
           strokes.forEach { (id, drawn) -> store(drawn, pendingStrokes.remove(id)) }
+          // The committed stroke is in the chunk cache now: the projector's live copy can go
+          // (same main-thread message, so no frame shows neither or both).
+          strokes.keys.forEach(liveMirror::end)
           pageChanged()
           inProgressView.removeFinishedStrokes(strokes.keys)
         }
@@ -675,6 +681,7 @@ class InkCanvasView(
     inProgressView.cancelUnfinishedStrokes()
     activeStrokeId = null
     pendingStrokes.clear()
+    liveMirror.endAll()
     val layout = pageLayout
     val cleared =
       if (layout == null) {
@@ -1334,7 +1341,18 @@ class InkCanvasView(
    */
   var onViewMoved: () -> Unit = {}
 
-  private val projectorRenderer by lazy { CanvasStrokeRenderer.create() }
+  /**
+   * The follower view on the projector, while Projector view is on. The tablet asks it to redraw
+   * (postInvalidateOnAnimation, so at most once per frame) after every draw of its own page layer,
+   * which covers panning, zooming, strokes, undo and pictures arriving. It draws by calling
+   * [drawForProjector]. Set by ProjectorPresentation.
+   */
+  var projectorView: View? = null
+    set(value) {
+      field = value
+      value?.postInvalidateOnAnimation()
+    }
+
   private val projectorItemPainter by lazy { ItemPainter(imagesDir) }
   private val projectorBackground by lazy {
     PageBackground(if (pageLayout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP, darkPage).apply {
@@ -1342,48 +1360,81 @@ class InkCanvasView(
       pageHeight = pageLayout?.pageHeight ?: 0f
     }
   }
+  private val projectorPages = ProjectorPages()
+  private val pageToProjector = Matrix()
+  private val projectorInverse = Matrix()
+  private val projectorSource = RectF()
+  private val projectorTarget = RectF()
+  private val projectorVisible = RectF()
+  private val projectorIsPdfPage = { page: Int -> pdf != null && pageLayout?.backgroundOf(page).let { it != null && it >= 0 } }
+  private var projectorZoom = 1f
+  private val projectorSlide = { page: Int ->
+    val layout = pageLayout
+    val pdfPage = layout?.backgroundOf(page) ?: -1
+    val still = SystemClock.uptimeMillis() - lastPanZoomTime >= PAN_ZOOM_SETTLE_MS
+    if (pdfPage >= 0) pdf?.bitmapFor(pdfPage, ((layout?.pageWidth ?: 0f) * projectorZoom).toInt(), mayRender = still) else null
+  }
 
   /**
-   * What the tablet shows now, for the projector: the part of the page between the toolbars,
-   * widened to the projector's shape ([widthPx] x [heightPx]), never cropped. Main thread, cheap
-   * (it gathers references); the picture is drawn later by [ProjectorFrame.render] on another
-   * thread. Returns null before the view has a size.
+   * Draws what the tablet shows, for the projector's follower view: the part of the page between
+   * the toolbars, widened to the projector's shape ([widthPx] x [heightPx], via fitToAspect, never
+   * cropped), with no toolbar, selection box, handles or other interface. Main thread.
+   *
+   * It reads the same objects as the tablet's own frame: the page layout, items, PDF pictures, the
+   * stroke recordings in [chunkCache] (replayed, never rebuilt per frame), the zoomed-out page and
+   * tile pictures, and the live stroke ([liveMirror]). Per frame it does: one matrix, the paper and
+   * ruling of the visible pages, the visible items, a replay of the visible chunk recordings (a
+   * few dozen draw calls), and one incremental update of the live stroke. It builds no paths for
+   * committed ink and starts no work of its own except a missing PDF picture. Returns true while
+   * a stroke is being drawn: the follower then asks for its next frame itself.
    */
-  fun projectorSnapshot(widthPx: Int, heightPx: Int): ProjectorFrame? {
-    if (width == 0 || height == 0 || widthPx <= 0 || heightPx <= 0) return null
+  fun drawForProjector(canvas: Canvas, widthPx: Int, heightPx: Int): Boolean {
+    val layout = pageLayout
+    canvas.drawColor(if (layout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage))
+    if (width == 0 || height == 0 || widthPx <= 0 || heightPx <= 0) return false
     val free = width - leftInset - rightInset
     val shown = if (free > 0f) dev.penlab.app.projector.Box(leftInset, 0f, width - rightInset, height.toFloat())
     else dev.penlab.app.projector.Box(0f, 0f, width.toFloat(), height.toFloat())
     val fitted = dev.penlab.app.projector.fitToAspect(shown, widthPx.toFloat() / heightPx)
-    val toProjector = Matrix().apply {
-      setRectToRect(RectF(fitted.left, fitted.top, fitted.right, fitted.bottom), RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat()), Matrix.ScaleToFit.FILL)
-    }
-    val pageToProjector = Matrix(pageToScreen).apply { postConcat(toProjector) }
-    val inverse = Matrix()
-    if (!pageToProjector.invert(inverse)) return null
-    val visible = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat()).also { inverse.mapRect(it) }
-    val layout = pageLayout?.let { PageLayout(it.pageWidth, it.pageHeight, it.gap, it.count).also { copy -> copy.backgrounds = it.backgrounds } }
+    projectorSource.set(fitted.left, fitted.top, fitted.right, fitted.bottom)
+    projectorTarget.set(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
+    pageToProjector.setRectToRect(projectorSource, projectorTarget, Matrix.ScaleToFit.FILL)
+    pageToProjector.preConcat(pageToScreen)
+    if (!pageToProjector.invert(projectorInverse)) return false
+    projectorVisible.set(projectorTarget)
+    projectorInverse.mapRect(projectorVisible)
     val zoom = pageToProjector.mapRadius(1f)
-    val slides = HashMap<Int, Bitmap?>()
-    if (layout != null && pdf != null) {
-      for (page in layout.pageAt(visible.top)..layout.pageAt(visible.bottom)) {
-        val pdfPage = layout.backgroundOf(page)
-        if (pdfPage >= 0 && RectF.intersects(layout.rect(page, RectF()), visible)) slides[page] = pdf.bitmapFor(pdfPage, (layout.pageWidth * zoom).toInt(), mayRender = true)
-      }
+    projectorZoom = zoom
+    val tabletZoom = pageToScreen.mapRadius(1f)
+
+    canvas.save()
+    canvas.concat(pageToProjector)
+    if (layout == null) {
+      projectorBackground.spacingMm = rulingMm
+      projectorBackground.draw(canvas, pageStyle, projectorVisible, zoom)
+    } else {
+      val accent = pageEdgeAccent
+      val edgePx = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * zoom / tabletZoom.coerceAtLeast(1e-6f)
+      projectorBackground.spacingMm = rulingMm
+      projectorPages.draw(
+        canvas, layout, projectorVisible, zoom, pageStyle, projectorBackground, InkColors.pageOnScreen(darkPage),
+        accent ?: InkColors.pageEdgeOnScreen(darkPage), edgePx.coerceAtLeast(1f), projectorIsPdfPage, projectorSlide,
+      )
     }
-    val inks = history.strokes.filter { !isHiddenLayer(it) && it !in hiddenFromRasters && RectF.intersects(it.bounds, visible) }
-    val shownItems = items.filter { it.id !in hiddenItems && RectF.intersects(it.bounds(RectF()), visible) }.map { it to itemTextColorFor(it) }
-    projectorBackground.spacingMm = rulingMm
-    val accent = pageEdgeAccent
-    // Edge thickness in projector pixels: the tablet's, scaled by how much bigger the projector draws the page.
-    val relative = zoom / pageToScreen.mapRadius(1f).coerceAtLeast(1e-6f)
-    val edgeWidth = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * relative
-    return ProjectorFrame(
-      widthPx, heightPx, pageToProjector, visible, layout, pageStyle, darkPage,
-      if (pageLayout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage),
-      accent ?: InkColors.pageEdgeOnScreen(darkPage), edgeWidth.coerceAtLeast(1f),
-      slides, inks, shownItems, ::buildForPicture, projectorBackground, projectorItemPainter, projectorRenderer,
-    )
+    for (item in items) {
+      if (item.id in hiddenItems || !RectF.intersects(item.bounds(itemBox), projectorVisible)) continue
+      projectorItemPainter.draw(canvas, item) { itemTextColor(item, it) }
+    }
+    canvas.restore()
+
+    if (canvas.isHardwareAccelerated) finishedView.drawInkForProjector(canvas, layout, pageToProjector, projectorVisible)
+    if (liveMirror.active) {
+      canvas.save()
+      canvas.concat(pageToProjector)
+      liveMirror.draw(canvas, pageToProjector)
+      canvas.restore()
+    }
+    return liveMirror.active
   }
 
   /** Zooms so a page fills the width of the screen, with a margin, and shows the top of page 1. */
@@ -1534,10 +1585,12 @@ class InkCanvasView(
 
     strokePoints.clear()
     pressureSum = 0f
+    liveMirror.begin(id, screenBrush)
+    projectorView?.postInvalidateOnAnimation() // once; the follower then keeps itself going while the stroke is live
     val index = event.findPointerIndex(penPointerId)
     if (index >= 0) {
       rememberDown(event, index)
-      recordPoint(event.getX(index), event.getY(index), event.getPressure(index))
+      recordPoint(event.getX(index), event.getY(index), event.getPressure(index), event.eventTime)
       holdAnchorX = event.getX(index)
       holdAnchorY = event.getY(index)
     }
@@ -1548,12 +1601,13 @@ class InkCanvasView(
 
   private val pointBuffer = FloatArray(2)
 
-  private fun recordPoint(screenX: Float, screenY: Float, pressure: Float) {
+  private fun recordPoint(screenX: Float, screenY: Float, pressure: Float, timeMs: Long) {
     pointBuffer[0] = screenX
     pointBuffer[1] = screenY
     screenToPage.mapPoints(pointBuffer)
     strokePoints += Point(pointBuffer[0], pointBuffer[1])
     pressureSum += pressure
+    liveMirror.add(pressure, timeMs) // two array stores for the projector's live stroke
   }
 
   /** Keeps the stroke's points, and restarts the hold timer whenever the pen really moves. */
@@ -1561,9 +1615,9 @@ class InkCanvasView(
     val index = event.findPointerIndex(penPointerId)
     if (index < 0) return
     for (h in 0 until event.historySize) {
-      recordPoint(event.getHistoricalX(index, h), event.getHistoricalY(index, h), event.getHistoricalPressure(index, h))
+      recordPoint(event.getHistoricalX(index, h), event.getHistoricalY(index, h), event.getHistoricalPressure(index, h), event.getHistoricalEventTime(h))
     }
-    recordPoint(event.getX(index), event.getY(index), event.getPressure(index))
+    recordPoint(event.getX(index), event.getY(index), event.getPressure(index), event.eventTime)
     noteMovement(event, index)
     if (hypot(event.getX(index) - holdAnchorX, event.getY(index) - holdAnchorY) > holdSlopPx) {
       holdAnchorX = event.getX(index)
@@ -1601,6 +1655,7 @@ class InkCanvasView(
     val pressure = pressureSum / strokePoints.size
     val clean = strokeAlong(shape.points, pending.paperBrush, pressure, spacing = SHAPE_POINT_SPACING_PX / zoom)
     addToPage(InkStroke.from(clean, pending.tool.isHighlighter, layers.current), pending.tool)
+    liveMirror.end(strokeId) // the clean shape is on the page: the projector shows it instead of the hand-drawn line
     pageChanged()
     performHapticFeedback(HapticFeedbackConstants.CONFIRM)
 
@@ -1828,6 +1883,7 @@ class InkCanvasView(
     activeStrokeId?.let {
       inProgressView.cancelStroke(it, event)
       pendingStrokes.remove(it)
+      liveMirror.end(it)
     }
     activeStrokeId = null
     removeCallbacks(snapToShape)
@@ -2527,25 +2583,44 @@ class InkCanvasView(
      * the old one plus its newest strokes drawn live until the new picture arrives. Pages just
      * above and below the screen are prepared too, so scrolling finds them ready.
      */
-    private fun drawPagePictures(canvas: Canvas, layout: PageLayout) {
+    private fun drawPagePictures(canvas: Canvas, layout: PageLayout, toView: Matrix = pageToScreen, visible: RectF = visiblePage, margin: Int = 1) {
       val zoom = pageToScreen.mapRadius(1f)
       val widthPx = (layout.pageWidth * zoom).toInt()
-      val first = (layout.pageAt(visiblePage.top) - 1).coerceAtLeast(0)
-      val last = (layout.pageAt(visiblePage.bottom) + 1).coerceAtMost(layout.count - 1)
+      val first = (layout.pageAt(visible.top) - margin).coerceAtLeast(0)
+      val last = (layout.pageAt(visible.bottom) + margin).coerceAtMost(layout.count - 1)
       canvas.save()
-      canvas.concat(pageToScreen)
+      canvas.concat(toView)
       for (page in first..last) {
         layout.rect(page, pageRect)
         val (bitmap, current) = rasters.get(page, widthPx, pageRect.top, layout.pageWidth, layout.pageHeight, { strokesOnPage(page) }, ::buildForPicture)
-        if (!RectF.intersects(pageRect, visiblePage)) continue
+        if (!RectF.intersects(pageRect, visible)) continue
         if (bitmap != null) canvas.drawBitmap(bitmap, null, pageRect, bitmapPaint)
         if (!current) {
           freshInk[page]?.forEach { stroke ->
-            if (stroke !in hiddenFromRasters && !isHiddenLayer(stroke)) freshRenderer.draw(canvas, screenVersion(stroke), pageToScreen)
+            if (stroke !in hiddenFromRasters && !isHiddenLayer(stroke)) freshRenderer.draw(canvas, screenVersion(stroke), toView)
           }
         }
       }
       canvas.restore()
+    }
+
+    /**
+     * The ink for the projector's follower view, the same way [drawFrame] chooses it (page
+     * pictures when zoomed out of a notebook, square pictures over a big drawing, otherwise the
+     * stroke recordings), but through [toView] and over [visible]. Starts nothing of its own.
+     */
+    fun drawInkForProjector(canvas: Canvas, layout: PageLayout?, toView: Matrix, visible: RectF) {
+      if (layout != null && layout.pageWidth * pageToScreen.mapRadius(1f) < PageRasters.RASTER_BELOW_PX && abs(angleDegrees) < 0.5f) {
+        drawPagePictures(canvas, layout, toView, visible, margin = 0)
+      } else if (layout == null && tileMode) {
+        canvas.save()
+        canvas.concat(toView)
+        val current = tiles.draw(canvas, visible, pageToScreen.mapRadius(1f), { area -> chunkCache.strokesIn(area, hiddenFromRasters).filter { !isHiddenLayer(it) } }, ::buildForPicture, bitmapPaint)
+        if (!current) for (stroke in freshTileInk) if (stroke !in hiddenFromRasters && !isHiddenLayer(stroke)) freshRenderer.draw(canvas, screenVersion(stroke), toView)
+        canvas.restore()
+      } else {
+        chunkCache.drawShared(canvas, toView, visible, pageToScreen)
+      }
     }
 
     private val freshRenderer = CanvasStrokeRenderer.create()
@@ -2555,6 +2630,7 @@ class InkCanvasView(
     override fun onDraw(canvas: Canvas) {
       val t0 = System.nanoTime()
       drawFrame(canvas, t0)
+      projectorView?.postInvalidateOnAnimation() // the projector follows every draw of this layer
       // Frames that take more than 12 ms of the main thread (a 120 Hz frame is 8.3 ms) are
       // logged with where the time went, at most twice a second: "adb logcat -s PenLabPerf".
       val total = (System.nanoTime() - t0) / 1_000_000
@@ -3223,6 +3299,7 @@ class InkCanvasView(
     if (clipboard.isEmpty() && clipboardItems.isEmpty()) return
     activeStrokeId?.let { id ->
       pendingStrokes.remove(id)
+      liveMirror.end(id)
       postOnAnimation { inProgressView.cancelStroke(id) }
     }
     activeStrokeId = null

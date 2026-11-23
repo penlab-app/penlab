@@ -2,8 +2,7 @@ package dev.penlab.app.projector
 
 /**
  * The parts of Projector view that are plain logic, free of Android so they can be unit-tested:
- * fitting the tablet's view to the projector's shape, deciding when to offer the feature, and the
- * scheduler that keeps the projector's picture up to date without redrawing it too often.
+ * fitting the tablet's view to the projector's shape and deciding when to offer the feature.
  */
 
 /** A rectangle as four numbers (android.graphics.RectF cannot be used in plain JVM tests). */
@@ -37,77 +36,3 @@ fun fitToAspect(view: Box, aspect: Float): Box {
  */
 fun shouldOfferProjector(hasDisplay: Boolean, notebookOpen: Boolean, active: Boolean, alreadyOffered: Boolean): Boolean =
   hasDisplay && notebookOpen && !active && !alreadyOffered
-
-/** How long the projector waits after the last change before it redraws. */
-const val PROJECTOR_DEBOUNCE_MS = 100L
-
-/**
- * Decides when the projector's picture is redrawn. Changes arrive in bursts (a pan is hundreds of
- * calls), so [markDirty] only notes the time; one timer waits until [debounceMs] have passed with
- * no new change, then [startRender] runs. Only one render is ever in flight: changes that arrive
- * meanwhile are coalesced into one more render after it finishes.
- *
- * Everything runs on one thread (the main thread). Time and timers are passed in so tests can
- * drive them.
- *
- * @param startRender starts a render and must call its argument when the render has finished
- *   (on the same thread as the rest).
- */
-class RenderScheduler(
-  private val debounceMs: Long,
-  private val now: () -> Long,
-  private val postDelayed: (delayMs: Long, action: () -> Unit) -> Unit,
-  private val startRender: (done: () -> Unit) -> Unit,
-) {
-  private var dirty = false
-  private var lastChange = 0L
-  private var timerPending = false
-  private var rendering = false
-
-  /** Bumped by [cancel], so timers and renders from before it do nothing when they fire. */
-  private var generation = 0
-
-  /** Something changed on the page: draw it again soon. Cheap, safe to call very often. */
-  fun markDirty() {
-    lastChange = now()
-    dirty = true
-    if (!timerPending && !rendering) schedule(debounceMs)
-  }
-
-  /** Forget everything pending (Projector view ended). */
-  fun cancel() {
-    generation++
-    dirty = false
-    timerPending = false
-    rendering = false
-  }
-
-  /** Whether a render is running right now. */
-  val isRendering: Boolean get() = rendering
-
-  private fun schedule(delay: Long) {
-    timerPending = true
-    val mine = generation
-    postDelayed(delay.coerceAtLeast(0L)) {
-      if (mine == generation) onTimer()
-    }
-  }
-
-  private fun onTimer() {
-    timerPending = false
-    if (!dirty || rendering) return
-    val wait = lastChange + debounceMs - now()
-    if (wait > 0L) {
-      schedule(wait) // more changes came in meanwhile: wait for them to stop
-      return
-    }
-    dirty = false
-    rendering = true
-    val mine = generation
-    startRender {
-      if (mine != generation) return@startRender
-      rendering = false
-      if (dirty && !timerPending) schedule(lastChange + debounceMs - now())
-    }
-  }
-}

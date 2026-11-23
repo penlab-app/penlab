@@ -1326,6 +1326,66 @@ class InkCanvasView(
     return bitmap
   }
 
+  // ---- Projector view -----------------------------------------------------------------------
+
+  /**
+   * Called whenever the view is panned, zoomed, turned or its side space changes. Set by the
+   * projector view only; it must do no work of its own (it is called for every touch step).
+   */
+  var onViewMoved: () -> Unit = {}
+
+  private val projectorRenderer by lazy { CanvasStrokeRenderer.create() }
+  private val projectorItemPainter by lazy { ItemPainter(imagesDir) }
+  private val projectorBackground by lazy {
+    PageBackground(if (pageLayout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP, darkPage).apply {
+      pageWidth = pageLayout?.pageWidth ?: 0f
+      pageHeight = pageLayout?.pageHeight ?: 0f
+    }
+  }
+
+  /**
+   * What the tablet shows now, for the projector: the part of the page between the toolbars,
+   * widened to the projector's shape ([widthPx] x [heightPx]), never cropped. Main thread, cheap
+   * (it gathers references); the picture is drawn later by [ProjectorFrame.render] on another
+   * thread. Returns null before the view has a size.
+   */
+  fun projectorSnapshot(widthPx: Int, heightPx: Int): ProjectorFrame? {
+    if (width == 0 || height == 0 || widthPx <= 0 || heightPx <= 0) return null
+    val free = width - leftInset - rightInset
+    val shown = if (free > 0f) dev.penlab.app.projector.Box(leftInset, 0f, width - rightInset, height.toFloat())
+    else dev.penlab.app.projector.Box(0f, 0f, width.toFloat(), height.toFloat())
+    val fitted = dev.penlab.app.projector.fitToAspect(shown, widthPx.toFloat() / heightPx)
+    val toProjector = Matrix().apply {
+      setRectToRect(RectF(fitted.left, fitted.top, fitted.right, fitted.bottom), RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat()), Matrix.ScaleToFit.FILL)
+    }
+    val pageToProjector = Matrix(pageToScreen).apply { postConcat(toProjector) }
+    val inverse = Matrix()
+    if (!pageToProjector.invert(inverse)) return null
+    val visible = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat()).also { inverse.mapRect(it) }
+    val layout = pageLayout?.let { PageLayout(it.pageWidth, it.pageHeight, it.gap, it.count).also { copy -> copy.backgrounds = it.backgrounds } }
+    val zoom = pageToProjector.mapRadius(1f)
+    val slides = HashMap<Int, Bitmap?>()
+    if (layout != null && pdf != null) {
+      for (page in layout.pageAt(visible.top)..layout.pageAt(visible.bottom)) {
+        val pdfPage = layout.backgroundOf(page)
+        if (pdfPage >= 0 && RectF.intersects(layout.rect(page, RectF()), visible)) slides[page] = pdf.bitmapFor(pdfPage, (layout.pageWidth * zoom).toInt(), mayRender = true)
+      }
+    }
+    val inks = history.strokes.filter { !isHiddenLayer(it) && it !in hiddenFromRasters && RectF.intersects(it.bounds, visible) }
+    val shownItems = items.filter { it.id !in hiddenItems && RectF.intersects(it.bounds(RectF()), visible) }.map { it to itemTextColorFor(it) }
+    projectorBackground.spacingMm = rulingMm
+    val accent = pageEdgeAccent
+    // Edge thickness in projector pixels: the tablet's, scaled by how much bigger the projector draws the page.
+    val relative = zoom / pageToScreen.mapRadius(1f).coerceAtLeast(1e-6f)
+    val edgeWidth = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * relative
+    return ProjectorFrame(
+      widthPx, heightPx, pageToProjector, visible, layout, pageStyle, darkPage,
+      if (pageLayout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage),
+      accent ?: InkColors.pageEdgeOnScreen(darkPage), edgeWidth.coerceAtLeast(1f),
+      slides, inks, shownItems, ::buildForPicture, projectorBackground, projectorItemPainter, projectorRenderer,
+    )
+  }
+
   /** Zooms so a page fills the width of the screen, with a margin, and shows the top of page 1. */
   /**
    * Notebook scrolling rules, like other note apps (only while the page is level):
@@ -2334,6 +2394,7 @@ class InkCanvasView(
     updatePull()
     lastPanZoomTime = SystemClock.uptimeMillis()
     finishedView.invalidate()
+    onViewMoved()
     // One more draw after the fingers stop, to refresh the cache for the new zoom.
     finishedView.postInvalidateDelayed(PAN_ZOOM_SETTLE_MS)
     if (hasAnySelection) {

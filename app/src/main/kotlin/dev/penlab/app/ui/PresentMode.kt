@@ -6,14 +6,14 @@ package dev.penlab.app.ui
  *
  * Present mode is for projecting the tablet: the projector mirrors the screen, so the students
  * see exactly what the teacher sees. While it is on, only the page and her ink are shown; the
- * toolbar comes back for a few seconds when she asks for it ([toolsPeeking]).
+ * pencil corner button toggles the toolbar ([toolsPeeking]); it stays until tapped again or Present exits.
  */
 data class ScreenChrome(
   /** Full screen: the top bar hides, the tools stay. */
   val fullScreen: Boolean = false,
   /** Present mode: nothing but the page and the ink. */
   val present: Boolean = false,
-  /** Present mode only: the toolbar is shown for a moment. */
+  /** Present mode only: the toolbar is shown (toggled by the pencil corner button). */
   val toolsPeeking: Boolean = false,
 ) {
   /** The row of buttons along the top, with the page counter and the tabs in it. */
@@ -44,15 +44,5 @@ data class ScreenChrome(
   val backLeavesPresent: Boolean get() = present
 }
 
-/** How long the toolbar stays after a tap on the "pen tools" button, counted from the last use. */
-const val PEEK_TOOLS_MS = 4000L
-
 /** The corner buttons are faint so they do not draw the class's eyes (same as Leave full screen). */
 const val CORNER_BUTTON_ALPHA = 0.55f
-
-/**
- * Whether the peeking toolbar may hide now. It stays while something opened from it is in use (a
- * panel, the wheel, the colour picker, a drag), because hiding it under her pen would be rude.
- */
-fun peekMayEnd(panelOpen: Boolean, wheelOpen: Boolean, dragging: Boolean, pickerOpen: Boolean): Boolean =
-  !(panelOpen || wheelOpen || dragging || pickerOpen)

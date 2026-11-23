@@ -110,12 +110,9 @@ import androidx.compose.ui.draw.alpha
 import dev.penlab.app.ui.FullScreenExitIcon
 import dev.penlab.app.ui.CORNER_BUTTON_ALPHA
 import dev.penlab.app.ui.CloseIcon
-import dev.penlab.app.ui.PEEK_TOOLS_MS
 import dev.penlab.app.ui.PenToolsIcon
 import dev.penlab.app.ui.PresentIcon
 import dev.penlab.app.ui.ScreenChrome
-import dev.penlab.app.ui.peekMayEnd
-import kotlinx.coroutines.delay
 import dev.penlab.app.search.LibrarySearch
 import androidx.core.view.doOnLayout
 import android.graphics.RectF
@@ -209,6 +206,9 @@ class MainActivity : ComponentActivity() {
 
   /** The notebook on screen, or null for the library. */
   private var open by mutableStateOf<OpenNotebook?>(null)
+
+  /** Projector view: shows only the page on a cabled projector or monitor (see projector/). */
+  private val projector by lazy { dev.penlab.app.projector.ProjectorController(this) }
 
   private lateinit var viewSettings: ViewSettings
 
@@ -461,6 +461,7 @@ class MainActivity : ComponentActivity() {
               onExportMessageShown = { exportMessage = null },
               onPageEdited = ::scheduleSave,
               search = current.search,
+              projector = projector,
             )
           }
         }
@@ -473,6 +474,11 @@ class MainActivity : ComponentActivity() {
       }
       handleIncomingPdf(intent, restored = savedInstanceState != null) // queued after the migration (one io thread)
     }
+  }
+
+  override fun onStart() {
+    super.onStart()
+    projector.start()
   }
 
   override fun onResume() {
@@ -1111,6 +1117,7 @@ class MainActivity : ComponentActivity() {
   /** Leaving the app (home, another app, screen off) saves straight away. */
   override fun onStop() {
     save()
+    projector.stop()
     super.onStop()
   }
 
@@ -1250,6 +1257,7 @@ private fun NoteScreen(
   onExportMessageShown: () -> Unit,
   onPageEdited: () -> Unit,
   search: HandwritingIndex?,
+  projector: dev.penlab.app.projector.ProjectorController,
 ) {
   // The toolbar's slots, as saved last time. Changing a size or colour replaces the tool in
   // its slot (and saves it).
@@ -1284,16 +1292,15 @@ private fun NoteScreen(
   // Full screen: the top bar and Android's status bar hide; the tools stay.
   var fullScreen by remember { mutableStateOf(false) }
   // Present mode (projecting in class): only the page and the ink show. Never remembered across
-  // launches. The toolbar comes back for a few seconds ([PEEK_TOOLS_MS]) on request.
+  // launches. The pencil corner button shows or hides the toolbar (a toggle, no timer).
   var present by remember { mutableStateOf(false) }
   var toolsPeeking by remember { mutableStateOf(false) }
-  // Bumped by every use of the peeking toolbar, so the hide timer restarts from the last one.
-  var peekUses by remember { mutableIntStateOf(0) }
   val chrome = ScreenChrome(fullScreen = fullScreen, present = present, toolsPeeking = toolsPeeking)
   val view = androidx.compose.ui.platform.LocalView.current
-  DisposableEffect(chrome.keepScreenOn) {
+  // Present mode and Projector view both keep the screen on: the class is looking at it.
+  DisposableEffect(chrome.keepScreenOn || projector.active) {
     val window = (view.context as? android.app.Activity)?.window
-    if (chrome.keepScreenOn) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    if (chrome.keepScreenOn || projector.active) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
   }
   DisposableEffect(chrome.systemBarsHidden) {
@@ -1397,13 +1404,6 @@ private fun NoteScreen(
     onDispose { canvas.presenting = false }
   }
   BackHandler(enabled = chrome.backLeavesPresent) { leavePresent() }
-  // The peeking toolbar hides again a few seconds after it was last used.
-  LaunchedEffect(present, toolsPeeking, peekUses, openPanel, dock.wheelOpen, dock.dragging, colorWheelFor, eyedropperOn, renamingLayer) {
-    if (present && toolsPeeking && peekMayEnd(openPanel != null, dock.wheelOpen, dock.dragging, colorWheelFor != null || eyedropperOn || renamingLayer != null)) {
-      delay(PEEK_TOOLS_MS)
-      hidePeekingTools()
-    }
-  }
   val messages = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
   LaunchedEffect(exportMessage) { showExportMessage(exportMessage, messages, onExportMessageShown) }
@@ -1418,6 +1418,18 @@ private fun NoteScreen(
     toolSettings.saveTools(tools)
     toolSettings.selectedIndex = selected
   }
+  // This notebook is what a cabled projector shows; the one-time offer comes through the snackbar.
+  DisposableEffect(canvas) {
+    projector.attach(canvas)
+    onDispose { projector.detach(canvas) }
+  }
+  LaunchedEffect(projector.offerPending) {
+    if (projector.offerPending && !present) {
+      projector.offerShown()
+      val result = messages.showSnackbar("Projector connected", actionLabel = "Show only the page", duration = SnackbarDuration.Long)
+      if (result == SnackbarResult.ActionPerformed) projector.begin()
+    }
+  }
   DisposableEffect(canvas) {
     sendToolsToCanvas()
     canvas.onHistoryChanged = {
@@ -1426,11 +1438,11 @@ private fun NoteScreen(
       canClear = !canvas.isEmpty
       contentVersion++
       onPageEdited()
+      projector.markDirty() // stroke committed, undo/redo, items, pages, layers, paper: all end here
     }
     canvas.onPageTouched = {
       jumpBack = null // writing there means you've settled where you jumped to
       closeOverlays(topBarToo = true) // writing closes any open panel or menu
-      if (present && toolsPeeking) hidePeekingTools() // she is writing again: the tools step aside
     }
     canvas.onPasteMenu = { x, y -> if (!present) pasteMenuAt = Offset(x, y) }
     canvas.onCurrentPageChanged = { currentPage = it }
@@ -1439,8 +1451,12 @@ private fun NoteScreen(
     canvas.onLayersChanged = {
       layerState = canvas.layers
       onPageEdited() // worth saving
+      projector.markDirty()
     }
-    canvas.onPicturesUpdated = { contentVersion++ }
+    canvas.onPicturesUpdated = {
+      contentVersion++
+      projector.markDirty() // a PDF page finished drawing
+    }
     canvas.onViewChanged = { zoom, angle ->
       viewZoom = zoom
       viewAngle = angle
@@ -1489,10 +1505,7 @@ private fun NoteScreen(
           val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
           if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Press) continue
           val at = event.changes.firstOrNull()?.position ?: continue
-          if (dock.isOnDock(at)) {
-            if (toolsPeeking) peekUses++ // using the peeking toolbar keeps it a little longer
-            continue
-          }
+          if (dock.isOnDock(at)) continue
           // A press on the top bar leaves its own surfaces to the bar's buttons (they toggle).
           val onTopBar = topBarBounds.any { it?.contains(at) == true }
           val somethingOpen = openPanel != null || dock.wheelOpen || pasteMenuAt != null || (!onTopBar && topBarOverlayOpen())
@@ -1861,6 +1874,7 @@ private fun NoteScreen(
           add(MenuAction(SaveIcon, "Save as PDF", onExport))
           add(MenuAction(ExportIcon, "Share as PDF", onShare))
           add(MenuAction(PresentIcon, "Present", { enterPresent() }))
+          if (projector.available) add(MenuAction(PresentIcon, if (projector.active) "Projector view · on" else "Projector view", projector::toggle))
           add(MenuAction(ImageIcon, "Insert a photo", onInsertImage))
           if (canvas.pageLayout != null) add(MenuAction(FitWidthIcon, "Fit page to width", canvas::fitToWidth))
           else add(MenuAction(HomeIcon, "Back to where I was writing", canvas::goHome))
@@ -1929,17 +1943,14 @@ private fun NoteScreen(
       }
     }
     if (chrome.presentButtons) {
-      // Present mode's only controls, just as faint: the pen tools for a few seconds, and the exit.
+      // Present mode's only controls, just as faint: the pen tools (toggle: stays until tapped again), and the exit.
       // Above the toolbar (zIndex) in case the toolbar sits in this corner.
       Row(
         Modifier.align(Alignment.TopEnd).zIndex(2f).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA),
         verticalAlignment = Alignment.CenterVertically,
       ) {
         TopIconButton(PenToolsIcon, if (toolsPeeking) "Hide pen tools" else "Show pen tools", onClick = {
-          if (toolsPeeking) hidePeekingTools() else {
-            peekUses++
-            toolsPeeking = true
-          }
+          if (toolsPeeking) hidePeekingTools() else toolsPeeking = true
         })
         Spacer(Modifier.width(8.dp))
         TopIconButton(CloseIcon, "Leave present mode", onClick = { leavePresent() })

@@ -32,16 +32,9 @@ internal class ProjectorFollowerView(context: Context) : View(context) {
       canvas.drawColor(EMPTY_COLOR)
       return
     }
-    val t0 = System.nanoTime() // TEMP timing
     val live = canvasView.drawForProjector(canvas, width, height)
-    val ms = (System.nanoTime() - t0) / 1e6
-    val now = android.os.SystemClock.uptimeMillis()
-    if (lastFrameAt > 0 && (ms > 4 || now - lastFrameAt > 25)) android.util.Log.d("PenLabTime", "draw=%.1fms gap=%dms live=%b".format(ms, now - lastFrameAt, live))
-    lastFrameAt = now
     if (live) postInvalidateOnAnimation()
   }
-
-  private var lastFrameAt = 0L
 
   private companion object {
     const val EMPTY_COLOR = 0xFF0C0D0E.toInt()

@@ -20,12 +20,12 @@ class ProjectorPresentation(
   private val onGone: () -> Unit,
 ) : Presentation(context, display) {
 
-  private lateinit var follower: ProjectorFollowerView
+  private lateinit var follower: ProjectorSurfaceView
   private var followed: InkCanvasView? = null
 
   override fun onCreate(savedInstanceState: android.os.Bundle?) {
     super.onCreate(savedInstanceState)
-    follower = ProjectorFollowerView(context)
+    follower = ProjectorSurfaceView(context)
     setContentView(follower)
     window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
     setOnDismissListener { onGone() }
@@ -34,22 +34,23 @@ class ProjectorPresentation(
   /** Dismissed, by us or by the system: let go of the canvas so it stops asking this window to redraw. */
   override fun onStop() {
     follow(null)
+    if (::follower.isInitialized) follower.shutdown()
     super.onStop()
   }
 
   /** Shows [canvas]'s page (null: just the empty background). Main thread. */
   fun follow(canvas: InkCanvasView?) {
     if (canvas !== followed) {
-      followed?.projectorView = null
+      followed?.projectorSink = null
       followed = canvas
     }
     if (!::follower.isInitialized) return
     follower.source = canvas
-    canvas?.projectorView = follower
+    canvas?.projectorSink = follower
   }
 
   /** Draws the page again at the next frame. */
   fun redraw() {
-    if (::follower.isInitialized) follower.postInvalidateOnAnimation()
+    if (::follower.isInitialized) followed?.requestProjectorPublish()
   }
 }

@@ -26,6 +26,7 @@ import androidx.ink.geometry.ImmutableVec
 import androidx.ink.geometry.Intersection.intersects
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
+import dev.penlab.app.projector.ProjectorSnapshot
 import androidx.input.motionprediction.MotionEventPredictor
 import androidx.ink.brush.InputToolType
 import androidx.ink.strokes.MutableStrokeInputBatch
@@ -645,11 +646,13 @@ class InkCanvasView(
       object : StrokeHistory.Listener<InkStroke> {
         override fun onInserted(index: Int, stroke: InkStroke) {
           chunkCache.onInserted(index, stroke)
+          projectorHistoryVersion++
           inkChanged(stroke, added = true)
         }
 
         override fun onRemoved(index: Int, stroke: InkStroke) {
           chunkCache.onRemoved(index, stroke)
+          projectorHistoryVersion++
           inkChanged(stroke, added = false)
         }
       }
@@ -1342,16 +1345,92 @@ class InkCanvasView(
   var onViewMoved: () -> Unit = {}
 
   /**
-   * The follower view on the projector, while Projector view is on. The tablet asks it to redraw
-   * (postInvalidateOnAnimation, so at most once per frame) after every draw of its own page layer,
-   * which covers panning, zooming, strokes, undo and pictures arriving. It draws by calling
-   * [drawForProjector]. Set by ProjectorPresentation.
+   * The projector's render thread, while Projector view is on (PROTOTYPE). The canvas publishes an
+   * immutable [ProjectorSnapshot] to it at most once per main-thread frame ([requestProjectorPublish]);
+   * the render thread draws from that and never touches this view. Set by ProjectorPresentation.
    */
-  var projectorView: View? = null
+  var projectorSink: dev.penlab.app.projector.ProjectorSink? = null
     set(value) {
       field = value
-      value?.postInvalidateOnAnimation()
+      if (value != null) requestProjectorPublish()
     }
+
+  private val projectorPublishPending = java.util.concurrent.atomic.AtomicBoolean(false)
+  private val projectorPublishRunnable = Runnable {
+    projectorPublishPending.set(false)
+    publishProjector(tick = true)
+    if (liveMirror.active) requestProjectorPublish()
+  }
+
+  /** Publishes a snapshot at the next animation frame (coalesced). Any thread. */
+  fun requestProjectorPublish() {
+    if (projectorSink != null && projectorPublishPending.compareAndSet(false, true)) postOnAnimation(projectorPublishRunnable)
+  }
+
+  /** Bumped when strokes are added/removed, so the visible-stroke list is rebuilt only then or when the view moves. */
+  private var projectorHistoryVersion = 0
+  private var projectorBuiltVersion = -1
+  private var projectorBuiltHidden: Set<Int>? = null
+  private val projectorBuiltMatrix = FloatArray(9)
+  private val projectorMatrixValues = FloatArray(9)
+  private var projectorStrokes: List<Stroke> = emptyList()
+  private var projectorPageRects: FloatArray? = null
+
+  private fun publishProjector(tick: Boolean) {
+    val sink = projectorSink ?: return
+    if (tick) liveMirror.tick()
+    val widthPx = sink.targetWidth
+    val heightPx = sink.targetHeight
+    val layout = pageLayout
+    val desk = if (layout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage)
+    if (width == 0 || height == 0 || widthPx <= 0 || heightPx <= 0) {
+      sink.onSnapshot(ProjectorSnapshot(null, desk, 0, null, emptyList(), null, 0, 0, 1f))
+      return
+    }
+    val free = width - leftInset - rightInset
+    val shown = if (free > 0f) dev.penlab.app.projector.Box(leftInset, 0f, width - rightInset, height.toFloat())
+    else dev.penlab.app.projector.Box(0f, 0f, width.toFloat(), height.toFloat())
+    val fitted = dev.penlab.app.projector.fitToAspect(shown, widthPx.toFloat() / heightPx)
+    projectorSource.set(fitted.left, fitted.top, fitted.right, fitted.bottom)
+    projectorTarget.set(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
+    pageToProjector.setRectToRect(projectorSource, projectorTarget, Matrix.ScaleToFit.FILL)
+    pageToProjector.preConcat(pageToScreen)
+    if (!pageToProjector.invert(projectorInverse)) return
+    projectorVisible.set(projectorTarget)
+    projectorInverse.mapRect(projectorVisible)
+    pageToProjector.getValues(projectorMatrixValues)
+
+    val hidden = layers.hidden
+    val changed = projectorBuiltVersion != projectorHistoryVersion || projectorBuiltHidden != hidden ||
+      !projectorMatrixValues.contentEquals(projectorBuiltMatrix)
+    if (changed) {
+      projectorBuiltVersion = projectorHistoryVersion
+      projectorBuiltHidden = hidden
+      System.arraycopy(projectorMatrixValues, 0, projectorBuiltMatrix, 0, 9)
+      val visible = chunkCache.strokesIn(projectorVisible).filter { !isHiddenLayer(it) }
+      // Highlighters sit under the ink.
+      projectorStrokes = visible.filter { it.isHighlighter }.map(::screenVersion) + visible.filter { !it.isHighlighter }.map(::screenVersion)
+      projectorPageRects = if (layout == null) null else {
+        val first = layout.pageAt(projectorVisible.top)
+        val last = layout.pageAt(projectorVisible.bottom)
+        val out = ArrayList<Float>()
+        val r = RectF()
+        for (i in first..last) {
+          layout.rect(i, r)
+          if (RectF.intersects(r, projectorVisible)) { out += r.left; out += r.top; out += r.right; out += r.bottom }
+        }
+        out.toFloatArray()
+      }
+    }
+    val live = liveMirror.active
+    val livePts = if (live) liveMirror.copyPoints() else null
+    sink.onSnapshot(
+      ProjectorSnapshot(
+        projectorMatrixValues.copyOf(), desk, if (layout == null) 0 else InkColors.pageOnScreen(darkPage), projectorPageRects,
+        projectorStrokes, livePts, livePts?.size?.div(2) ?: 0, liveMirror.colorArgb, liveMirror.size,
+      ),
+    )
+  }
 
   private val projectorItemPainter by lazy { ItemPainter(imagesDir) }
   private val projectorBackground by lazy {
@@ -1586,7 +1665,7 @@ class InkCanvasView(
     strokePoints.clear()
     pressureSum = 0f
     liveMirror.begin(id, screenBrush)
-    projectorView?.postInvalidateOnAnimation() // once; the follower then keeps itself going while the stroke is live
+    requestProjectorPublish() // the publish runnable keeps itself going while the stroke is live
     val index = event.findPointerIndex(penPointerId)
     if (index >= 0) {
       rememberDown(event, index)
@@ -2630,7 +2709,7 @@ class InkCanvasView(
     override fun onDraw(canvas: Canvas) {
       val t0 = System.nanoTime()
       drawFrame(canvas, t0)
-      projectorView?.postInvalidateOnAnimation() // the projector follows every draw of this layer
+      requestProjectorPublish() // the projector follows every draw of this layer
       // Frames that take more than 12 ms of the main thread (a 120 Hz frame is 8.3 ms) are
       // logged with where the time went, at most twice a second: "adb logcat -s PenLabPerf".
       val total = (System.nanoTime() - t0) / 1_000_000

@@ -92,6 +92,33 @@ internal class LiveStrokeMirror(
   /** Frames left before the preview stops after pen-up; -1 while the pen is down. */
   private var endingFrames = -1
 
+  /**
+   * PROTOTYPE (render-thread projector): one main-thread frame step. Counts down the pen-up
+   * overlap exactly like [draw] does, but without drawing. Call once per published frame, before
+   * reading [active].
+   */
+  fun tick() {
+    if (active && endingFrames >= 0 && endingFrames-- == 0) active = false
+  }
+
+  /** Brush colour of the live stroke (ARGB), or 0 when there is none. */
+  val colorArgb: Int get() = brush?.colorIntArgb ?: 0
+
+  /** Brush size of the live stroke in page units. */
+  val size: Float get() = brush?.size ?: 1f
+
+  /** A copy of the live points as x0,y0,x1,y1... (page units); main thread. */
+  fun copyPoints(): FloatArray {
+    val n = minOf(points.size, count)
+    val out = FloatArray(n * 2)
+    for (i in 0 until n) {
+      val p = points[i]
+      out[2 * i] = p.x
+      out[2 * i + 1] = p.y
+    }
+    return out
+  }
+
   /** Stops whatever is live, whichever stroke it is (page cleared). */
   fun endAll() {
     active = false

@@ -7,6 +7,7 @@ import androidx.ink.brush.InputToolType
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.InProgressStroke
 import androidx.ink.strokes.MutableStrokeInputBatch
+import androidx.ink.strokes.StrokeInput
 
 /**
  * The stroke under the pen right now, as the projector's follower view draws it.
@@ -115,7 +116,9 @@ internal class LiveStrokeMirror(
           // Ink wants times that never go backwards.
           val t = maxOf(times[i] - base, lastTime)
           lastTime = t
-          inputs.add(InputToolType.STYLUS, points[i].x, points[i].y, t, pressures[i].coerceIn(0f, 1f))
+          // add(tool, x, y, time, strokeUnitLengthCm, pressure): the 5th argument is NOT pressure
+          // (passing pressure there made Ink reject the batch for mismatched unit lengths).
+          inputs.add(InputToolType.STYLUS, points[i].x, points[i].y, t, StrokeInput.NO_STROKE_UNIT_LENGTH, pressures[i].coerceIn(0f, 1f))
         }
         fed = available
         live.enqueueInputs(inputs, empty)

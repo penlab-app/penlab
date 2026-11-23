@@ -97,40 +97,38 @@ internal class LiveStrokeMirror(
   fun draw(canvas: Canvas, pageToProjector: Matrix) {
     val liveBrush = brush ?: return
     if (!active) return
-    val inputs = batch ?: MutableStrokeInputBatch().also { batch = it }
-    val empty = noPredicted ?: MutableStrokeInputBatch().also { noPredicted = it }
-    try {
-      if (drawnGeneration != generation || stroke == null) {
-        // A fresh builder for each stroke (cheap, and no state to reset).
-        stroke = InProgressStroke().also { it.start(liveBrush) }
-        drawnGeneration = generation
-        fed = 0
-        lastTime = 0L
-      }
-      val live = stroke ?: return
-      val available = minOf(points.size, count)
-      if (available > fed) {
-        inputs.clear()
-        val base = times[0]
-        for (i in fed until available) {
-          // Ink wants times that never go backwards.
-          val t = maxOf(times[i] - base, lastTime)
-          lastTime = t
-          // add(tool, x, y, time, strokeUnitLengthCm, pressure): the 5th argument is NOT pressure
-          // (passing pressure there made Ink reject the batch for mismatched unit lengths).
-          inputs.add(InputToolType.STYLUS, points[i].x, points[i].y, t, StrokeInput.NO_STROKE_UNIT_LENGTH, pressures[i].coerceIn(0f, 1f))
-        }
-        fed = available
-        live.enqueueInputs(inputs, empty)
-      }
-      if (live.getInputCount() == 0) return
-      live.updateShape(lastTime)
-      (renderer ?: CanvasStrokeRenderer.create().also { renderer = it }).draw(canvas, live, pageToProjector)
-    } catch (e: RuntimeException) {
-      // A bad point must not take the projector down: show the committed stroke at pen-up instead.
-      android.util.Log.w("PenLabProjector", "Live stroke not drawn", e)
-      active = false
+    // Drawn as a plain round-capped line in the brush's colour and size (page units; the canvas
+    // already maps page units to the projector). Jetpack Ink's InProgressStroke drew nothing on
+    // the Presentation's canvas (verified on a Tab S9, 23 Nov), so the projector shows this
+    // preview while the pen is down and the real stroke from pen-up on. Only the points that
+    // arrived since the last frame are appended, so a long stroke costs no more per frame.
+    if (drawnGeneration != generation) {
+      path.rewind()
+      drawnGeneration = generation
+      fed = 0
     }
+    val available = minOf(points.size, count)
+    for (i in fed until available) {
+      val p = points[i]
+      if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
+    }
+    fed = available
+    if (available == 0) return
+    linePaint.color = liveBrush.colorIntArgb
+    linePaint.strokeWidth = liveBrush.size
+    if (available == 1) {
+      val p = points[0]
+      canvas.drawPoint(p.x, p.y, linePaint)
+    } else {
+      canvas.drawPath(path, linePaint)
+    }
+  }
+
+  private val path = android.graphics.Path()
+  private val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+    style = android.graphics.Paint.Style.STROKE
+    strokeCap = android.graphics.Paint.Cap.ROUND
+    strokeJoin = android.graphics.Paint.Join.ROUND
   }
 
   private companion object {

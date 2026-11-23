@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PenLab's placeholder mark: a "P" written in one pen stroke (up the bowl, down the stem),
+     ending in a small blue drop of ink. To be replaced in the design pass.
+     Drawn inside the 66 dp safe zone of the 108 dp adaptive icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M41,59 L53,59 A14,14 0 0,0 53,31 L41,31 L41,75"
+        android:strokeColor="#FFE4E5E7"
+        android:strokeWidth="6.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M41,82 m-3.2,0 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0"
+        android:fillColor="#FF4A90E2" />
+</vector>

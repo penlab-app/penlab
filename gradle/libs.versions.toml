@@ -14,6 +14,7 @@ inputMotionPrediction = "1.0.1"
 junit = "4.13.2"
 mlkitInk = "19.0.0"
 kotlin = "2.3.20"
+phosphorIcon = "1.0.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -42,6 +43,7 @@ androidx-ink-rendering = { module = "androidx.ink:ink-rendering", version.ref = 
 androidx-ink-strokes = { module = "androidx.ink:ink-strokes", version.ref = "ink" }
 mlkit-digital-ink = { module = "com.google.mlkit:digital-ink-recognition", version.ref = "mlkitInk" }
 androidx-input-motionprediction = { module = "androidx.input:input-motionprediction", version.ref = "inputMotionPrediction" }
+phosphor-icon = { module = "com.adamglin:phosphor-icon", version.ref = "phosphorIcon" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }

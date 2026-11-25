@@ -1,39 +1,37 @@
 package dev.penlab.app.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 
 /**
- * Wraps the app's Compose UI so Material components pick up PenLab's colours. Material's
- * primary is the accent, so text buttons, switches, sliders and progress all carry it.
+ * Wraps the app's Compose UI in PenLab's 3-layer Material 3 design system:
+ * - Light & Dark [MaterialTheme.colorScheme] for both Blueprint and Copper looks
+ * - [LocalPenLabColors] extended semantic tokens
+ * - [PenLabTypography] (Bricolage Grotesque display/title + system sans body/label)
+ * - [PenLabShapes.material] corner radii
  */
 @Composable
 fun PenLabTheme(content: @Composable () -> Unit) {
   val look = Accent.theme
-  val scheme = remember(look) {
-    darkColorScheme(
-      primary = look.accent,
-      onPrimary = look.onAccent,
-      primaryContainer = look.accent.copy(alpha = 0.22f),
-      onPrimaryContainer = look.icon,
-      secondary = look.accent,
-      surface = look.toolbar,
-      surfaceContainer = look.toolbar,
-      surfaceContainerHigh = look.toolbar,
-      surfaceContainerHighest = look.toolbar,
-      background = look.backdrop,
-      onBackground = look.icon,
-      onSurface = look.icon,
-      onSurfaceVariant = look.icon,
-      outline = look.hairline,
-      outlineVariant = look.hairline,
-      // The "Page cleared" message.
-      inverseSurface = look.toolbar,
-      inverseOnSurface = look.icon,
-      inversePrimary = look.accent,
+  val mode = Accent.themeMode
+  val systemDark = isSystemInDarkTheme()
+  val isDark = mode.resolveDark(systemDark)
+  // Keep Accent.isDark synchronized for non-composable/DrawScope bridges immediately and across system theme changes.
+  Accent.syncResolvedDark(isDark)
+  SideEffect { Accent.syncResolvedDark(isDark) }
+
+  val scheme = penLabColorScheme(look, isDark)
+  val extended = penLabExtendedColors(look, isDark)
+
+  CompositionLocalProvider(LocalPenLabColors provides extended) {
+    MaterialTheme(
+      colorScheme = scheme,
+      typography = PenLabTypography,
+      shapes = PenLabShapes.material,
+      content = content,
     )
   }
-  MaterialTheme(colorScheme = scheme, typography = Typography, content = content)
 }

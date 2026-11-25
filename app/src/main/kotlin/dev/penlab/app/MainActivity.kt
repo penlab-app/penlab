@@ -162,6 +162,8 @@ import dev.penlab.app.ui.ViewPanel
 import dev.penlab.app.ui.ViewReadout
 import dev.penlab.app.ui.ViewSettings
 import dev.penlab.app.ui.toolbarHeight
+import dev.penlab.app.ui.theme.Accent
+import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabTheme
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -287,19 +289,27 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    // Draw behind the status bar; its icons are light because the page is dark.
-    val bars =
-      if (DARK_PAGE) SystemBarStyle.dark(Color.TRANSPARENT)
+    Accent.load(this)
+    // Draw behind the status and navigation bars with icon contrast matching the active UI theme.
+    val initialBars =
+      if (Accent.isDark) SystemBarStyle.dark(Color.TRANSPARENT)
       else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
-    enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+    enableEdgeToEdge(statusBarStyle = initialBars, navigationBarStyle = initialBars)
     requestHighestRefreshRate()
     viewSettings = ViewSettings(this)
     Motion.load(this)
-    dev.penlab.app.ui.theme.Accent.load(this)
     tabs = tabPrefs.getString("ids", null)?.split(",")?.filter { it.isNotEmpty() }.orEmpty()
     val toolSettings = ToolSettings(this)
     setContent {
       PenLabTheme {
+        val isDarkTheme = LocalPenLabColors.current.isDark
+        DisposableEffect(isDarkTheme) {
+          val bars =
+            if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT)
+            else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+          enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+          onDispose {}
+        }
         val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
           Log.i("Export", "picker returned $uri")
           val info = exporting
@@ -320,7 +330,7 @@ class MainActivity : ComponentActivity() {
           save()
           val target = open?.info?.takeIf { it.id == info.id } ?: info
           // PDF notebooks are light on screen and export light; a dark note asks which look to keep.
-          if (target.pdfPages.isNotEmpty() || !DARK_PAGE) buildExport(target, false, share)
+          if (target.pdfPages.isNotEmpty() || !Accent.isDarkPage) buildExport(target, false, share)
           else askExportLook = target to share
         }
         askExportLook?.let { (info, share) ->
@@ -403,7 +413,7 @@ class MainActivity : ComponentActivity() {
             folders = folders,
             current = libraryFolder,
             onFolderChange = { libraryFolder = it },
-            darkPage = DARK_PAGE,
+            darkPage = Accent.isDarkPage,
             messages = messages,
             onOpen = ::openNotebook,
             onCreate = { title, folder, kind, style, landscape -> createNotebook(title, folder, kind, style, landscape) },
@@ -941,8 +951,8 @@ class MainActivity : ComponentActivity() {
     var canvasRef: InkCanvasView? = null
     val pdf = if (layout != null && info.pdfPages.isNotEmpty() && pdfFile.exists()) PdfBackground(pdfFile) { canvasRef?.pdfPageReady() } else null
     // A notebook made from a PDF is shown light (white pages, ink in its true colours, added
-    // blank pages white too), like other note apps; other notebooks keep the dark page.
-    val canvas = InkCanvasView(this, darkPage = DARK_PAGE && pdf == null, pageLayout = layout, pdf = pdf, imagesDir = notebooks.imagesDir(info))
+    // blank pages white too), like other note apps; plain notebooks follow the chosen page mode.
+    val canvas = InkCanvasView(this, darkPage = Accent.isDarkPage && pdf == null, pageLayout = layout, pdf = pdf, imagesDir = notebooks.imagesDir(info))
     canvasRef = canvas
     canvas.zoomLocked = viewSettings.zoomLocked
     canvas.rotationLocked = viewSettings.rotationLocked
@@ -1184,7 +1194,7 @@ class MainActivity : ComponentActivity() {
     val count = intent.getIntExtra("stress_strokes", 0)
     if (count <= 0) return false // (a throwaway canvas: never saved, so it is safe in release too)
     val info = NotebookInfo("stress", "Stress test", "", NotebookKind.INFINITE, PageStyle.BLANK, 1, emptyList(), 0, 0)
-    val canvas = InkCanvasView(this, darkPage = DARK_PAGE, imagesDir = notebooks.imagesDir(info))
+    val canvas = InkCanvasView(this, darkPage = Accent.isDarkPage, imagesDir = notebooks.imagesDir(info))
     // Its search index lives in the cache (thrown away), to time reading many strokes.
     val notebook = OpenNotebook(info, canvas, pages = null, search = HandwritingIndex(File(cacheDir, "stress-search.txt").apply { delete() }))
     open = notebook
@@ -1215,9 +1225,6 @@ class MainActivity : ComponentActivity() {
 private const val AUTOSAVE_DELAY_MS = 400L
 private const val COVER_FILE = "cover.jpg"
 private const val MAX_TABS = 3
-
-/** Dark page on screen; strokes are still stored (and will export) as ink on white paper. */
-private const val DARK_PAGE = true
 
 /** How much one press of a zoom key zooms. */
 private const val KEY_ZOOM_STEP = 1.25f
@@ -1463,7 +1470,7 @@ private fun NoteScreen(
   val isPalm = { canvas.isPenWriting }
 
   // Bold accent: page edges in the look's colour (faint, so the page still reads as paper).
-  val edgeAccent = dev.penlab.app.ui.theme.Accent.theme.accent
+  val edgeAccent = androidx.compose.material3.MaterialTheme.colorScheme.primary
   LaunchedEffect(edgeAccent) { canvas.pageEdgeAccent = edgeAccent.copy(alpha = 0.55f).toArgb() }
 
   // Undo and redo leave the strip when the window is too short for all of it.

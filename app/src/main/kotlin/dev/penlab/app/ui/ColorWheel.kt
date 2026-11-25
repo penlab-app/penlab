@@ -98,7 +98,7 @@ fun ColorWheel(
 
   Box(
     Modifier.fillMaxSize()
-      .background(Color(0x99000000))
+      .background(MaterialTheme.colorScheme.scrim)
       .pointerInput(Unit) { detectTapGestures { onDismiss() } },
     contentAlignment = Alignment.Center,
   ) {
@@ -346,10 +346,14 @@ private fun RgbPicker(selected: Int, preview: Color, onPick: (Int) -> Unit) {
               emit()
             },
             valueRange = 0f..255f,
-            colors = SliderDefaults.colors(thumbColor = PenLabColors.icon, activeTrackColor = PenLabColors.icon, inactiveTrackColor = PenLabColors.hairline),
+            colors = SliderDefaults.colors(
+              thumbColor = MaterialTheme.colorScheme.primary,
+              activeTrackColor = MaterialTheme.colorScheme.primary,
+              inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
+            ),
             modifier = Modifier.weight(1f),
           )
-          Text("${value.toInt()}", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(32.dp))
+          Text("${value.toInt()}", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), modifier = Modifier.width(32.dp))
         }
       }
     }

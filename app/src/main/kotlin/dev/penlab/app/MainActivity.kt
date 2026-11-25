@@ -104,6 +104,9 @@ import dev.penlab.app.ui.TopIconButton
 import dev.penlab.app.ui.SearchIcon
 import dev.penlab.app.ui.SearchPanel
 import dev.penlab.app.ui.SearchStepper
+import dev.penlab.app.ui.SettingsIcon
+import dev.penlab.app.ui.SettingsSheet
+import dev.penlab.app.ui.resolveCanvasDarkPage
 import dev.penlab.app.search.HandwritingIndex
 import dev.penlab.app.ui.FullScreenIcon
 import androidx.compose.ui.draw.alpha
@@ -361,6 +364,15 @@ class MainActivity : ComponentActivity() {
             },
           )
         }
+        var settingsOpen by remember { mutableStateOf(false) }
+        if (settingsOpen) {
+          SettingsSheet(
+            viewSettings = viewSettings,
+            storageShared = !needsStorageAccess,
+            onAllowStorage = ::requestStorageAccess,
+            onDismiss = { settingsOpen = false },
+          )
+        }
         val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
           val notebook = open
           if (uri != null && notebook != null) importImage(uri, notebook)
@@ -437,6 +449,7 @@ class MainActivity : ComponentActivity() {
             onShare = { startExport(it, true) },
             onTurn = ::turnNotebook,
             coverFile = { info -> File(notebooks.imagesDir(info).parentFile, COVER_FILE) },
+            onOpenSettings = { settingsOpen = true },
             onReport = { reportingFrom = if (libraryFolder.isEmpty()) "library" else "library › $libraryFolder" },
             onDelete = { info ->
               deleteNotebook(info)
@@ -449,10 +462,14 @@ class MainActivity : ComponentActivity() {
           )
         } else {
           BackHandler { closeNotebook() }
+          val effectiveDarkPage = resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = current.pdf != null)
+          LaunchedEffect(current.canvas, effectiveDarkPage) {
+            current.canvas.setDarkPage(effectiveDarkPage)
+          }
           key(current.info.id) {
             NoteScreen(
               current.canvas,
-              current.canvas.darkPage,
+              effectiveDarkPage,
               viewSettings,
               toolSettings,
               title = current.info.title,
@@ -463,6 +480,7 @@ class MainActivity : ComponentActivity() {
               onCloseTab = ::closeTab,
               onExport = { startExport(current.info, false) },
               onShare = { startExport(current.info, true) },
+              onOpenSettings = { settingsOpen = true },
               onReport = { where -> reportingFrom = where },
               onInsertImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
               pluginActions = plugins::pageActions,
@@ -952,10 +970,11 @@ class MainActivity : ComponentActivity() {
     val pdf = if (layout != null && info.pdfPages.isNotEmpty() && pdfFile.exists()) PdfBackground(pdfFile) { canvasRef?.pdfPageReady() } else null
     // A notebook made from a PDF is shown light (white pages, ink in its true colours, added
     // blank pages white too), like other note apps; plain notebooks follow the chosen page mode.
-    val canvas = InkCanvasView(this, darkPage = Accent.isDarkPage && pdf == null, pageLayout = layout, pdf = pdf, imagesDir = notebooks.imagesDir(info))
+    val canvas = InkCanvasView(this, darkPage = resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = pdf != null), pageLayout = layout, pdf = pdf, imagesDir = notebooks.imagesDir(info))
     canvasRef = canvas
     canvas.zoomLocked = viewSettings.zoomLocked
     canvas.rotationLocked = viewSettings.rotationLocked
+    canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
     canvas.fingerDrawEnabled = { viewSettings.drawWithFinger }
     canvas.pageStyle = info.pageStyle
     canvas.rulingMm = info.rulingMm
@@ -1248,6 +1267,7 @@ private fun NoteScreen(
   onCloseTab: (NotebookInfo) -> Unit,
   onExport: () -> Unit,
   onShare: () -> Unit,
+  onOpenSettings: () -> Unit,
   onReport: (where: String) -> Unit,
   onInsertImage: () -> Unit,
   /** Plugin page actions for the "more" menu (true) or the lasso menu (false), and running one. */
@@ -1356,16 +1376,21 @@ private fun NoteScreen(
   // bar, because the bar's own buttons toggle them.
   val topBarBounds = remember { arrayOfNulls<Rect>(2) }
   fun topBarOverlayOpen() = viewPanelOpen || pagesOpen || searchOpen || moreMenuOpen
+  fun closeTopBarOverlays() {
+    viewPanelOpen = false
+    pagesOpen = false
+    searchOpen = false
+    moreMenuOpen = false
+  }
   fun closeOverlays(topBarToo: Boolean) {
     openPanel = null
     dock.wheelOpen = false
     pasteMenuAt = null
-    if (topBarToo) {
-      viewPanelOpen = false
-      pagesOpen = false
-      searchOpen = false
-      moreMenuOpen = false
-    }
+    if (topBarToo) closeTopBarOverlays()
+  }
+  fun openSettings() {
+    closeOverlays(topBarToo = true)
+    onOpenSettings()
   }
   // The colour wheel: which tool slot it is choosing for, or null when closed.
   var colorWheelFor by remember { mutableStateOf<Int?>(null) }
@@ -1430,7 +1455,12 @@ private fun NoteScreen(
       closeOverlays(topBarToo = true) // writing closes any open panel or menu
       if (present && toolsPeeking) hidePeekingTools() // she is writing again: the tools step aside
     }
-    canvas.onPasteMenu = { x, y -> if (!present) pasteMenuAt = Offset(x, y) }
+    canvas.onPasteMenu = { x, y ->
+      if (!present) {
+        closeOverlays(topBarToo = true)
+        pasteMenuAt = Offset(x, y)
+      }
+    }
     canvas.onCurrentPageChanged = { currentPage = it }
     canvas.onTextRequest = { id, existing -> editingText = id to existing }
     canvas.onNotice = { text -> if (!present) scope.launch { messages.currentSnackbarData?.dismiss(); messages.showSnackbar(text, duration = SnackbarDuration.Short) } }
@@ -1463,6 +1493,8 @@ private fun NoteScreen(
     if (openPanel == cell) {
       openPanel = null
     } else {
+      closeTopBarOverlays()
+      pasteMenuAt = null
       shownPanel = cell
       openPanel = cell
     }
@@ -1489,6 +1521,7 @@ private fun NoteScreen(
           val at = event.changes.firstOrNull()?.position ?: continue
           if (dock.isOnDock(at)) {
             if (toolsPeeking) peekUses++ // using the peeking toolbar keeps it a little longer
+            if (topBarOverlayOpen()) closeTopBarOverlays()
             continue
           }
           // A press on the top bar leaves its own surfaces to the bar's buttons (they toggle).
@@ -1532,6 +1565,8 @@ private fun NoteScreen(
     val onDockItem: (DockItem) -> Unit = { item ->
       canvas.onColorSampled = null // touching the toolbar cancels a waiting eyedropper
       eyedropperOn = false
+      closeTopBarOverlays()
+      pasteMenuAt = null
       when (item) {
         is DockItem.Tool -> {
           val index = item.index
@@ -1583,7 +1618,7 @@ private fun NoteScreen(
       onItem = onDockItem,
       isPalm = isPalm,
       scope = scope,
-      onDragStart = { openPanel = null },
+      onDragStart = { closeOverlays(topBarToo = true) },
       insets = insets,
       panelKey = openPanel,
       onSidesCovered = { left, right ->
@@ -1779,7 +1814,11 @@ private fun NoteScreen(
           Spacer(Modifier.width(8.dp))
           // Read contentVersion so the count follows added and deleted pages.
           val count = contentVersion.let { layout.count }
-          PageCounter(page = { currentPage }, count = count, onClick = { pagesOpen = !pagesOpen })
+          PageCounter(page = { currentPage }, count = count, onClick = {
+            val next = !pagesOpen
+            closeOverlays(topBarToo = true)
+            pagesOpen = next
+          })
         }
         if (dock.side.isCorner) {
           // With the corner wheel, the page actions live up here; their panels open below.
@@ -1829,9 +1868,10 @@ private fun NoteScreen(
       Row(Modifier.onSizeChanged { rightBarWidth = it.width }, verticalAlignment = Alignment.CenterVertically) {
       if (search != null) {
         TopIconButton(SearchIcon, "Search your handwriting", onClick = {
-          searchOpen = !searchOpen
-          if (searchOpen) runSearch()
-          viewPanelOpen = false
+          val next = !searchOpen
+          closeOverlays(topBarToo = true)
+          searchOpen = next
+          if (next) runSearch()
         })
         Spacer(Modifier.width(8.dp))
       }
@@ -1839,20 +1879,26 @@ private fun NoteScreen(
         zoomPercent = { viewZoom },
         angleDegrees = { viewAngle },
         settings = viewSettings,
-        onClick = { viewPanelOpen = !viewPanelOpen },
+        onClick = {
+          val next = !viewPanelOpen
+          closeOverlays(topBarToo = true)
+          viewPanelOpen = next
+        },
       )
       Spacer(Modifier.width(8.dp))
       // Always on the bar, not in the menu.
       TopIconButton(FullScreenIcon, "Full screen", onClick = {
+        closeOverlays(topBarToo = true)
         fullScreen = true
-        viewPanelOpen = false
-        searchOpen = false
       })
       Spacer(Modifier.width(8.dp))
       // Everything that isn't needed while writing lives in one menu (user request: bar too crowded).
       TopMoreMenu(
         expanded = moreMenuOpen,
-        onExpandedChange = { moreMenuOpen = it },
+        onExpandedChange = { expand ->
+          if (expand) closeOverlays(topBarToo = true)
+          moreMenuOpen = expand
+        },
         actions = buildList {
           add(MenuAction(SaveIcon, "Save as PDF", onExport))
           add(MenuAction(ExportIcon, "Share as PDF", onShare))
@@ -1862,6 +1908,7 @@ private fun NoteScreen(
           else add(MenuAction(HomeIcon, "Back to where I was writing", canvas::goHome))
           // Plugin actions (none with only the built-in plugins).
           for (entry in pluginActions(true)) add(MenuAction(IdeaIcon, entry.capability.label, { onPluginAction(entry) }, entry.capability.iconRes))
+          add(MenuAction(SettingsIcon, "Settings", ::openSettings))
           add(MenuAction(IdeaIcon, "Note a bug or idea", {
             val page = if (canvas.pageLayout != null) ", page ${currentPage + 1}" else ""
             onReport("$title$page")
@@ -1904,6 +1951,7 @@ private fun NoteScreen(
           angleDegrees = viewAngle,
           onZoomPreset = { canvas.setView(zoom = it / 100f) },
           onAnglePreset = { canvas.setView(angleDegrees = it.toFloat()) },
+          onOpenSettings = ::openSettings,
           isPalm = isPalm,
         )
       }
@@ -1941,9 +1989,10 @@ private fun NoteScreen(
         TopIconButton(CloseIcon, "Leave present mode", onClick = { leavePresent() })
       }
     }
-    // Locks are kept in the settings; the canvas reads its own copy for speed.
+    // Locks and input toggles are kept in settings; the canvas reads its own copy for speed.
     canvas.zoomLocked = viewSettings.zoomLocked
     canvas.rotationLocked = viewSettings.rotationLocked
+    canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
 
     colorWheelFor?.let { slot ->
       val tool = tools[slot]

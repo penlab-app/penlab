@@ -6,6 +6,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.penlab.app.ui.theme.PageThemeMode
 
 /**
  * The page-view presets and locks, kept between launches (Android's SharedPreferences: a small
@@ -44,6 +45,19 @@ class ViewSettings(context: Context) {
   fun setDrawWithFinger(on: Boolean) {
     fingerDrawChoice = on
     prefs.edit().putBoolean(KEY_FINGER_DRAW, on).apply()
+  }
+
+  /** Hold-to-snap-shapes preference (on by default). */
+  private var _shapeSnapping by mutableStateOf(
+    shapeSnappingDefault(if (prefs.contains(KEY_SHAPE_SNAPPING)) prefs.getBoolean(KEY_SHAPE_SNAPPING, DEFAULT_SHAPE_SNAPPING) else null),
+  )
+
+  val shapeSnapping: Boolean
+    get() = _shapeSnapping
+
+  fun setShapeSnapping(enabled: Boolean) {
+    _shapeSnapping = enabled
+    prefs.edit().putBoolean(KEY_SHAPE_SNAPPING, enabled).apply()
   }
 
   /** Call for every touch or hover event: remembers the first time a pen shows up. */
@@ -97,8 +111,24 @@ class ViewSettings(context: Context) {
     const val KEY_ROTATION_LOCK = "rotation_locked"
     const val KEY_STYLUS_SEEN = "stylus_seen"
     const val KEY_FINGER_DRAW = "finger_draw"
+    const val KEY_SHAPE_SNAPPING = "shape_snapping"
   }
 }
+
+/** Default for "Hold to snap shapes" when the user has never changed the switch. */
+const val DEFAULT_SHAPE_SNAPPING = true
+
+/**
+ * The "Hold to snap shapes" rule: an explicit [storedChoice] wins, otherwise defaults to on.
+ */
+fun shapeSnappingDefault(storedChoice: Boolean?): Boolean = storedChoice ?: DEFAULT_SHAPE_SNAPPING
+
+/**
+ * Resolves whether a notebook canvas renders in dark-paper mode.
+ * PDF notebooks always stay on white paper regardless of [pageThemeMode].
+ */
+fun resolveCanvasDarkPage(pageThemeMode: PageThemeMode, isPdfNotebook: Boolean): Boolean =
+  pageThemeMode.isDark && !isPdfNotebook
 
 /**
  * The "Draw with finger" rule. An explicit [userChoice] always wins. Without one it is on for a

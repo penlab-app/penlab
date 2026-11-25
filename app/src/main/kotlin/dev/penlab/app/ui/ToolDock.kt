@@ -79,7 +79,10 @@ import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.InkTool
 import dev.penlab.app.ink.InkTools
 import dev.penlab.app.ink.PenStyle
+import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
+import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.floatingChromeSurface
 import dev.penlab.app.ui.theme.softShadow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -464,14 +467,20 @@ private fun Bar(
   modifier: Modifier,
 ) {
   val shape = RoundedCornerShape(BarHeight / 2)
+  val isDark = LocalPenLabColors.current.isDark
   Layout(
     content = {
       Row(
         modifier
           .height(BarHeight)
-          .shadow(6.dp, shape)
-          .softShadow(shape).clip(shape)
-          .background(PenLabColors.toolbar)
+          .floatingChromeSurface(
+            shape = shape,
+            background = PenLabComponentTokens.chromePillBg,
+            elevation = 8.dp,
+            subtleLightHairline = true,
+            borderColor = PenLabComponentTokens.chromePillBorder,
+            isDark = isDark,
+          )
           .ignorePalm(isPalm)
           .horizontalScroll(rememberScrollState())
           .padding(end = 6.dp)
@@ -530,6 +539,12 @@ private fun Wheel(
 ) {
   val view = androidx.compose.ui.platform.LocalView.current
   val density = androidx.compose.ui.platform.LocalDensity.current
+  val scheme = MaterialTheme.colorScheme
+  val isDarkTheme = LocalPenLabColors.current.isDark
+  val wheelCore = scheme.surfaceContainerHighest
+  val wheelGroove = scheme.surfaceContainerLow
+  val wheelInnerRim = scheme.outlineVariant
+  val hubWell = hubWellColor(tools.getOrNull(selectedIndex), darkPage, scheme, isDarkTheme)
   val ringItems = items.filterIsInstance<DockItem.Tool>()
   // Opening and closing carry momentum: a spring that overshoots a little and settles.
   val open = remember { Animatable(0f) }
@@ -627,14 +642,14 @@ private fun Wheel(
             val c = Offset(size.width / 2f, size.height / 2f)
             drawCircle(
               androidx.compose.ui.graphics.Brush.radialGradient(
-                0f to WheelCore, 1f to PenLabColors.toolbar, center = c, radius = size.width / 2f,
+                0f to wheelCore, 1f to PenLabColors.toolbar, center = c, radius = size.width / 2f,
               ),
             )
             val ring = RingRadius.toPx()
             val band = WheelCell.toPx() + 10.dp.toPx()
-            drawCircle(WheelGroove, radius = ring, center = c, style = Stroke(band))
+            drawCircle(wheelGroove, radius = ring, center = c, style = Stroke(band))
             drawCircle(PenLabColors.hairline, radius = ring + band / 2f, center = c, style = Stroke(1.dp.toPx()))
-            drawCircle(Color.Black.copy(alpha = 0.35f), radius = ring - band / 2f, center = c, style = Stroke(1.dp.toPx()))
+            drawCircle(wheelInnerRim, radius = ring - band / 2f, center = c, style = Stroke(1.dp.toPx()))
           }
           .border(1.dp, PenLabColors.hairline, shape)
           .ignorePalm(isPalm)
@@ -697,9 +712,9 @@ private fun Wheel(
             scaleY = lifted.value
           }
           .size(HubSize)
-          .shadow(if (lifted.value > 1.01f) 14.dp else 6.dp, shape)
-          .softShadow(shape).clip(shape)
-          .hubFace(lightWell = needsLightWell(tools.getOrNull(selectedIndex), darkPage))
+          .softShadow(shape, elevation = if (lifted.value > 1.01f) 14.dp else 8.dp)
+          .clip(shape)
+          .hubFace(coreColor = wheelCore, wellColor = hubWell)
           .pointerInput(dock, items) {
             awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false)
@@ -874,17 +889,26 @@ private const val RingStepDeg = (RingEndDeg - RingStartDeg) / 3f
 /** Fan-out: how far (in opening progress) each tool trails the one before it. */
 private const val FAN_LAG = 0.08f
 
-/** The wheel's lit middle and the groove the tools run in (a shade either side of the toolbar). */
-private val WheelCore = Color(0xFF3A3E44)
-private val WheelGroove = Color(0xFF1A1C1F)
-
-/** Behind a dark ink's sample on the wheel button (black pen on white paper): paper-light. */
-private val LightWell = Color(0xFFE6E9EE)
-
-/** A pen whose ink shows dark on screen gets a light well, so its sample never sinks in. */
-private fun needsLightWell(tool: InkTool?, darkPage: Boolean): Boolean {
-  if (tool == null || tool.isEraser || tool.isLasso || tool.isText || tool.isFill) return false
-  return Color(InkColors.onScreen(tool.paperColor or 0xFF000000.toInt(), darkPage)).luminance() < 0.3f
+/**
+ * Picks a high-contrast well behind the hub's tool sample across both Light and Dark UI themes:
+ * dark ink on a dark UI gets an inverse (light) well, and pale ink on a light UI gets an inverse
+ * (dark) well so the sample never disappears into the hub.
+ */
+private fun hubWellColor(
+  tool: InkTool?,
+  darkPage: Boolean,
+  scheme: androidx.compose.material3.ColorScheme,
+  isDarkTheme: Boolean,
+): Color {
+  if (tool == null || tool.isEraser || tool.isLasso || tool.isText || tool.isFill) {
+    return scheme.surfaceContainerLow
+  }
+  val lum = Color(InkColors.onScreen(tool.paperColor or 0xFF000000.toInt(), darkPage)).luminance()
+  return when {
+    isDarkTheme && lum < 0.3f -> scheme.inverseSurface
+    !isDarkTheme && lum > 0.72f -> scheme.inverseSurface
+    else -> scheme.surfaceContainerLow
+  }
 }
 
 
@@ -929,6 +953,10 @@ private fun DragBall(dock: ToolDock, tool: InkTool?, darkPage: Boolean, mmPerDp:
   val speed = if (Motion.enabled) hypot(v.x, v.y) else 0f
   val stretch = 1f + (speed / 90f).coerceAtMost(0.35f)
   val heading = Math.toDegrees(kotlin.math.atan2(v.y, v.x).toDouble()).toFloat()
+  val scheme = MaterialTheme.colorScheme
+  val isDarkTheme = LocalPenLabColors.current.isDark
+  val wheelCore = scheme.surfaceContainerHighest
+  val hubWell = hubWellColor(tool, darkPage, scheme, isDarkTheme)
   Box(
     Modifier
       .offset { (dock.ball.value - Offset(BallSize.toPx() / 2, BallSize.toPx() / 2)).round() }
@@ -938,10 +966,9 @@ private fun DragBall(dock: ToolDock, tool: InkTool?, darkPage: Boolean, mmPerDp:
         scaleY = squeeze.value / stretch
       }
       .size(BallSize)
-      .shadow(10.dp, CircleShape)
-      .softShadow(CircleShape).clip(CircleShape)
-      .hubFace(lightWell = needsLightWell(tool, darkPage))
-      ,
+      .softShadow(CircleShape, elevation = 12.dp)
+      .clip(CircleShape)
+      .hubFace(coreColor = wheelCore, wellColor = hubWell),
     contentAlignment = Alignment.Center,
   ) {
     tool?.let { ToolGlyph(it, darkPage, mmPerDp, Modifier.size(32.dp, 22.dp), minStroke = 3.dp) }
@@ -1175,11 +1202,11 @@ private fun Modifier.matchParentSizeCompat(): Modifier = this.then(Modifier.fill
  * well behind the tool sample, so a light ink or a grey icon stands out (user request: the
  * icon in the circle "looks bland"; it was a light sample on a flat grey disc).
  */
-private fun Modifier.hubFace(lightWell: Boolean): Modifier = this.drawBehind {
+private fun Modifier.hubFace(coreColor: Color, wellColor: Color): Modifier = this.drawBehind {
   val c = Offset(size.width / 2f, size.height / 2f)
   val r = size.minDimension / 2f
-  drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(0f to WheelCore, 1f to PenLabColors.toolbar, center = c.copy(y = c.y - r * 0.4f), radius = r * 1.4f), r, c)
-  drawCircle(if (lightWell) LightWell else WheelGroove, r - 7.dp.toPx(), c)
+  drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(0f to coreColor, 1f to PenLabColors.toolbar, center = c.copy(y = c.y - r * 0.4f), radius = r * 1.4f), r, c)
+  drawCircle(wellColor, r - 7.dp.toPx(), c)
   drawCircle(PenLabColors.accent, r - 1.5.dp.toPx(), c, style = Stroke(2.5.dp.toPx()))
 }
 

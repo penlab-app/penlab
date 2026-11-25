@@ -29,10 +29,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,7 +56,13 @@ import dev.penlab.app.ink.PageBackground
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.ink.PenStyle
 import dev.penlab.app.ink.LineType
+import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.components.PenLabSnackbar
+import dev.penlab.app.ui.components.PenLabSwitchRow
+import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
+import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.floatingChromeSurface
 import dev.penlab.app.ui.theme.softShadow
 import kotlin.math.PI
 import kotlin.math.abs
@@ -168,9 +170,9 @@ fun ToolOptionsPanel(
       valueRange = range,
       colors =
         SliderDefaults.colors(
-          thumbColor = PenLabColors.icon,
-          activeTrackColor = PenLabColors.icon,
-          inactiveTrackColor = PenLabColors.hairline,
+          thumbColor = MaterialTheme.colorScheme.primary,
+          activeTrackColor = MaterialTheme.colorScheme.primary,
+          inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant,
         ),
       modifier = Modifier.semantics { contentDescription = if (tool.isEraser) "Eraser size" else "Line width" },
     )
@@ -260,28 +262,7 @@ fun InstrumentsPanel(
 
 @Composable
 internal fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-  Row(
-    Modifier.fillMaxWidth()
-      .heightIn(min = 48.dp)
-      .clip(RoundedCornerShape(10.dp))
-      .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
-      .padding(horizontal = 6.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Text(label, color = PenLabColors.icon, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-    Switch(
-      checked = checked,
-      onCheckedChange = null, // the whole row is the switch
-      colors =
-        SwitchDefaults.colors(
-          checkedThumbColor = PenLabColors.toolbar,
-          checkedTrackColor = PenLabColors.icon,
-          uncheckedThumbColor = PenLabColors.iconDisabled,
-          uncheckedTrackColor = PenLabColors.toolbar,
-          uncheckedBorderColor = PenLabColors.hairline,
-        ),
-    )
-  }
+  PenLabSwitchRow(label = label, checked = checked, onCheckedChange = onChange)
 }
 
 /** The panel behind the paper button: blank, lined or dotted. */
@@ -348,23 +329,12 @@ fun PaperPanel(
  */
 @Composable
 fun ToolbarMessage(message: String, actionLabel: String?, onAction: () -> Unit, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(14.dp)
-  Row(
-    modifier.softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
-      .padding(start = 20.dp, end = 8.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Text(message, color = PenLabColors.icon, style = MaterialTheme.typography.bodyMedium)
-    if (actionLabel != null) {
-      Spacer(Modifier.width(8.dp))
-      TextButton(onClick = onAction) {
-        Text(actionLabel, color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge)
-      }
-    } else {
-      Spacer(Modifier.size(width = 12.dp, height = 48.dp))
-    }
-  }
+  PenLabSnackbar(
+    message = message,
+    actionLabel = actionLabel,
+    onAction = if (actionLabel != null) onAction else null,
+    modifier = modifier,
+  )
 }
 
 @Composable
@@ -442,8 +412,14 @@ fun SelectionActions(
   val shape = RoundedCornerShape(14.dp)
   Row(
     modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
+      .floatingChromeSurface(
+        shape = shape,
+        background = PenLabComponentTokens.selectionBarBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.selectionBarBorder,
+        isDark = LocalPenLabColors.current.isDark,
+      )
       .ignorePalm(isPalm)
       .padding(horizontal = 4.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -485,8 +461,14 @@ fun PasteMenu(onPaste: () -> Unit, onClear: () -> Unit, isPalm: () -> Boolean, m
   val shape = RoundedCornerShape(14.dp)
   Row(
     modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
+      .floatingChromeSurface(
+        shape = shape,
+        background = PenLabComponentTokens.selectionBarBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.selectionBarBorder,
+        isDark = LocalPenLabColors.current.isDark,
+      )
       .ignorePalm(isPalm)
       .padding(horizontal = 4.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -558,8 +540,14 @@ fun TopIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: 
   val shape = RoundedCornerShape(12.dp)
   Box(
     modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
+      .floatingChromeSurface(
+        shape = shape,
+        background = PenLabComponentTokens.chromePillBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.chromePillBorder,
+        isDark = LocalPenLabColors.current.isDark,
+      )
       .clickable(onClick = onClick)
       .size(width = 44.dp, height = 36.dp)
       .semantics { contentDescription = label },
@@ -583,11 +571,11 @@ class MenuAction(
 fun TopMoreMenu(actions: List<MenuAction>, expanded: Boolean, onExpandedChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
   // The open state lives in the screen so it counts as an overlay (a press outside only closes it).
   Box(modifier) {
-    TopIconButton(MoreIcon, "More: save, share, photo, full screen", onClick = { onExpandedChange(true) })
+    TopIconButton(MoreIcon, "More: save, share, present, photo, settings", onClick = { onExpandedChange(true) })
     androidx.compose.material3.DropdownMenu(
       expanded = expanded,
       onDismissRequest = { onExpandedChange(false) },
-      containerColor = PenLabColors.toolbar,
+      containerColor = PenLabComponentTokens.panelBg,
     ) {
       for (a in actions) {
         androidx.compose.material3.DropdownMenuItem(
@@ -640,14 +628,11 @@ fun ExportButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 /** The shared look of a panel: same surface and hairline as the toolbar it belongs to. */
 @Composable
 private fun Panel(modifier: Modifier, isPalm: () -> Boolean, content: @Composable () -> Unit) {
-  val shape = RoundedCornerShape(16.dp)
-  Column(
-    modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
-      .ignorePalm(isPalm)
-      .padding(10.dp)
-      .width(PanelCell * 5)
+  PenLabPopoverSurface(
+    isPalm = isPalm,
+    modifier = modifier.width(PanelCell * 5 + 20.dp),
+    contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp),
+    verticalArrangement = Arrangement.Top,
   ) {
     content()
   }

@@ -75,8 +75,13 @@ class StrokeChunkCache(
     set(value) {
       if (value == field) return
       field = value
-      for (chunk in chunks) chunk.needsRecording = true
+      invalidateAll()
     }
+
+  /** Marks every chunk stale so recordings rebuild on the next draw (e.g. after toggling dark paper). */
+  fun invalidateAll() {
+    for (chunk in chunks) chunk.needsRecording = true
+  }
 
   /** Strokes left out of the recordings (a selection being dragged is drawn elsewhere). */
   private val hidden: MutableSet<InkStroke> = Collections.newSetFromMap(IdentityHashMap())

@@ -78,7 +78,7 @@ internal fun pressOnlyClosed(downTime: Long, closedAt: Long): Boolean = abs(down
 @SuppressLint("ViewConstructor")
 class InkCanvasView(
   context: Context,
-  val darkPage: Boolean = true,
+  darkPage: Boolean = true,
   /** Pages of paper (an A4 notebook), or null for one endless canvas. */
   val pageLayout: PageLayout? = null,
   /**
@@ -89,6 +89,42 @@ class InkCanvasView(
   /** The notebook's `images/` folder, where photos on its pages are kept. */
   private val imagesDir: java.io.File? = null,
 ) : FrameLayout(context) {
+
+  /** Whether plain pages render dark (display-only lightness-inverted ink). PDFs always stay light. */
+  @Volatile
+  private var _darkPage: Boolean = darkPage && pdf == null
+
+  val darkPage: Boolean
+    get() = _darkPage
+
+  /**
+   * Switches the canvas between light and dark paper live without dropping ink or view state.
+   * Rebuilds display-only colour caches, page/tile rasters, thumbnails, and overlay paints.
+   * No-op when unchanged or when this canvas displays a PDF notebook.
+   */
+  fun setDarkPage(dark: Boolean) {
+    val effective = dark && pdf == null
+    if (_darkPage == effective) return
+    _darkPage = effective
+    setBackgroundColor(if (pageLayout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage))
+    pageBackground.setDarkPage(darkPage)
+    instrumentStyle = InstrumentStyle(darkPage)
+    synchronized(screenVersions) { screenVersions.clear() }
+    chunkCache.invalidateAll()
+    rasters.invalidateAll()
+    tiles.invalidateAll()
+    freshInk.clear()
+    freshTileInk.clear()
+    clearThumbnails()
+    finishedView.updateDarkPage()
+    selectionView.updateDarkPage()
+    eraserCursor.updateDarkPage()
+    finishedView.invalidate()
+    instrumentView.invalidate()
+    selectionView.invalidate()
+    eraserCursor.invalidate()
+    onPicturesUpdated()
+  }
 
   // ---- Photos and text boxes ---------------------------------------------------------------
 
@@ -1254,6 +1290,7 @@ class InkCanvasView(
     val pageItems = items.filter { RectF.intersects(it.bounds(RectF()), rect) }.map { it to itemTextColorFor(it) }
     val style = pageStyle
     val spacing = rulingMm
+    val dark = darkPage
     val generation = thumbnailGeneration
     thumbnailThread.execute {
       val scale = widthPx / layout.pageWidth
@@ -1263,9 +1300,10 @@ class InkCanvasView(
         canvas.drawColor(android.graphics.Color.WHITE)
         slide?.let { canvas.drawBitmap(it, null, RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG)) }
       } else {
-        canvas.drawColor(InkColors.pageOnScreen(darkPage))
+        canvas.drawColor(InkColors.pageOnScreen(dark))
         canvas.save()
         canvas.scale(scale, scale)
+        thumbnailBackground.setDarkPage(dark)
         thumbnailBackground.spacingMm = spacing
         thumbnailBackground.draw(canvas, style, RectF(0f, 0f, layout.pageWidth, layout.pageHeight), scale)
         canvas.restore()
@@ -1780,7 +1818,7 @@ class InkCanvasView(
   val unitsPerMm: Float =
     if (pageLayout != null) PageLayout.UNITS_PER_MM else resources.displayMetrics.xdpi / 25.4f
 
-  private val instrumentStyle = InstrumentStyle(darkPage)
+  private var instrumentStyle = InstrumentStyle(darkPage)
   private var ruler: Ruler? = null
   private var protractor: Protractor? = null
 
@@ -2392,6 +2430,13 @@ class InkCanvasView(
         color = InkColors.onScreen(0xFF5F6670.toInt(), darkPage)
         textAlign = Paint.Align.CENTER
       }
+
+    fun updateDarkPage() {
+      paperPaint.color = InkColors.pageOnScreen(darkPage)
+      edgePaint.color = InkColors.pageEdgeOnScreen(darkPage)
+      pullPaint.color = InkColors.pageEdgeOnScreen(darkPage)
+      pullText.color = InkColors.onScreen(0xFF5F6670.toInt(), darkPage)
+    }
 
     /**
      * Each page that shows: paper, its ruling (measured from that page's own top edge, so every
@@ -3395,6 +3440,16 @@ class InkCanvasView(
         strokeWidth = 2f * density
         color = InkColors.onScreen(SELECTION_PAPER_COLOR, darkPage)
       }
+
+    fun updateDarkPage() {
+      val sel = InkColors.onScreen(SELECTION_PAPER_COLOR, darkPage)
+      dashed.color = sel
+      solid.color = sel
+      handleDot.color = sel
+      handleEdge.color = sel
+      handleFill.color = InkColors.pageOnScreen(darkPage)
+      label.color = InkColors.onScreen(0xFF000000.toInt(), darkPage)
+    }
   }
 
   private inner class EraserCursorView(context: Context) : View(context) {
@@ -3404,6 +3459,10 @@ class InkCanvasView(
         strokeWidth = 1.5f * resources.displayMetrics.density
         color = InkColors.onScreen(ERASER_CURSOR_PAPER_COLOR, darkPage)
       }
+
+    fun updateDarkPage() {
+      paint.color = InkColors.onScreen(ERASER_CURSOR_PAPER_COLOR, darkPage)
+    }
     private var x = 0f
     private var y = 0f
     private var radius = 0f

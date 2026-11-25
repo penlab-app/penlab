@@ -68,7 +68,9 @@ import dev.penlab.app.ink.PageBackground
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.notes.NotebookInfo
 import dev.penlab.app.notes.NotebookKind
+import dev.penlab.app.ui.components.PenLabIconButton
 import dev.penlab.app.ui.theme.PenLabColors
+import dev.penlab.app.ui.theme.PenLabComponentTokens
 import java.text.DateFormat
 import java.util.Date
 
@@ -115,6 +117,7 @@ fun LibraryScreen(
   onExport: (NotebookInfo) -> Unit,
   onShare: (NotebookInfo) -> Unit,
   onTurn: (NotebookInfo) -> Unit,
+  onOpenSettings: () -> Unit,
   onReport: () -> Unit,
   /** Where a notebook's cover picture is (it may not exist yet). */
   coverFile: (NotebookInfo) -> java.io.File,
@@ -134,7 +137,7 @@ fun LibraryScreen(
   }
   val here = remember(notebooks, current) { notebooks.filter { it.folder == current } }
 
-  Box(Modifier.fillMaxSize().background(Color(InkColors.deskOnScreen(darkPage)))) {
+  Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
       // Portrait: the search box gets its own line, or the buttons get squashed.
       androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -152,6 +155,11 @@ fun LibraryScreen(
           TextButton(onClick = { creatingFolder = true }) {
             Text("New folder", color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge, maxLines = 1)
           }
+          PenLabIconButton(
+            icon = PenLabIcons.Settings,
+            contentDescription = "Settings",
+            onClick = onOpenSettings,
+          )
           Spacer(Modifier.width(8.dp))
           Button(
             onClick = { creating = true },
@@ -443,11 +451,15 @@ private fun FolderTile(
           style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f),
         )
       }
-      DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-        DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
-        DropdownMenuItem(text = { Text("Colour") }, onClick = { menu = false; onColor() })
-        DropdownMenuItem(text = { Text("Move to folder") }, onClick = { menu = false; onMove() })
-        DropdownMenuItem(text = { Text("Delete (if empty)") }, onClick = { menu = false; onDelete() })
+      DropdownMenu(
+        expanded = menu,
+        onDismissRequest = { menu = false },
+        containerColor = PenLabComponentTokens.panelBg,
+      ) {
+        DropdownMenuItem(text = { Text("Rename", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onRename() })
+        DropdownMenuItem(text = { Text("Colour", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onColor() })
+        DropdownMenuItem(text = { Text("Move to folder", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onMove() })
+        DropdownMenuItem(text = { Text("Delete (if empty)", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onDelete() })
       }
     }
     Spacer(Modifier.height(10.dp))
@@ -603,17 +615,21 @@ private fun NotebookCard(
       } else {
         PaperThumbnail(notebook.pageStyle, darkPage, aspect = aspect, pdf = notebook.pdfPages.isNotEmpty())
       }
-      DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-        DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
-        DropdownMenuItem(text = { Text("Move to folder") }, onClick = { menu = false; onMove() })
-        DropdownMenuItem(text = { Text("Save as PDF") }, onClick = { menu = false; onExport() })
-        DropdownMenuItem(text = { Text("Share PDF") }, onClick = { menu = false; onShare() })
+      DropdownMenu(
+        expanded = menu,
+        onDismissRequest = { menu = false },
+        containerColor = PenLabComponentTokens.panelBg,
+      ) {
+        DropdownMenuItem(text = { Text("Rename", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onRename() })
+        DropdownMenuItem(text = { Text("Move to folder", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onMove() })
+        DropdownMenuItem(text = { Text("Save as PDF", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onExport() })
+        DropdownMenuItem(text = { Text("Share PDF", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onShare() })
         // Plain A4 notebooks can be turned; a PDF's pages keep their own shape.
         if (notebook.kind == NotebookKind.A4 && notebook.pdfPages.isEmpty()) {
           val toLandscape = notebook.pageWidthMm < notebook.pageHeightMm
-          DropdownMenuItem(text = { Text(if (toLandscape) "Turn to landscape" else "Turn to portrait") }, onClick = { menu = false; onTurn() })
+          DropdownMenuItem(text = { Text(if (toLandscape) "Turn to landscape" else "Turn to portrait", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onTurn() })
         }
-        DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; onDelete() })
+        DropdownMenuItem(text = { Text("Delete", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onDelete() })
       }
     }
     Spacer(Modifier.height(10.dp))
@@ -813,13 +829,13 @@ private fun PenLabTextField(value: String, onChange: (String) -> Unit, label: St
     singleLine = true,
     colors =
       OutlinedTextFieldDefaults.colors(
-        focusedTextColor = PenLabColors.icon,
-        unfocusedTextColor = PenLabColors.icon,
-        focusedBorderColor = PenLabColors.icon,
-        unfocusedBorderColor = PenLabColors.hairline,
-        focusedLabelColor = PenLabColors.icon,
-        unfocusedLabelColor = PenLabColors.iconDisabled,
-        cursorColor = PenLabColors.icon,
+        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+        focusedLabelColor = MaterialTheme.colorScheme.primary,
+        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        cursorColor = MaterialTheme.colorScheme.primary,
       ),
     modifier = Modifier.fillMaxWidth(),
   )
@@ -878,12 +894,16 @@ private fun CourseShelf(
         androidx.compose.material3.IconButton(onClick = { menu = true }) {
           androidx.compose.material3.Icon(MoreIcon, contentDescription = "$name options", tint = PenLabColors.iconDisabled)
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-          DropdownMenuItem(text = { Text("Open folder") }, onClick = { menu = false; onOpenFolder() })
-          DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; onRename() })
-          DropdownMenuItem(text = { Text("Colour") }, onClick = { menu = false; onColor() })
-          DropdownMenuItem(text = { Text("Move to folder") }, onClick = { menu = false; onMove() })
-          DropdownMenuItem(text = { Text("Delete (if empty)") }, onClick = { menu = false; onDelete() })
+        DropdownMenu(
+          expanded = menu,
+          onDismissRequest = { menu = false },
+          containerColor = PenLabComponentTokens.panelBg,
+        ) {
+          DropdownMenuItem(text = { Text("Open folder", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onOpenFolder() })
+          DropdownMenuItem(text = { Text("Rename", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onRename() })
+          DropdownMenuItem(text = { Text("Colour", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onColor() })
+          DropdownMenuItem(text = { Text("Move to folder", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onMove() })
+          DropdownMenuItem(text = { Text("Delete (if empty)", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onDelete() })
         }
       }
     }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -28,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -38,8 +40,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.search.HandwritingIndex
+import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
-import dev.penlab.app.ui.theme.softShadow
+import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabShapes
+import dev.penlab.app.ui.theme.PenLabTextStyles
+import dev.penlab.app.ui.theme.floatingChromeSurface
 
 /**
  * Handwriting search: a box, what the reader is doing, and the lines that matched.
@@ -56,27 +63,27 @@ fun SearchPanel(
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
 ) {
-  val shape = RoundedCornerShape(16.dp)
   val focus = remember { FocusRequester() }
   LaunchedEffect(Unit) { focus.requestFocus() }
-  Column(
-    modifier.softShadow(shape).clip(shape).background(PenLabColors.toolbar).ignorePalm(isPalm).padding(12.dp).width(320.dp),
+  PenLabPopoverSurface(
+    isPalm = isPalm,
+    modifier = modifier.width(320.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text("Search handwriting", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.labelMedium)
+    Text("Search handwriting", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
     OutlinedTextField(
       value = query,
       onValueChange = onQueryChange,
       singleLine = true,
-      placeholder = { Text("A word you wrote…", color = PenLabColors.iconDisabled) },
+      placeholder = { Text("A word you wrote…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
       keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
       keyboardActions = KeyboardActions(onSearch = { if (hits.isNotEmpty()) onOpen(0) }),
       colors = OutlinedTextFieldDefaults.colors(
-        focusedTextColor = PenLabColors.icon,
-        unfocusedTextColor = PenLabColors.icon,
-        focusedBorderColor = PenLabColors.icon,
-        unfocusedBorderColor = PenLabColors.hairline,
-        cursorColor = PenLabColors.icon,
+        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+        cursorColor = MaterialTheme.colorScheme.primary,
       ),
       modifier = Modifier.fillMaxWidth().focusRequester(focus),
     )
@@ -100,9 +107,9 @@ fun SearchPanel(
           verticalAlignment = Alignment.CenterVertically,
         ) {
           if (paged) {
-            Text("p. ${hit.line.page + 1}", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+            Text("p. ${hit.line.page + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = PenLabTextStyles.tabularMedium, modifier = Modifier.width(44.dp))
           }
-          Text(highlighted(hit), color = PenLabColors.icon, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+          Text(highlighted(hit), color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
       }
     }
@@ -112,27 +119,44 @@ fun SearchPanel(
 /** After jumping to a result: "2 of 7" with previous / next, and close. */
 @Composable
 fun SearchStepper(index: Int, count: Int, onStep: (Int) -> Unit, onClose: () -> Unit, isPalm: () -> Boolean, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(20.dp)
   Row(
-    modifier.softShadow(shape).clip(shape).background(PenLabColors.toolbar).ignorePalm(isPalm).padding(horizontal = 6.dp, vertical = 4.dp),
+    modifier
+      .floatingChromeSurface(
+        shape = PenLabShapes.pill,
+        background = PenLabComponentTokens.chromePillBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.chromePillBorder,
+        isDark = LocalPenLabColors.current.isDark,
+      )
+      .ignorePalm(isPalm)
+      .padding(horizontal = 6.dp, vertical = 4.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    StepperButton("‹", "Previous match", enabled = index > 0) { onStep(index - 1) }
-    Text("${index + 1} of $count", color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 8.dp))
-    StepperButton("›", "Next match", enabled = index < count - 1) { onStep(index + 1) }
-    StepperButton("✕", "Close search", enabled = true, onClick = onClose)
+    StepperIconButton(PenLabIcons.Back, "Previous match", enabled = index > 0) { onStep(index - 1) }
+    Text("${index + 1} of $count", color = MaterialTheme.colorScheme.onSurface, style = PenLabTextStyles.tabularLabel, modifier = Modifier.padding(horizontal = 8.dp))
+    StepperIconButton(PenLabIcons.ChevronRight, "Next match", enabled = index < count - 1) { onStep(index + 1) }
+    StepperIconButton(PenLabIcons.Close, "Close search", enabled = true, onClick = onClose)
   }
 }
 
 @Composable
-private fun StepperButton(glyph: String, label: String, enabled: Boolean, onClick: () -> Unit) {
-  Text(
-    glyph,
-    color = if (enabled) PenLabColors.icon else PenLabColors.iconDisabled,
-    style = MaterialTheme.typography.titleMedium,
-    modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable(enabled = enabled, onClick = onClick)
-      .semantics { contentDescription = label }.padding(horizontal = 12.dp, vertical = 6.dp),
-  )
+private fun StepperIconButton(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+  androidx.compose.foundation.layout.Box(
+    modifier = Modifier
+      .size(36.dp)
+      .clip(PenLabShapes.pill)
+      .clickable(enabled = enabled, onClick = onClick)
+      .semantics { contentDescription = label },
+    contentAlignment = Alignment.Center,
+  ) {
+    Icon(
+      imageVector = icon,
+      contentDescription = null,
+      tint = if (enabled) MaterialTheme.colorScheme.onSurface else PenLabComponentTokens.toolIconDisabled,
+      modifier = Modifier.size(18.dp),
+    )
+  }
 }
 
 private fun statusText(status: HandwritingIndex.Status): String? = when (status) {
@@ -169,21 +193,34 @@ fun LibrarySearchField(query: String, onQueryChange: (String) -> Unit) {
     modifier = Modifier.width(260.dp).semantics { contentDescription = "Search all notebooks" },
     decorationBox = { field ->
       Row(
-        Modifier.softShadow(shape).clip(shape).background(PenLabColors.toolbar).padding(horizontal = 12.dp, vertical = 9.dp),
+        Modifier
+          .floatingChromeSurface(
+            shape = shape,
+            background = PenLabComponentTokens.chromePillBg,
+            elevation = 4.dp,
+            subtleLightHairline = true,
+            borderColor = PenLabComponentTokens.chromePillBorder,
+            isDark = LocalPenLabColors.current.isDark,
+          )
+          .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        androidx.compose.material3.Icon(SearchIcon, contentDescription = null, tint = PenLabColors.iconDisabled, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+        Icon(SearchIcon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp).size(18.dp))
         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
-          if (query.isEmpty()) Text("Search handwriting", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodyMedium)
+          if (query.isEmpty()) Text("Search handwriting", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
           field()
         }
         if (query.isNotEmpty()) {
-          Text(
-            "✕",
-            color = PenLabColors.iconDisabled,
-            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { onQueryChange("") }
-              .semantics { contentDescription = "Clear search" }.padding(horizontal = 4.dp),
-          )
+          androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+              .size(28.dp)
+              .clip(PenLabShapes.pill)
+              .clickable { onQueryChange("") }
+              .semantics { contentDescription = "Clear search" },
+            contentAlignment = Alignment.Center,
+          ) {
+            Icon(PenLabIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+          }
         }
       }
     },

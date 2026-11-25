@@ -61,6 +61,13 @@ class PageBackground(unitsPerDp: Float, darkPage: Boolean) {
       strokeCap = Paint.Cap.ROUND
     }
 
+  /** Updates ruling paints when switching between light and dark paper live. */
+  fun setDarkPage(darkPage: Boolean) {
+    minorPaint.color = InkColors.onScreen(MINOR_PAPER_COLOR, darkPage)
+    majorPaint.color = InkColors.onScreen(RULING_PAPER_COLOR, darkPage)
+    paint.color = InkColors.onScreen(RULING_PAPER_COLOR, darkPage)
+  }
+
   /** Reused between frames so drawing allocates nothing. */
   private var points = FloatArray(0)
 

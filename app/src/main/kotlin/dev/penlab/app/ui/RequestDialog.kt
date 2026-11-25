@@ -42,8 +42,8 @@ fun RequestDialog(where: String, existing: List<Request>, onDismiss: () -> Unit,
   val open = existing.count { !it.done }
   AlertDialog(
     onDismissRequest = onDismiss,
-    containerColor = PenLabColors.toolbar,
-    title = { Text("Note a bug or idea", color = PenLabColors.icon) },
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    title = { Text("Note a bug or idea", color = MaterialTheme.colorScheme.onSurface) },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -58,13 +58,13 @@ fun RequestDialog(where: String, existing: List<Request>, onDismiss: () -> Unit,
           minLines = 3,
           colors =
             OutlinedTextFieldDefaults.colors(
-              focusedTextColor = PenLabColors.icon,
-              unfocusedTextColor = PenLabColors.icon,
-              focusedBorderColor = PenLabColors.icon,
-              unfocusedBorderColor = PenLabColors.hairline,
-              focusedLabelColor = PenLabColors.icon,
-              unfocusedLabelColor = PenLabColors.iconDisabled,
-              cursorColor = PenLabColors.icon,
+              focusedTextColor = MaterialTheme.colorScheme.onSurface,
+              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+              focusedBorderColor = MaterialTheme.colorScheme.primary,
+              unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+              focusedLabelColor = MaterialTheme.colorScheme.primary,
+              unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+              cursorColor = MaterialTheme.colorScheme.primary,
             ),
           modifier = Modifier.fillMaxWidth(),
         )
@@ -115,8 +115,8 @@ fun TextBoxDialog(initial: String, isNew: Boolean, onDismiss: () -> Unit, onDone
   var text by remember { mutableStateOf(initial) }
   AlertDialog(
     onDismissRequest = onDismiss,
-    containerColor = PenLabColors.toolbar,
-    title = { Text(if (isNew) "Add text" else "Edit text", color = PenLabColors.icon) },
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    title = { Text(if (isNew) "Add text" else "Edit text", color = MaterialTheme.colorScheme.onSurface) },
     text = {
       OutlinedTextField(
         value = text,
@@ -124,17 +124,17 @@ fun TextBoxDialog(initial: String, isNew: Boolean, onDismiss: () -> Unit, onDone
         minLines = 3,
         colors =
           OutlinedTextFieldDefaults.colors(
-            focusedTextColor = PenLabColors.icon,
-            unfocusedTextColor = PenLabColors.icon,
-            focusedBorderColor = PenLabColors.icon,
-            unfocusedBorderColor = PenLabColors.hairline,
-            cursorColor = PenLabColors.icon,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            cursorColor = MaterialTheme.colorScheme.primary,
           ),
         modifier = Modifier.fillMaxWidth(),
       )
     },
-    confirmButton = { TextButton(onClick = { onDone(text) }) { Text(if (isNew) "Add" else "Save", color = PenLabColors.icon) } },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = PenLabColors.iconDisabled) } },
+    confirmButton = { TextButton(onClick = { onDone(text) }) { Text(if (isNew) "Add" else "Save", color = MaterialTheme.colorScheme.primary) } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } },
   )
 }
 
@@ -144,8 +144,8 @@ fun RenameDialog(title: String, initial: String, onDismiss: () -> Unit, onDone: 
   var text by remember { mutableStateOf(initial) }
   AlertDialog(
     onDismissRequest = onDismiss,
-    containerColor = PenLabColors.toolbar,
-    title = { Text(title, color = PenLabColors.icon) },
+    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    title = { Text(title, color = MaterialTheme.colorScheme.onSurface) },
     text = {
       OutlinedTextField(
         value = text,
@@ -153,16 +153,16 @@ fun RenameDialog(title: String, initial: String, onDismiss: () -> Unit, onDone: 
         singleLine = true,
         colors =
           OutlinedTextFieldDefaults.colors(
-            focusedTextColor = PenLabColors.icon,
-            unfocusedTextColor = PenLabColors.icon,
-            focusedBorderColor = PenLabColors.icon,
-            unfocusedBorderColor = PenLabColors.hairline,
-            cursorColor = PenLabColors.icon,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            cursorColor = MaterialTheme.colorScheme.primary,
           ),
         modifier = Modifier.fillMaxWidth(),
       )
     },
-    confirmButton = { TextButton(onClick = { onDone(text) }) { Text("Save", color = PenLabColors.icon) } },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = PenLabColors.iconDisabled) } },
+    confirmButton = { TextButton(onClick = { onDone(text) }) { Text("Save", color = MaterialTheme.colorScheme.primary) } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } },
   )
 }

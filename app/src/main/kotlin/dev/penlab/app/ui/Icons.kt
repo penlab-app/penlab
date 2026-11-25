@@ -13,6 +13,7 @@ import com.adamglin.phosphoricons.duotone.BookmarkSimple
 import com.adamglin.phosphoricons.duotone.Broom
 import com.adamglin.phosphoricons.duotone.CaretDown
 import com.adamglin.phosphoricons.duotone.CaretLeft
+import com.adamglin.phosphoricons.duotone.CaretRight
 import com.adamglin.phosphoricons.duotone.Check
 import com.adamglin.phosphoricons.duotone.ClipboardText
 import com.adamglin.phosphoricons.duotone.CloudArrowUp
@@ -21,6 +22,7 @@ import com.adamglin.phosphoricons.duotone.Copy
 import com.adamglin.phosphoricons.duotone.CopySimple
 import com.adamglin.phosphoricons.duotone.CornersIn
 import com.adamglin.phosphoricons.duotone.CornersOut
+import com.adamglin.phosphoricons.duotone.DeviceTablet
 import com.adamglin.phosphoricons.duotone.DotsSixVertical
 import com.adamglin.phosphoricons.duotone.DotsThree
 import com.adamglin.phosphoricons.duotone.DotsThreeVertical
@@ -117,6 +119,7 @@ object PenLabIcons {
   val Plus: ImageVector get() = PhosphorIcons.Duotone.Plus
   val Minus: ImageVector get() = PhosphorIcons.Duotone.Minus
   val ChevronDown: ImageVector get() = PhosphorIcons.Duotone.CaretDown
+  val ChevronRight: ImageVector get() = PhosphorIcons.Duotone.CaretRight
   val Check: ImageVector get() = PhosphorIcons.Duotone.Check
   val Search: ImageVector get() = PhosphorIcons.Duotone.MagnifyingGlass
   val Home: ImageVector get() = PhosphorIcons.Duotone.House
@@ -150,6 +153,7 @@ object PenLabIcons {
   val Idea: ImageVector get() = PhosphorIcons.Duotone.Lightbulb
   val Sun: ImageVector get() = PhosphorIcons.Duotone.Sun
   val Moon: ImageVector get() = PhosphorIcons.Duotone.Moon
+  val DeviceTablet: ImageVector get() = PhosphorIcons.Duotone.DeviceTablet
 }
 
 // Top-level aliases preserved for concise imports across existing and new UI screens.

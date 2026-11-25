@@ -3,7 +3,6 @@ package dev.penlab.app.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -44,8 +43,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
-import dev.penlab.app.ui.theme.softShadow
+import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.floatingChromeSurface
 
 /** "Page 3 / 10" next to the back button in an A4 notebook. Tap for the page grid. */
 @Composable
@@ -54,8 +56,14 @@ fun PageCounter(page: () -> Int, count: Int, onClick: () -> Unit, modifier: Modi
   val current = page() + 1
   Row(
     modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
+      .floatingChromeSurface(
+        shape = shape,
+        background = PenLabComponentTokens.chromePillBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.chromePillBorder,
+        isDark = LocalPenLabColors.current.isDark,
+      )
       .clickable(onClick = onClick)
       .heightIn(min = 36.dp)
       .padding(horizontal = 12.dp)
@@ -93,16 +101,11 @@ fun PagesPanel(
   val pages = remember(count, bookmarks, onlyBookmarked) {
     (0 until count).filter { !onlyBookmarked || it in bookmarks }
   }
-  val shape = RoundedCornerShape(16.dp)
   val thumbWidthPx = with(LocalDensity.current) { 112.dp.roundToPx() }
-  Column(
-    modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
-      .ignorePalm(isPalm)
-      .padding(12.dp)
-      .width(560.dp)
-      .heightIn(max = 620.dp),
+  PenLabPopoverSurface(
+    isPalm = isPalm,
+    modifier = modifier.width(560.dp).heightIn(max = 620.dp),
+    verticalArrangement = Arrangement.Top,
   ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text("Pages", color = PenLabColors.icon, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
@@ -189,14 +192,18 @@ private fun PageTile(
         Icon(
           if (bookmarked) BookmarkIcon else BookmarkOutlineIcon,
           contentDescription = null,
-          tint = if (bookmarked) BookmarkColor else PenLabColors.iconDisabled,
+          tint = if (bookmarked) MaterialTheme.colorScheme.tertiary else PenLabColors.iconDisabled,
           modifier = Modifier.size(20.dp),
         )
       }
-      DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-        DropdownMenuItem(text = { Text("Insert page before") }, onClick = { menu = false; onInsertBefore() })
-        DropdownMenuItem(text = { Text("Insert page after") }, onClick = { menu = false; onInsertAfter() })
-        if (onDelete != null) DropdownMenuItem(text = { Text("Delete page") }, onClick = { menu = false; onDelete() })
+      DropdownMenu(
+        expanded = menu,
+        onDismissRequest = { menu = false },
+        containerColor = PenLabComponentTokens.panelBg,
+      ) {
+        DropdownMenuItem(text = { Text("Insert page before", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onInsertBefore() })
+        DropdownMenuItem(text = { Text("Insert page after", color = MaterialTheme.colorScheme.onSurface) }, onClick = { menu = false; onInsertAfter() })
+        if (onDelete != null) DropdownMenuItem(text = { Text("Delete page", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; onDelete() })
       }
     }
     Text(
@@ -207,6 +214,3 @@ private fun PageTile(
     )
   }
 }
-
-/** The ribbon colour of a bookmarked page: a muted amber that reads on the graphite UI. */
-private val BookmarkColor = androidx.compose.ui.graphics.Color(0xFFE8B04A)

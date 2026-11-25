@@ -6,18 +6,19 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,12 +27,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import dev.penlab.app.ui.theme.PenLabColors
-import dev.penlab.app.ui.theme.softShadow
+import dev.penlab.app.ui.components.PenLabMenuItem
+import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.components.PenLabSwitchRow
+import dev.penlab.app.ui.theme.Accent
+import dev.penlab.app.ui.theme.AccentTheme
+import dev.penlab.app.ui.theme.LocalPenLabColors
+import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabShapes
+import dev.penlab.app.ui.theme.PenLabSpacing
+import dev.penlab.app.ui.theme.PenLabTextStyles
+import dev.penlab.app.ui.theme.floatingChromeSurface
 
 /**
  * The small readout in the top-right corner: zoom and angle of the page.
@@ -51,8 +62,14 @@ fun ViewReadout(
   val angle = angleDegrees()
   Row(
     modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
+      .floatingChromeSurface(
+        shape = shape,
+        background = PenLabComponentTokens.chromePillBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.chromePillBorder,
+        isDark = LocalPenLabColors.current.isDark,
+      )
       .clickable(onClick = onClick)
       .heightIn(min = 36.dp)
       .padding(horizontal = 12.dp)
@@ -67,11 +84,12 @@ fun ViewReadout(
 
 @Composable
 private fun ReadoutValue(text: String, locked: Boolean) {
+  val scheme = MaterialTheme.colorScheme
   if (locked) {
-    Icon(LockIcon, contentDescription = null, tint = PenLabColors.iconDisabled, modifier = Modifier.size(12.dp))
+    Icon(LockIcon, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
     Spacer(Modifier.width(3.dp))
   }
-  Text(text, color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
+  Text(text, color = scheme.onSurface, style = PenLabTextStyles.tabularLabel)
 }
 
 /**
@@ -88,15 +106,12 @@ fun ViewPanel(
   onAnglePreset: (Int) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  onOpenSettings: (() -> Unit)? = null,
 ) {
-  val shape = RoundedCornerShape(16.dp)
-  Column(
-    modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
-      .ignorePalm(isPalm)
-      .padding(12.dp)
-      .width(260.dp),
+  val scheme = MaterialTheme.colorScheme
+  PenLabPopoverSurface(
+    isPalm = isPalm,
+    modifier = modifier.width(276.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     PresetRow(
@@ -121,50 +136,72 @@ fun ViewPanel(
       onAdd = { settings.addAnglePreset(angleDegrees) },
       addLabel = "Save $angleDegrees° as a preset",
     )
+    Text(
+      "Long-press a preset to remove it.",
+      color = scheme.onSurfaceVariant,
+      style = MaterialTheme.typography.bodySmall,
+    )
+    HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
     // Interface animations: off, slow, normal or fast.
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Text("Animations", color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge)
-      androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+      Text("Animations", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge)
+      Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         for (speed in MotionSpeed.entries) {
           val selected = Motion.speed == speed
           Box(
-            Modifier.clip(RoundedCornerShape(10.dp))
-              .background(if (selected) PenLabColors.accent else PenLabColors.chip)
+            Modifier.clip(PenLabShapes.small)
+              .background(if (selected) scheme.primary else PenLabComponentTokens.chipIdleBg)
               .clickable { Motion.set(speed) }
-              .padding(horizontal = 10.dp, vertical = 7.dp)
+              .padding(horizontal = 10.dp, vertical = 7.dp),
           ) {
-            Text(speed.label, color = if (selected) PenLabColors.onAccent else PenLabColors.icon, style = MaterialTheme.typography.labelMedium)
+            Text(
+              speed.label,
+              color = if (selected) scheme.onPrimary else scheme.onSurface,
+              style = MaterialTheme.typography.labelMedium,
+            )
           }
         }
       }
     }
     // The look: blueprint blue or copper.
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Text("Look", color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge)
-      androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (look in dev.penlab.app.ui.theme.AccentTheme.entries) {
-          val selected = dev.penlab.app.ui.theme.Accent.theme == look
-          androidx.compose.foundation.layout.Row(
-            Modifier.clip(RoundedCornerShape(10.dp))
-              .background(if (selected) PenLabColors.chip else androidx.compose.ui.graphics.Color.Transparent)
-              .border(1.dp, if (selected) look.accent else PenLabColors.hairline, RoundedCornerShape(10.dp))
-              .clickable { dev.penlab.app.ui.theme.Accent.set(look) }
+      Text("Look", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge)
+      Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (look in AccentTheme.entries) {
+          val selected = Accent.theme == look
+          Row(
+            Modifier.clip(PenLabShapes.small)
+              .background(if (selected) scheme.primaryContainer else Color.Transparent)
+              .border(1.dp, if (selected) look.accent else scheme.outlineVariant, PenLabShapes.small)
+              .clickable { Accent.set(look) }
               .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
           ) {
-            Box(Modifier.size(10.dp).background(look.accent, androidx.compose.foundation.shape.CircleShape))
-            Text(look.label, color = PenLabColors.icon, style = MaterialTheme.typography.labelMedium)
+            Box(Modifier.size(10.dp).background(look.accent, CircleShape))
+            Text(
+              look.label,
+              color = if (selected) scheme.onPrimaryContainer else scheme.onSurface,
+              style = MaterialTheme.typography.labelMedium,
+            )
           }
         }
       }
     }
-    Text(
-      "Long-press a preset to remove it.",
-      color = PenLabColors.iconDisabled,
-      style = MaterialTheme.typography.bodySmall,
+    PenLabSwitchRow(
+      label = "Draw with finger",
+      checked = settings.drawWithFinger,
+      onCheckedChange = settings::setDrawWithFinger,
     )
-    SwitchRow("Draw with finger", settings.drawWithFinger, settings::setDrawWithFinger)
+    if (onOpenSettings != null) {
+      HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
+      PenLabMenuItem(
+        label = "Settings…",
+        icon = PenLabIcons.Settings,
+        showChevron = true,
+        onClick = onOpenSettings,
+      )
+    }
   }
 }
 
@@ -181,17 +218,18 @@ private fun PresetRow(
   onAdd: () -> Unit,
   addLabel: String,
 ) {
+  val scheme = MaterialTheme.colorScheme
   Column {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      Text(title, color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+      Text(title, color = scheme.onSurface, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
       IconButton(
         onClick = onLock,
-        modifier = Modifier.size(40.dp).semantics { stateDescription = if (locked) "Locked" else "Unlocked" },
+        modifier = Modifier.size(PenLabSpacing.touchTarget).semantics { stateDescription = if (locked) "Locked" else "Unlocked" },
       ) {
         Icon(
           if (locked) LockIcon else LockOpenIcon,
           contentDescription = "Lock $title",
-          tint = if (locked) PenLabColors.icon else PenLabColors.iconDisabled,
+          tint = if (locked) scheme.primary else scheme.onSurfaceVariant,
           modifier = Modifier.size(20.dp),
         )
       }
@@ -207,14 +245,14 @@ private fun PresetRow(
 
 @Composable
 private fun Chip(text: String, modifier: Modifier) {
-  val shape = RoundedCornerShape(10.dp)
+  val shape = PenLabShapes.small
   Text(
     text,
-    color = PenLabColors.icon,
-    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+    color = MaterialTheme.colorScheme.onSurface,
+    style = PenLabTextStyles.tabularLabel,
     modifier =
       Modifier.clip(shape)
-        .background(PenLabColors.chip, shape)
+        .background(PenLabComponentTokens.chipIdleBg, shape)
         .then(modifier)
         .heightIn(min = 40.dp)
         .padding(horizontal = 14.dp, vertical = 10.dp),

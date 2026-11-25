@@ -97,58 +97,103 @@ fun PagesPanel(
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
 ) {
-  var onlyBookmarked by remember { mutableStateOf(false) }
-  val pages = remember(count, bookmarks, onlyBookmarked) {
-    (0 until count).filter { !onlyBookmarked || it in bookmarks }
-  }
-  val thumbWidthPx = with(LocalDensity.current) { 112.dp.roundToPx() }
   PenLabPopoverSurface(
     isPalm = isPalm,
     modifier = modifier.width(560.dp).heightIn(max = 620.dp),
     verticalArrangement = Arrangement.Top,
   ) {
+    PagesPanelContent(
+      count = count,
+      currentPage = currentPage,
+      bookmarks = bookmarks,
+      version = version,
+      thumbnail = thumbnail,
+      onJump = onJump,
+      onToggleBookmark = onToggleBookmark,
+      onInsert = onInsert,
+      onDelete = onDelete,
+    )
+  }
+}
+
+/**
+ * Embeddable Pages grid content used by both [PagesPanel] and [PageConfigPopover] (avoids nested
+ * popover surfaces).
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PagesPanelContent(
+  count: Int,
+  currentPage: Int,
+  bookmarks: Set<Int>,
+  version: Int,
+  thumbnail: (page: Int, widthPx: Int) -> Bitmap?,
+  onJump: (Int) -> Unit,
+  onToggleBookmark: (Int) -> Unit,
+  onInsert: (at: Int) -> Unit,
+  onDelete: (Int) -> Unit,
+  showHeading: Boolean = true,
+  modifier: Modifier = Modifier,
+) {
+  var onlyBookmarked by remember { mutableStateOf(false) }
+  val pages = remember(count, bookmarks, onlyBookmarked) {
+    (0 until count).filter { !onlyBookmarked || it in bookmarks }
+  }
+  val thumbWidthPx = with(LocalDensity.current) { 112.dp.roundToPx() }
+  Column(modifier = modifier.fillMaxWidth()) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      Text("Pages", color = PenLabColors.icon, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+      if (showHeading) {
+        Text("Pages", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+      } else {
+        Text(
+          text = if (count == 1) "1 page" else "$count pages",
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+          modifier = Modifier.weight(1f),
+        )
+      }
       TextButton(onClick = { onlyBookmarked = !onlyBookmarked }) {
         Text(
           if (onlyBookmarked) "All pages" else "Bookmarked",
-          color = PenLabColors.icon,
+          color = MaterialTheme.colorScheme.primary,
           style = MaterialTheme.typography.labelLarge,
         )
       }
       TextButton(onClick = { onInsert(count) }) {
-        Text("Add page", color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge)
+        Text("Add page", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
       }
     }
     if (pages.isEmpty()) {
       Text(
         "No bookmarked pages. Tap the ribbon on a page to bookmark it.",
-        color = PenLabColors.iconDisabled,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.padding(vertical = 24.dp),
       )
-    }
-    LazyVerticalGrid(
-      columns = GridCells.Adaptive(minSize = 112.dp),
-      contentPadding = PaddingValues(vertical = 8.dp),
-      horizontalArrangement = Arrangement.spacedBy(14.dp),
-      verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-      items(pages, key = { it }, contentType = { "page" }) { page ->
-        PageTile(
-          page = page,
-          current = page == currentPage,
-          bookmarked = page in bookmarks,
-          image = remember(page, version) { thumbnail(page, thumbWidthPx) },
-          onJump = { onJump(page) },
-          onToggleBookmark = { onToggleBookmark(page) },
-          onInsertBefore = { onInsert(page) },
-          onInsertAfter = { onInsert(page + 1) },
-          onDelete = if (count > 1) ({ onDelete(page) }) else null,
-        )
+    } else {
+      LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 112.dp),
+        contentPadding = PaddingValues(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.weight(1f, fill = false),
+      ) {
+        items(pages, key = { it }, contentType = { "page" }) { page ->
+          PageTile(
+            page = page,
+            current = page == currentPage,
+            bookmarked = page in bookmarks,
+            image = remember(page, version) { thumbnail(page, thumbWidthPx) },
+            onJump = { onJump(page) },
+            onToggleBookmark = { onToggleBookmark(page) },
+            onInsertBefore = { onInsert(page) },
+            onInsertAfter = { onInsert(page + 1) },
+            onDelete = if (count > 1) ({ onDelete(page) }) else null,
+          )
+        }
       }
     }
-    Text("Long-press a page to insert a page before or after it, or to delete it.", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodySmall)
+    Text("Long-press a page to insert a page before or after it, or to delete it.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
   }
 }
 

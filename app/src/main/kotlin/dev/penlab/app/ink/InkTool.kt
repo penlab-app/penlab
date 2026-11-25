@@ -67,7 +67,7 @@ object InkTools {
       NamedColor("Grey", 0xFF6B7280.toInt()),
       NamedColor("Blue", 0xFF1565C0.toInt()),
       NamedColor("Teal", 0xFF00838F.toInt()),
-      NamedColor("Green", 0xFF2E7D32.toInt()),
+      NamedColor("Green", 0xFF1E7E3E.toInt()),
       NamedColor("Red", 0xFFD32F2F.toInt()),
       NamedColor("Orange", 0xFFEF6C00.toInt()),
       NamedColor("Purple", 0xFF6A1B9A.toInt()),
@@ -150,21 +150,39 @@ object InkTools {
     return if (size == null) name else "$name, $size"
   }
 
-  /** The toolbar as it starts: three pens, a highlighter, the eraser (all medium), the lasso. */
-  /**
-   * In the user's chosen order: the three pens (black on paper = white on the dark page, blue,
-   * red) and the lasso first, where the wheel shows them; then eraser, text and, last, the
-   * highlighter, which he rarely uses.
-   */
-  val defaults =
+  /** Default colour sequence for up to 6 customizable pen slots: Black, Blue, Red, Green, Orange, Purple. */
+  private val defaultPenColorOrder =
     listOf(
-      InkTool(InkTool.Kind.PEN, penColors[0].paperColor, penSizes[1]),
-      InkTool(InkTool.Kind.PEN, penColors[2].paperColor, penSizes[1]),
-      InkTool(InkTool.Kind.PEN, penColors[5].paperColor, penSizes[1]),
-      InkTool(InkTool.Kind.LASSO, 0, 0f),
-      InkTool(InkTool.Kind.ERASER, 0, eraserSizes[1]),
-      InkTool(InkTool.Kind.TEXT, penColors[0].paperColor, 5f),
-      InkTool(InkTool.Kind.HIGHLIGHTER, highlighterColors[0].paperColor, highlighterSizes[1]),
-      InkTool(InkTool.Kind.FILL, fillColors[0].paperColor, 0f),
+      penColors[0].paperColor, // Black
+      penColors[2].paperColor, // Blue
+      penColors[5].paperColor, // Red
+      penColors[4].paperColor, // Green (#1E7E3E)
+      penColors[6].paperColor, // Orange
+      penColors[7].paperColor, // Purple
     )
+
+  /** Starting pen configuration for customizable pen slot [slot] (0-indexed). */
+  fun defaultPenForSlot(slot: Int): InkTool =
+    InkTool(
+      InkTool.Kind.PEN,
+      defaultPenColorOrder[slot.coerceIn(0, defaultPenColorOrder.lastIndex)],
+      penSizes[1],
+    )
+
+  /** Starting non-pen utility tools in canonical order. */
+  val defaultUtilities: List<InkTool> =
+    listOf(
+      InkTool(InkTool.Kind.ERASER, 0, eraserSizes[1]),
+      InkTool(InkTool.Kind.LASSO, 0, 0f),
+      InkTool(InkTool.Kind.FILL, fillColors[0].paperColor, 0f),
+      InkTool(InkTool.Kind.HIGHLIGHTER, highlighterColors[0].paperColor, highlighterSizes[1]),
+      InkTool(InkTool.Kind.TEXT, penColors[0].paperColor, 5f),
+    )
+
+  /**
+   * The toolbar as it starts: 4 customizable pens (black, blue, red, green) plus eraser, lasso,
+   * fill, highlighter and text.
+   */
+  val defaults: List<InkTool> =
+    (0 until 4).map(::defaultPenForSlot) + defaultUtilities
 }

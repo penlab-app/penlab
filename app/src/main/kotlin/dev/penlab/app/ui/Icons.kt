@@ -6,6 +6,7 @@ import com.adamglin.phosphoricons.Duotone
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.duotone.ArrowArcLeft
 import com.adamglin.phosphoricons.duotone.ArrowArcRight
+import com.adamglin.phosphoricons.duotone.ArrowsClockwise
 import com.adamglin.phosphoricons.duotone.ArrowsOutCardinal
 import com.adamglin.phosphoricons.duotone.ArrowsOutLineHorizontal
 import com.adamglin.phosphoricons.duotone.Article
@@ -14,6 +15,7 @@ import com.adamglin.phosphoricons.duotone.Broom
 import com.adamglin.phosphoricons.duotone.CaretDown
 import com.adamglin.phosphoricons.duotone.CaretLeft
 import com.adamglin.phosphoricons.duotone.CaretRight
+import com.adamglin.phosphoricons.duotone.CaretUp
 import com.adamglin.phosphoricons.duotone.Check
 import com.adamglin.phosphoricons.duotone.ClipboardText
 import com.adamglin.phosphoricons.duotone.CloudArrowUp
@@ -119,7 +121,9 @@ object PenLabIcons {
   val Plus: ImageVector get() = PhosphorIcons.Duotone.Plus
   val Minus: ImageVector get() = PhosphorIcons.Duotone.Minus
   val ChevronDown: ImageVector get() = PhosphorIcons.Duotone.CaretDown
+  val ChevronUp: ImageVector get() = PhosphorIcons.Duotone.CaretUp
   val ChevronRight: ImageVector get() = PhosphorIcons.Duotone.CaretRight
+  val Rotate: ImageVector get() = PhosphorIcons.Duotone.ArrowsClockwise
   val Check: ImageVector get() = PhosphorIcons.Duotone.Check
   val Search: ImageVector get() = PhosphorIcons.Duotone.MagnifyingGlass
   val Home: ImageVector get() = PhosphorIcons.Duotone.House

@@ -2,11 +2,9 @@ package dev.penlab.app.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -16,8 +14,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,7 +26,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -35,8 +33,6 @@ import androidx.compose.ui.unit.dp
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabPopoverSurface
 import dev.penlab.app.ui.components.PenLabSwitchRow
-import dev.penlab.app.ui.theme.Accent
-import dev.penlab.app.ui.theme.AccentTheme
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabShapes
@@ -106,14 +102,20 @@ fun ViewPanel(
   onAnglePreset: (Int) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  isPaged: Boolean = true,
+  onFitOrHome: (() -> Unit)? = null,
   onOpenSettings: (() -> Unit)? = null,
 ) {
   val scheme = MaterialTheme.colorScheme
   PenLabPopoverSurface(
     isPalm = isPalm,
-    modifier = modifier.width(276.dp),
-    verticalArrangement = Arrangement.spacedBy(10.dp),
+    modifier = modifier.width(284.dp).heightIn(max = 560.dp),
+    verticalArrangement = Arrangement.Top,
   ) {
+    Column(
+      modifier = Modifier.verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
     PresetRow(
       title = "Zoom",
       locked = settings.zoomLocked,
@@ -141,53 +143,15 @@ fun ViewPanel(
       color = scheme.onSurfaceVariant,
       style = MaterialTheme.typography.bodySmall,
     )
+    if (onFitOrHome != null) {
+      HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
+      PenLabMenuItem(
+        label = if (isPaged) "Fit page to width" else "Go home",
+        icon = if (isPaged) PenLabIcons.FitWidth else PenLabIcons.Home,
+        onClick = onFitOrHome,
+      )
+    }
     HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
-    // Interface animations: off, slow, normal or fast.
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Text("Animations", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge)
-      Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (speed in MotionSpeed.entries) {
-          val selected = Motion.speed == speed
-          Box(
-            Modifier.clip(PenLabShapes.small)
-              .background(if (selected) scheme.primary else PenLabComponentTokens.chipIdleBg)
-              .clickable { Motion.set(speed) }
-              .padding(horizontal = 10.dp, vertical = 7.dp),
-          ) {
-            Text(
-              speed.label,
-              color = if (selected) scheme.onPrimary else scheme.onSurface,
-              style = MaterialTheme.typography.labelMedium,
-            )
-          }
-        }
-      }
-    }
-    // The look: blueprint blue or copper.
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Text("Look", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge)
-      Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        for (look in AccentTheme.entries) {
-          val selected = Accent.theme == look
-          Row(
-            Modifier.clip(PenLabShapes.small)
-              .background(if (selected) scheme.primaryContainer else Color.Transparent)
-              .border(1.dp, if (selected) look.accent else scheme.outlineVariant, PenLabShapes.small)
-              .clickable { Accent.set(look) }
-              .padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-          ) {
-            Box(Modifier.size(10.dp).background(look.accent, CircleShape))
-            Text(
-              look.label,
-              color = if (selected) scheme.onPrimaryContainer else scheme.onSurface,
-              style = MaterialTheme.typography.labelMedium,
-            )
-          }
-        }
-      }
-    }
     PenLabSwitchRow(
       label = "Draw with finger",
       checked = settings.drawWithFinger,
@@ -201,6 +165,7 @@ fun ViewPanel(
         showChevron = true,
         onClick = onOpenSettings,
       )
+    }
     }
   }
 }

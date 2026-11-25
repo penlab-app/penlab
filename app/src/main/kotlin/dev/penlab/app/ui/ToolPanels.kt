@@ -56,12 +56,17 @@ import dev.penlab.app.ink.PageBackground
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.ink.PenStyle
 import dev.penlab.app.ink.LineType
+import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.components.PenLabSnackbar
 import dev.penlab.app.ui.components.PenLabSwitchRow
+import dev.penlab.app.ui.theme.Accent
 import dev.penlab.app.ui.theme.LocalPenLabColors
+import dev.penlab.app.ui.theme.PageThemeMode
 import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.floatingChromeSurface
 import dev.penlab.app.ui.theme.softShadow
 import kotlin.math.PI
@@ -137,7 +142,7 @@ fun ToolOptionsPanel(
     }
     if (tool.isEraser) {
       Row(Modifier.selectableGroup().semantics { contentDescription = "What the eraser removes" }) {
-        for ((partial, label) in listOf(false to "Whole strokes", true to "Part of a stroke")) {
+        for ((partial, label) in listOf(false to "Complete stroke", true to "Partial stroke")) {
           Option(
             label = label,
             selected = tool.partialErase == partial,
@@ -236,8 +241,9 @@ fun ToolOptionsPanel(
 }
 
 /**
- * The panel behind the ruler button: switch the ruler and the protractor on or off. When on,
- * they lie on the page: drag with one finger, turn with two, draw along an edge with the pen.
+ * The panel behind the Tools button: switch the ruler, protractor, and hold-to-snap shapes on or
+ * off. When on, instruments lie on the page: drag with one finger, turn with two, draw along an
+ * edge with the pen.
  */
 @Composable
 fun InstrumentsPanel(
@@ -247,15 +253,60 @@ fun InstrumentsPanel(
   onProtractor: (Boolean) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  shapeSnappingOn: Boolean = true,
+  onShapeSnapping: ((Boolean) -> Unit)? = null,
 ) {
   Panel(modifier, isPalm) {
     SwitchRow("Ruler", rulerOn, onRuler)
     SwitchRow("Protractor", protractorOn, onProtractor)
+    if (onShapeSnapping != null) {
+      PanelDivider()
+      SwitchRow("Hold to snap shapes", shapeSnappingOn, onShapeSnapping)
+    }
     Text(
-      "Drag with one finger, turn with two. Draw along an edge with the pen for a straight line.",
-      color = PenLabColors.iconDisabled,
+      "Drag instruments with one finger, turn with two. Draw along an edge with the pen.",
+      color = MaterialTheme.colorScheme.onSurfaceVariant,
       style = MaterialTheme.typography.bodySmall,
       modifier = Modifier.padding(top = 6.dp),
+    )
+  }
+}
+
+/**
+ * The panel behind the More (`▾`) button on the center toolbar: import from PDF, insert image,
+ * quick access to Highlighter, Text box, Layers, and Clear page.
+ */
+@Composable
+fun MoreToolsPanel(
+  canClear: Boolean,
+  onAddFromPdf: () -> Unit,
+  onAddImage: () -> Unit,
+  onSelectHighlighter: () -> Unit,
+  onSelectTextBox: () -> Unit,
+  onOpenLayers: () -> Unit,
+  onClearPage: () -> Unit,
+  isPalm: () -> Boolean,
+  modifier: Modifier = Modifier,
+) {
+  PenLabPopoverSurface(
+    isPalm = isPalm,
+    modifier = modifier.width(248.dp),
+    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp, horizontal = 6.dp),
+    verticalArrangement = Arrangement.spacedBy(2.dp),
+  ) {
+    PenLabMenuItem(label = "Add from PDF", icon = PenLabIcons.Pdf, onClick = onAddFromPdf)
+    PenLabMenuItem(label = "Add image", icon = PenLabIcons.Image, onClick = onAddImage)
+    PanelDivider()
+    PenLabMenuItem(label = "Highlighter", icon = PenLabIcons.Highlighter, onClick = onSelectHighlighter)
+    PenLabMenuItem(label = "Text box", icon = PenLabIcons.Text, onClick = onSelectTextBox)
+    PenLabMenuItem(label = "Layers", icon = PenLabIcons.Layers, onClick = onOpenLayers)
+    PanelDivider()
+    PenLabMenuItem(
+      label = "Clear page",
+      icon = PenLabIcons.Clear,
+      destructive = true,
+      enabled = canClear,
+      onClick = onClearPage,
     )
   }
 }
@@ -275,10 +326,74 @@ fun PaperPanel(
   onSpacing: (Float) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  isPdfNotebook: Boolean = false,
+  showPaperModeToggle: Boolean = false,
 ) {
   Panel(modifier, isPalm) {
-    val presets = PageBackground.spacingPresetsMm(style)
-    FlowRow(Modifier.selectableGroup().semantics { contentDescription = "Paper style" }) {
+    PaperPanelContent(
+      style = style,
+      darkPage = darkPage,
+      onStylePicked = onStylePicked,
+      spacingMm = spacingMm,
+      onSpacing = onSpacing,
+      isPdfNotebook = isPdfNotebook,
+      showPaperModeToggle = showPaperModeToggle,
+    )
+  }
+}
+
+/**
+ * Embeddable paper style + spacing + optional Light/Dark paper toggle content shared by
+ * [PaperPanel] and [PageConfigPopover].
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PaperPanelContent(
+  style: PageStyle,
+  darkPage: Boolean,
+  onStylePicked: (PageStyle) -> Unit,
+  spacingMm: Float,
+  onSpacing: (Float) -> Unit,
+  isPdfNotebook: Boolean = false,
+  showPaperModeToggle: Boolean = false,
+  modifier: Modifier = Modifier,
+) {
+  val presets = PageBackground.spacingPresetsMm(style)
+  Column(modifier = modifier.fillMaxWidth()) {
+    if (showPaperModeToggle) {
+      PenLabSegmentedControl(
+        options = PageThemeMode.entries,
+        selected = if (isPdfNotebook) PageThemeMode.LIGHT else Accent.pageThemeMode,
+        onSelect = Accent::setPageThemeMode,
+        enabled = !isPdfNotebook,
+        label = { mode ->
+          when (mode) {
+            PageThemeMode.LIGHT -> "Light paper"
+            PageThemeMode.DARK -> "Dark paper"
+          }
+        },
+        icon = { mode ->
+          when (mode) {
+            PageThemeMode.LIGHT -> PenLabIcons.Sun
+            PageThemeMode.DARK -> PenLabIcons.Moon
+          }
+        },
+      )
+      if (isPdfNotebook) {
+        Text(
+          text = "PDF pages always stay white.",
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          style = MaterialTheme.typography.bodySmall,
+          modifier = Modifier.padding(top = PenLabSpacing.xs),
+        )
+      }
+      PanelDivider()
+    }
+    FlowRow(
+      Modifier.fillMaxWidth().selectableGroup().semantics { contentDescription = "Paper style" },
+      horizontalArrangement = Arrangement.spacedBy(2.dp),
+      verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
       for (option in PageStyle.entries) {
         Option(
           label = option.label,
@@ -782,7 +897,40 @@ fun LayersPanel(
   modifier: Modifier = Modifier,
 ) {
   Panel(modifier, isPalm) {
-    Text("Layers", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+    LayersPanelContent(
+      names = names,
+      hidden = hidden,
+      current = current,
+      onSelect = onSelect,
+      onVisible = onVisible,
+      onRename = onRename,
+      onDelete = onDelete,
+      onAdd = onAdd,
+    )
+  }
+}
+
+/**
+ * Embeddable layers list shared by [LayersPanel] and [PageConfigPopover].
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun LayersPanelContent(
+  names: List<String>,
+  hidden: Set<Int>,
+  current: Int,
+  onSelect: (Int) -> Unit,
+  onVisible: (Int, Boolean) -> Unit,
+  onRename: (Int) -> Unit,
+  onDelete: (Int) -> Unit,
+  onAdd: () -> Unit,
+  showHeading: Boolean = true,
+  modifier: Modifier = Modifier,
+) {
+  Column(modifier = modifier.fillMaxWidth()) {
+    if (showHeading) {
+      Text("Layers", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 8.dp, bottom = 4.dp))
+    }
     for (index in names.indices.reversed()) {
       val shape = RoundedCornerShape(12.dp)
       val isCurrent = index == current
@@ -818,7 +966,7 @@ fun LayersPanel(
       Modifier.fillMaxWidth().height(PanelCell).clip(RoundedCornerShape(12.dp)).clickable(onClick = onAdd),
       contentAlignment = Alignment.Center,
     ) {
-      Text("+ New layer", color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge)
+      Text("+ New layer", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
     }
   }
 }

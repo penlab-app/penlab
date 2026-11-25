@@ -128,10 +128,15 @@ sealed class DockItem(val key: Int) {
   data object Clear : DockItem(-12)
 
   data object Layers : DockItem(LAYERS_CELL)
+
+  data object More : DockItem(MORE_CELL)
 }
 
 /** Stands for the layers button where a cell number is needed. */
 const val LAYERS_CELL = -3
+
+/** Stands for the "More" toolbar button (Add from PDF, Add image, Highlighter, Text, Layers, Clear). */
+const val MORE_CELL = -4
 
 /**
  * The dock's state: where it is (kept between launches), whether it is being dragged, and
@@ -141,8 +146,18 @@ const val LAYERS_CELL = -3
 class ToolDock(context: Context) {
   private val prefs = context.getSharedPreferences("toolbar", Context.MODE_PRIVATE)
 
-  var side by mutableStateOf(DockSide.entries.firstOrNull { it.name == prefs.getString("side", null) } ?: DockSide.LEFT)
+  var side by mutableStateOf(DockSide.entries.firstOrNull { it.name == prefs.getString("side", null) } ?: DockSide.TOP)
     private set
+
+  /** Programmatically docks the toolbar to [newSide] (e.g. from Settings). */
+  fun dockTo(newSide: DockSide) {
+    side = newSide
+    wheelOpen = false
+    if (!newSide.isVertical && !newSide.isCorner) {
+      along = 0.5f
+    }
+    prefs.edit().putString("side", side.name).putFloat("along", along).apply()
+  }
 
   /** Top and bottom bars: where the bar's middle is, 0 = left edge, 1 = right edge. */
   var along by mutableFloatStateOf(prefs.getFloat("along", 0.5f))
@@ -172,16 +187,25 @@ class ToolDock(context: Context) {
 
   /** Where the open options panel is (root pixels), or empty. */
   internal var panelBounds = androidx.compose.ui.geometry.Rect.Zero
+
+  /** Exact bounds of the docked bar or rail (root pixels), or empty for corner wheel. */
+  internal var barBounds = androidx.compose.ui.geometry.Rect.Zero
+
+  /** Both end grip centres (root pixels), keyed by grip slot (0 = start/top, 1 = end/bottom). */
+  internal val gripCenters = HashMap<Int, Offset>()
+
   internal var wheelReachPx = 0f
   internal var cellReachPx = 0f
 
   /**
    * True if a press at [p] (root pixels) is on the toolbar or its panel, so it must not close
-   * them: on a cell, the wheel button or open wheel, or the panel.
+   * them: on the bar/rail, a cell, either drag grip, the wheel button or open wheel, or the panel.
    */
   fun isOnDock(p: Offset): Boolean {
     if (!panelBounds.isEmpty && panelBounds.contains(p)) return true
+    if (!side.isCorner && !barBounds.isEmpty && barBounds.contains(p)) return true
     if ((p - gripCenter).getDistance() < cellReachPx * 1.3f) return true
+    if (gripCenters.values.any { (it - p).getDistance() < cellReachPx * 1.2f }) return true
     if (cellCenters.values.any { (it - p).getDistance() < cellReachPx }) return true
     if (side.isCorner && wheelOpen && (p - wheelHub).getDistance() < wheelReachPx) return true
     if (side.isVertical) {
@@ -200,16 +224,16 @@ class ToolDock(context: Context) {
   /** Centre of each cell on screen (root pixels), by [DockItem.key]. */
   internal val cellCenters = mutableStateMapOf<Int, Offset>()
 
-  /** Where the grip was last seen (root pixels): the ball starts there. */
+  /** Where the last touched grip (or wheel hub) was seen (root pixels): the ball starts there. */
   internal var gripCenter = Offset.Zero
 
   internal var screenWidth = 0
   internal var screenHeight = 0
   internal var cornerReachPx = 0f
 
-  internal suspend fun startDrag() {
+  internal suspend fun startDrag(from: Offset = gripCenter) {
     // Caught mid-flight: carry on from where the ball is now, never jump back.
-    if (!(dragging && ball.isRunning)) ball.snapTo(gripCenter) else ball.stop()
+    if (!(dragging && ball.isRunning)) ball.snapTo(from) else ball.stop()
     dragging = true
     wheelOpen = false
   }
@@ -287,17 +311,23 @@ class ToolDock(context: Context) {
   }
 }
 
-/** Makes [this] the dock's grip: dragging it moves the whole toolbar. */
-internal fun Modifier.dockGrip(dock: ToolDock, scope: CoroutineScope, onDragStart: () -> Unit): Modifier =
+/** Makes [this] one of the dock's end grips: dragging either handle moves the whole toolbar. */
+internal fun Modifier.dockGrip(dock: ToolDock, gripId: Int, scope: CoroutineScope, onDragStart: () -> Unit): Modifier =
   this
-    .onGloballyPositioned { dock.gripCenter = it.boundsInRoot().center }
-    .pointerInput(dock) {
+    .onGloballyPositioned {
+      val center = it.boundsInRoot().center
+      dock.gripCenters[gripId] = center
+      if (gripId == 0) dock.gripCenter = center
+    }
+    .pointerInput(dock, gripId) {
       val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
       detectDragGestures(
         onDragStart = {
           tracker.resetTracking()
           onDragStart()
-          scope.launch { dock.startDrag() }
+          val origin = dock.gripCenters[gripId] ?: dock.gripCenter
+          dock.gripCenter = origin
+          scope.launch { dock.startDrag(origin) }
         },
         onDragEnd = {
           val v = tracker.calculateVelocity()
@@ -316,8 +346,6 @@ internal fun Modifier.dockGrip(dock: ToolDock, scope: CoroutineScope, onDragStar
 /**
  * The toolbar in its current shape, the ball while it is dragged, and the open options panel
  * placed beside the cell it belongs to. Fills the screen; only its pieces take touches.
- *
- * [topReserved] is how far down a top bar must sit to clear the buttons at the top of the screen.
  */
 @Composable
 fun DockedToolbar(
@@ -338,6 +366,7 @@ fun DockedToolbar(
   panelKey: Int?,
   onSidesCovered: (left: Float, right: Float) -> Unit,
   modifier: Modifier = Modifier,
+  instrumentsActive: Boolean = false,
   panel: @Composable () -> Unit,
 ) {
   val side = dock.side
@@ -365,10 +394,27 @@ fun DockedToolbar(
       scaleY = 0.85f + 0.15f * p
       transformOrigin = origin
     }
+  val isHorizontalBar = !side.isVertical && !side.isCorner
   val cell: @Composable (DockItem, Boolean) -> Unit = { item, round ->
-    DockCell(item, tools, selectedIndex, darkPage, mmPerDp, canUndo, canRedo, canClear, round, dock, onItem)
+    DockCell(
+      item = item,
+      tools = tools,
+      selectedIndex = selectedIndex,
+      darkPage = darkPage,
+      mmPerDp = mmPerDp,
+      canUndo = canUndo,
+      canRedo = canRedo,
+      canClear = canClear,
+      instrumentsActive = instrumentsActive,
+      openPanelKey = panelKey,
+      round = round,
+      compactHorizontal = isHorizontalBar,
+      dock = dock,
+      onItem = onItem,
+    )
   }
-  val grip = Modifier.dockGrip(dock, scope, onDragStart)
+  val startGrip = Modifier.dockGrip(dock, gripId = 0, scope = scope, onDragStart = onDragStart)
+  val endGrip = Modifier.dockGrip(dock, gripId = 1, scope = scope, onDragStart = onDragStart)
 
   val density = androidx.compose.ui.platform.LocalDensity.current
   androidx.compose.runtime.SideEffect {
@@ -380,6 +426,10 @@ fun DockedToolbar(
       else -> onSidesCovered(0f, 0f)
     }
   }
+  androidx.compose.runtime.DisposableEffect(side) {
+    if (side.isCorner) dock.barBounds = androidx.compose.ui.geometry.Rect.Zero
+    onDispose {}
+  }
 
   Box(
     modifier.onGloballyPositioned {
@@ -387,19 +437,19 @@ fun DockedToolbar(
       dock.screenHeight = it.size.height
       with(density) {
         dock.cornerReachPx = CornerReach.toPx()
-        dock.cellReachPx = 28.dp.toPx()
+        dock.cellReachPx = 26.dp.toPx()
         dock.wheelReachPx = (DiscRadius + 20.dp).toPx()
         dock.railHalfPx = (RailWidth / 2).toPx()
         dock.hubOffsetPx = (EdgeGap + HubSize / 2).toPx()
-        dock.topBarY = (insets.top + insets.topButtons + BarHeight / 2).toPx()
+        dock.topBarY = (insets.top + EdgeGap + BarHeight / 2).toPx()
         dock.bottomBarY = it.size.height - (insets.bottom + EdgeGap + BarHeight / 2).toPx()
       }
     }
   ) {
     when {
-      side.isVertical -> Rail(side, items, insets, grip, isPalm, cell, shapeLayer.align(if (side == DockSide.LEFT) Alignment.CenterStart else Alignment.CenterEnd))
+      side.isVertical -> Rail(dock, side, items, tools, insets, startGrip, endGrip, isPalm, cell, shapeLayer.align(if (side == DockSide.LEFT) Alignment.CenterStart else Alignment.CenterEnd))
       side.isCorner -> Wheel(dock, side, items, tools, selectedIndex, darkPage, mmPerDp, insets, scope, onDragStart, onItem, isPalm, cell, shapeLayer)
-      else -> Bar(dock, side, items, insets, grip, isPalm, cell, shapeLayer)
+      else -> Bar(dock, side, items, tools, insets, startGrip, endGrip, isPalm, cell, shapeLayer)
     }
     if (dock.dragging) DragBall(dock, tools.getOrNull(selectedIndex), darkPage, mmPerDp)
 
@@ -409,16 +459,28 @@ fun DockedToolbar(
   }
 }
 
-/** Space the dock must leave for system bars and the screen's own top buttons. */
-data class DockInsets(val top: Dp, val bottom: Dp, val left: Dp, val right: Dp, val topButtons: Dp)
+/** Space the dock must leave for system bars and the left/right floating top chrome islands. */
+data class DockInsets(
+  val top: Dp,
+  val bottom: Dp,
+  val left: Dp,
+  val right: Dp,
+  val topButtons: Dp,
+  val topRowLeftClearance: Dp = 0.dp,
+  val topRowRightClearance: Dp = 0.dp,
+  val topChromeVisible: Boolean = true,
+)
 
-/** Left or right: a rail filling the whole edge, tools centred on it. */
+/** Left or right: a rail filling the whole edge, tools centred on it, with handles at both ends. */
 @Composable
 private fun Rail(
+  dock: ToolDock,
   side: DockSide,
   items: List<DockItem>,
+  tools: List<InkTool>,
   insets: DockInsets,
-  grip: Modifier,
+  startGrip: Modifier,
+  endGrip: Modifier,
   isPalm: () -> Boolean,
   cell: @Composable (DockItem, Boolean) -> Unit,
   modifier: Modifier,
@@ -428,7 +490,8 @@ private fun Rail(
     modifier
       .fillMaxHeight()
       .width(RailWidth + edgeInset)
-      .background(PenLabColors.toolbar)
+      .onGloballyPositioned { dock.barBounds = it.boundsInRoot() }
+      .background(PenLabComponentTokens.chromePillBg)
       .drawInnerEdge(side)
       .ignorePalm(isPalm)
       .semantics { contentDescription = "Drawing tools" },
@@ -441,8 +504,9 @@ private fun Rail(
       verticalArrangement = Arrangement.Center,
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      Grip(vertical = true, modifier = grip)
-      DockCells(items, vertical = true, cell)
+      Grip(vertical = true, modifier = startGrip)
+      DockCells(items, tools, vertical = true, cell)
+      Grip(vertical = true, modifier = endGrip)
     }
   }
 }
@@ -454,25 +518,35 @@ private fun Modifier.drawInnerEdge(side: DockSide): Modifier =
     drawLine(PenLabColors.hairline, Offset(x, 0f), Offset(x, size.height), 1f)
   }
 
-/** Top or bottom: a floating bar, centred where it was dropped along the edge. */
+/**
+ * Top or bottom: a floating capsule pill (`48.dp` tall) with `||` drag handles on both ends.
+ *
+ * When [side] is [DockSide.TOP] on wide landscape (`>= 1060.dp`) and the pill fits cleanly between
+ * the left and right floating top islands, it sits inline on the exact same top row (`statusBar + 12dp`)
+ * for a balanced 3-island header. On narrower viewports or ultra-wide customized bars, it drops
+ * cleanly onto row 2 below the top islands with zero overlap.
+ */
 @Composable
 private fun Bar(
   dock: ToolDock,
   side: DockSide,
   items: List<DockItem>,
+  tools: List<InkTool>,
   insets: DockInsets,
-  grip: Modifier,
+  startGrip: Modifier,
+  endGrip: Modifier,
   isPalm: () -> Boolean,
   cell: @Composable (DockItem, Boolean) -> Unit,
   modifier: Modifier,
 ) {
-  val shape = RoundedCornerShape(BarHeight / 2)
+  val shape = CircleShape
   val isDark = LocalPenLabColors.current.isDark
   Layout(
     content = {
       Row(
         modifier
           .height(BarHeight)
+          .onGloballyPositioned { dock.barBounds = it.boundsInRoot() }
           .floatingChromeSurface(
             shape = shape,
             background = PenLabComponentTokens.chromePillBg,
@@ -483,12 +557,13 @@ private fun Bar(
           )
           .ignorePalm(isPalm)
           .horizontalScroll(rememberScrollState())
-          .padding(end = 6.dp)
+          .padding(horizontal = 2.dp)
           .semantics { contentDescription = "Drawing tools" },
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Grip(vertical = false, modifier = grip)
-        DockCells(items, vertical = false, cell)
+        Grip(vertical = false, modifier = startGrip)
+        DockCells(items, tools, vertical = false, cell)
+        Grip(vertical = false, modifier = endGrip)
       }
     }
   ) { measurables, constraints ->
@@ -498,10 +573,35 @@ private fun Bar(
     val bar = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = (right - left).coerceAtLeast(0)))
     layout(constraints.maxWidth, constraints.maxHeight) {
       val centre = dock.along * constraints.maxWidth
-      val x = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
-      val y =
-        if (side == DockSide.TOP) (insets.top + insets.topButtons).roundToPx()
-        else constraints.maxHeight - insets.bottom.roundToPx() - gap - bar.height
+      val screenWidthDp = constraints.maxWidth.toDp()
+      val topRowY = (insets.top + EdgeGap).roundToPx()
+      val row2Y = (insets.top + insets.topButtons).roundToPx()
+
+      val (x, y) =
+        if (side == DockSide.TOP) {
+          if (!insets.topChromeVisible) {
+            val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
+            bx to topRowY
+          } else {
+            val inlineLeft = left + insets.topRowLeftClearance.roundToPx() + gap
+            val inlineRight = right - insets.topRowRightClearance.roundToPx() - gap
+            val fitsInline = screenWidthDp >= INLINE_TOP_ROW_MIN_WIDTH && (inlineRight - inlineLeft) >= bar.width
+            if (fitsInline) {
+              val bx = (centre - bar.width / 2f).roundToInt().coerceIn(inlineLeft, maxOf(inlineLeft, inlineRight - bar.width))
+              bx to topRowY
+            } else {
+              val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
+              bx to row2Y
+            }
+          }
+        } else {
+          val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
+          val by = constraints.maxHeight - insets.bottom.roundToPx() - gap - bar.height
+          bx to by
+        }
+      if (side == DockSide.TOP) {
+        dock.topBarY = y + bar.height / 2f
+      }
       bar.place(x, y)
     }
   }
@@ -545,7 +645,7 @@ private fun Wheel(
   val wheelGroove = scheme.surfaceContainerLow
   val wheelInnerRim = scheme.outlineVariant
   val hubWell = hubWellColor(tools.getOrNull(selectedIndex), darkPage, scheme, isDarkTheme)
-  val ringItems = items.filterIsInstance<DockItem.Tool>()
+  val ringItems = items.filter { it is DockItem.Tool || it == DockItem.Instruments || it == DockItem.More || it == DockItem.Undo || it == DockItem.Redo }
   // Opening and closing carry momentum: a spring that overshoots a little and settles.
   val open = remember { Animatable(0f) }
   androidx.compose.runtime.LaunchedEffect(dock.wheelOpen) {
@@ -919,9 +1019,10 @@ private fun dockLabel(item: DockItem, tools: List<InkTool>): String =
     DockItem.Undo -> "Undo"
     DockItem.Redo -> "Redo"
     DockItem.Paper -> "Paper"
-    DockItem.Instruments -> "Ruler and protractor"
+    DockItem.Instruments -> "Tools"
     DockItem.Clear -> "Clear page"
     DockItem.Layers -> "Layers"
+    DockItem.More -> "More tools"
   }
 
 private const val HOLD_TO_MOVE_MS = 450L
@@ -1008,8 +1109,9 @@ private fun PanelBeside(dock: ToolDock, side: DockSide, key: Int, panel: @Compos
     layout(constraints.maxWidth, constraints.maxHeight) {
       val p = placeable ?: return@layout
       val fromTopBar = side.isCorner && key in dock.topBarCells
-      val anchor = (if (fromTopBar) dock.topBarCells[key] else if (side.isCorner) dock.gripCenter else dock.cellCenters[key]) ?: return@layout
-      val reach = 36.dp.toPx() // from a cell's middle to just past its edge
+      val fallbackAnchor = dock.cellCenters[MORE_CELL] ?: dock.barBounds.center.takeIf { !dock.barBounds.isEmpty }
+      val anchor = (if (fromTopBar) dock.topBarCells[key] else if (side.isCorner) dock.gripCenter else dock.cellCenters[key] ?: fallbackAnchor) ?: return@layout
+      val reach = if (side.isVertical) 34.dp.toPx() else 30.dp.toPx()
       val w = p.width
       val h = p.height
       val (x, y) =
@@ -1035,49 +1137,70 @@ private fun PanelBeside(dock: ToolDock, side: DockSide, key: Int, panel: @Compos
   }
 }
 
-/** The cells in order, with a hairline between tools, history and page actions. */
+/** Semantic group for hairline dividers on the toolbar: Pens | Utilities | History. */
+private fun dockGroup(item: DockItem, tools: List<InkTool>): Int =
+  when (item) {
+    is DockItem.Tool -> if (tools.getOrNull(item.index)?.kind == InkTool.Kind.PEN) 0 else 1
+    DockItem.Undo, DockItem.Redo -> 2
+    else -> 1
+  }
+
+/** The cells in order, with a subtle hairline between pens, utilities, and history. */
 @Composable
-private fun DockCells(items: List<DockItem>, vertical: Boolean, cell: @Composable (DockItem, Boolean) -> Unit) {
-  var previous: DockItem? = null
+private fun DockCells(
+  items: List<DockItem>,
+  tools: List<InkTool>,
+  vertical: Boolean,
+  cell: @Composable (DockItem, Boolean) -> Unit,
+) {
+  var previousGroup: Int? = null
   for (item in items) {
-    val before = previous
-    val newGroup = before != null && ((before is DockItem.Tool) != (item is DockItem.Tool) || (before == DockItem.Redo && item != DockItem.Redo))
-    if (newGroup) DockDivider(vertical)
+    val group = dockGroup(item, tools)
+    if (previousGroup != null && previousGroup != group) DockDivider(vertical)
     cell(item, false)
-    previous = item
+    previousGroup = group
   }
 }
 
 @Composable
 private fun DockDivider(vertical: Boolean) {
+  val hairline = MaterialTheme.colorScheme.outlineVariant
   if (vertical) {
-    Box(Modifier.height(13.dp).width(RailWidth), contentAlignment = Alignment.Center) {
-      Box(Modifier.width(24.dp).height(1.dp).background(PenLabColors.hairline))
+    Box(Modifier.height(9.dp).width(RailWidth), contentAlignment = Alignment.Center) {
+      Box(Modifier.width(24.dp).height(1.dp).background(hairline))
     }
   } else {
-    Box(Modifier.width(13.dp).height(BarHeight), contentAlignment = Alignment.Center) {
-      Box(Modifier.height(24.dp).width(1.dp).background(PenLabColors.hairline))
+    Box(Modifier.width(9.dp).height(BarHeight), contentAlignment = Alignment.Center) {
+      Box(Modifier.height(22.dp).width(1.dp).background(hairline))
     }
   }
 }
 
-/** The grip: a short bar, the usual sign for "drag me". */
+/** The double-bar drag handle (`||` horizontal, `=` vertical) on both ends of the toolbar. */
 @Composable
 private fun Grip(vertical: Boolean, modifier: Modifier) {
+  val gripTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
   Box(
     modifier
-      .size(if (vertical) RailWidth else 28.dp, if (vertical) 28.dp else BarHeight)
+      .size(if (vertical) RailWidth else 22.dp, if (vertical) 24.dp else BarHeight)
       .semantics { contentDescription = "Move toolbar. Drag to an edge or a corner." },
     contentAlignment = Alignment.Center,
   ) {
-    Box(
-      Modifier.size(if (vertical) 18.dp else 4.dp, if (vertical) 4.dp else 18.dp)
-        .background(PenLabColors.iconDisabled, CircleShape)
-    )
+    if (vertical) {
+      Column(verticalArrangement = Arrangement.spacedBy(3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(16.dp, 2.dp).background(gripTint, CircleShape))
+        Box(Modifier.size(16.dp, 2.dp).background(gripTint, CircleShape))
+      }
+    } else {
+      Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(2.dp, 16.dp).background(gripTint, CircleShape))
+        Box(Modifier.size(2.dp, 16.dp).background(gripTint, CircleShape))
+      }
+    }
   }
 }
 
-/** One cell: a tool (stroke sample and size) or a page action. */
+/** One cell: a tool (pen dot or utility icon) or an action (Tools, More, Undo, Redo, Layers, Clear). */
 @Composable
 private fun DockCell(
   item: DockItem,
@@ -1088,7 +1211,10 @@ private fun DockCell(
   canUndo: Boolean,
   canRedo: Boolean,
   canClear: Boolean,
+  instrumentsActive: Boolean,
+  openPanelKey: Int?,
   round: Boolean,
+  compactHorizontal: Boolean,
   dock: ToolDock,
   onItem: (DockItem) -> Unit,
 ) {
@@ -1096,60 +1222,156 @@ private fun DockCell(
   when (item) {
     is DockItem.Tool -> {
       val tool = tools.getOrNull(item.index) ?: return
-      ToolCellView(tool, item.index == selectedIndex, darkPage, mmPerDp, round, onClick = { onItem(item) }, modifier = track)
+      ToolCellView(
+        tool = tool,
+        selected = item.index == selectedIndex,
+        darkPage = darkPage,
+        round = round,
+        compactHorizontal = compactHorizontal,
+        onClick = { onItem(item) },
+        modifier = track,
+      )
     }
-    DockItem.Undo -> ActionCell(UndoIcon, "Undo", canUndo, round, track) { onItem(item) }
-    DockItem.Redo -> ActionCell(RedoIcon, "Redo", canRedo, round, track) { onItem(item) }
-    DockItem.Paper -> ActionCell(PaperIcon, "Paper style", true, round, track) { onItem(item) }
-    DockItem.Instruments -> ActionCell(RulerIcon, "Ruler and protractor", true, round, track) { onItem(item) }
-    DockItem.Clear -> ActionCell(ClearIcon, "Clear page", canClear, round, track) { onItem(item) }
-    DockItem.Layers -> ActionCell(LayersIcon, "Layers", true, round, track) { onItem(item) }
+    DockItem.Undo -> ActionCell(PenLabIcons.Undo, "Undo", enabled = canUndo, active = false, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.Redo -> ActionCell(PenLabIcons.Redo, "Redo", enabled = canRedo, active = false, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.Paper -> ActionCell(PenLabIcons.Paper, "Paper style", enabled = true, active = openPanelKey == PAPER_CELL, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.Instruments -> ActionCell(PenLabIcons.Ruler, "Tools: ruler, protractor, shape snap", enabled = true, active = openPanelKey == INSTRUMENTS_CELL || instrumentsActive, showActiveDot = instrumentsActive, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.More -> ActionCell(PenLabIcons.ChevronDown, "More tools", enabled = true, active = openPanelKey == MORE_CELL, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.Clear -> ActionCell(PenLabIcons.Clear, "Clear page", enabled = canClear, active = false, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.Layers -> ActionCell(PenLabIcons.Layers, "Layers", enabled = true, active = openPanelKey == LAYERS_CELL, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
   }
 }
 
 @Composable
-private fun ActionCell(icon: ImageVector, label: String, enabled: Boolean, round: Boolean, modifier: Modifier, onClick: () -> Unit) {
-  val shape = CircleShape
+private fun ActionCell(
+  icon: ImageVector,
+  label: String,
+  enabled: Boolean,
+  active: Boolean,
+  showActiveDot: Boolean,
+  round: Boolean,
+  compactHorizontal: Boolean,
+  modifier: Modifier,
+  onClick: () -> Unit,
+) {
+  val interaction = remember { MutableInteractionSource() }
+  val pressed by interaction.collectIsPressedAsState()
+  val pressScale by animateFloatAsState(
+    targetValue = if (pressed && enabled) 0.94f else 1f,
+    animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
+    label = "actionPress",
+  )
+  val activeAlpha by animateFloatAsState(
+    targetValue = if (active && enabled) 1f else 0f,
+    animationSpec = Motion.tween(120),
+    label = "actionActive",
+  )
+  val cellW = when {
+    round -> WheelCell
+    compactHorizontal -> HorizontalCellWidth
+    else -> RailCellWidth
+  }
+  val cellH = when {
+    round -> WheelCell
+    compactHorizontal -> BarHeight
+    else -> RailCellHeight
+  }
+  val tint = when {
+    !enabled -> PenLabComponentTokens.toolIconDisabled
+    active -> PenLabComponentTokens.toolIconActive
+    else -> PenLabComponentTokens.toolIconDefault
+  }
+
   Box(
     modifier
-      .size(if (round) WheelCell else CellSize)
-      .clip(shape)
-      .selectable(selected = false, enabled = enabled, role = Role.Button, onClick = onClick)
-      .semantics { contentDescription = label },
+      .size(cellW, cellH)
+      .clip(CircleShape)
+      .selectable(
+        selected = active,
+        enabled = enabled,
+        interactionSource = interaction,
+        indication = ripple(bounded = true, radius = 22.dp),
+        role = Role.Button,
+        onClick = onClick,
+      )
+      .semantics { contentDescription = label }
+      .graphicsLayer {
+        scaleX = pressScale
+        scaleY = pressScale
+      },
     contentAlignment = Alignment.Center,
   ) {
-    Icon(icon, contentDescription = null, tint = if (enabled) PenLabColors.icon else PenLabColors.iconDisabled, modifier = Modifier.size(if (round) 19.dp else 22.dp))
+    Box(
+      Modifier
+        .size(36.dp)
+        .graphicsLayer { alpha = activeAlpha }
+        .clip(CircleShape)
+        .background(PenLabComponentTokens.toolCellSelectedBg),
+    )
+    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(if (round) 19.dp else 20.dp))
+    if (showActiveDot) {
+      Box(
+        Modifier
+          .align(Alignment.TopEnd)
+          .padding(top = 8.dp, end = 6.dp)
+          .size(6.dp)
+          .background(MaterialTheme.colorScheme.primary, CircleShape),
+      )
+    }
   }
 }
 
 /**
- * A tool: a short stroke in its colour and thickness (the eraser, lasso and text show icons),
- * its size underneath in millimetres, and a soft highlight with a colour bar when picked.
+ * A tool slot:
+ * - Pens show a crisp circular ink mark sized proportionally to their stroke weight, with a
+ *   `2.dp` `primary` active ring and tonal `primaryContainer` fill when selected.
+ * - Utilities (Eraser, Select, Fill, Highlighter, Text) show Phosphor Duotone icons (with a
+ *   compact colour bar under Fill and Highlighter) and a crisp active pill highlight.
  */
 @Composable
 private fun ToolCellView(
   tool: InkTool,
   selected: Boolean,
   darkPage: Boolean,
-  mmPerDp: Float,
   round: Boolean,
+  compactHorizontal: Boolean,
   onClick: () -> Unit,
   modifier: Modifier,
 ) {
   val interaction = remember { MutableInteractionSource() }
   val pressed by interaction.collectIsPressedAsState()
-  val press by animateFloatAsState(if (pressed) 0.92f else 1f, Motion.spring(dampingRatio = 0.6f, stiffness = 1500f), label = "press")
-  val pick by animateFloatAsState(if (selected) 1f else 0f, Motion.tween(160), label = "pick")
-  // A picked tool's sample gives a small hop.
-  val hop by animateFloatAsState(if (selected) 1f else 0f, Motion.spring(dampingRatio = 0.45f, stiffness = 700f), label = "hop")
-  val shape = if (round) CircleShape else RoundedCornerShape(12.dp)
-  val accent = Color(InkColors.onScreen(tool.paperColor, darkPage) or 0xFF000000.toInt())
+  val press by animateFloatAsState(
+    targetValue = if (pressed) 0.94f else 1f,
+    animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
+    label = "press",
+  )
+  val pick by animateFloatAsState(if (selected) 1f else 0f, Motion.tween(120), label = "pick")
+  val cellW = when {
+    round -> WheelCell
+    compactHorizontal -> HorizontalCellWidth
+    else -> RailCellWidth
+  }
+  val cellH = when {
+    round -> WheelCell
+    compactHorizontal -> BarHeight
+    else -> RailCellHeight
+  }
+  val ringColor = PenLabComponentTokens.toolCellSelectedRing
+  val activeBg = PenLabComponentTokens.toolCellSelectedBg
+  val swatchEdge = LocalPenLabColors.current.swatchEdge
+  val iconTint = if (selected) PenLabComponentTokens.toolIconActive else PenLabComponentTokens.toolIconDefault
+
   Box(
     modifier
-      .size(if (round) WheelCell else ToolCellWidth, if (round) WheelCell else ToolCellHeight)
-      .padding(if (round) 0.dp else 3.dp)
-      .clip(shape)
-      .selectable(selected = selected, interactionSource = interaction, indication = ripple(), role = Role.RadioButton, onClick = onClick)
+      .size(cellW, cellH)
+      .clip(CircleShape)
+      .selectable(
+        selected = selected,
+        interactionSource = interaction,
+        indication = ripple(bounded = true, radius = 22.dp),
+        role = Role.RadioButton,
+        onClick = onClick,
+      )
       .semantics {
         contentDescription = InkTools.describe(tool)
         if (selected) stateDescription = if (tool.isLasso) "Selected" else "Selected. Tap again for options."
@@ -1160,42 +1382,60 @@ private fun ToolCellView(
       },
     contentAlignment = Alignment.Center,
   ) {
-    // Picked: a soft fill, plus a ring on the wheel or a colour bar on the rail and bar.
-    Box(Modifier.matchParentSizeCompat().graphicsLayer { alpha = pick }.background(PenLabColors.optionSelected, shape))
-    if (round) {
-      Box(Modifier.matchParentSizeCompat().graphicsLayer { alpha = pick }.border(2.dp, PenLabColors.accent, shape))
-    } else {
-      // Pens show their ink colour; eraser and lasso the look's accent.
-      Box(
-        Modifier.align(Alignment.CenterStart)
-          .graphicsLayer { alpha = pick }
-          .size(3.dp, 22.dp)
-          .background(if (tool.isEraser || tool.isLasso || tool.isFill) PenLabColors.accent else accent, RoundedCornerShape(2.dp))
-      )
-    }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-      ToolGlyph(
-        tool,
-        darkPage,
-        mmPerDp,
-        Modifier.size(if (round) 28.dp else 36.dp, if (round) 19.dp else 24.dp).graphicsLayer {
-          scaleX = 1f + 0.12f * hop
-          scaleY = 1f + 0.12f * hop
-        },
-      )
-      if (!round && !tool.isLasso && !tool.isFill) {
-        Text(
-          sizeLabel(tool, mmPerDp),
-          color = if (selected) PenLabColors.icon else PenLabColors.iconDisabled,
-          fontSize = 10.sp,
-          style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+    // Active tonal halo + crisp 2dp primary ring (read in graphicsLayer: zero recomposition per frame).
+    Box(
+      Modifier
+        .size(36.dp)
+        .graphicsLayer { alpha = pick }
+        .clip(CircleShape)
+        .background(activeBg)
+        .border(2.dp, ringColor, CircleShape),
+    )
+
+    if (tool.kind == InkTool.Kind.PEN) {
+      val inkColor = Color(InkColors.onScreen(tool.paperColor, darkPage) or 0xFF000000.toInt())
+      val normalizedSize = ((tool.sizeDp - 0.5f) / 7.5f).coerceIn(0f, 1f)
+      val dotSize = (15f + normalizedSize * 8f).dp
+      Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Box(
+          Modifier
+            .size(dotSize)
+            .clip(CircleShape)
+            .background(inkColor)
+            .border(1.dp, swatchEdge, CircleShape),
+        )
+        if (tool.line != dev.penlab.app.ink.LineType.SOLID) {
+          Box(
+            Modifier
+              .padding(top = 2.dp)
+              .size(width = 12.dp, height = 2.dp)
+              .background(inkColor.copy(alpha = 0.85f), CircleShape),
+          )
+        }
+      }
+    } else if (tool.isFill || tool.isHighlighter) {
+      val color = Color(InkColors.onScreen(tool.paperColor or 0xFF000000.toInt(), darkPage))
+      val icon = if (tool.isFill) PenLabIcons.Fill else PenLabIcons.Highlighter
+      Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
+        Box(
+          Modifier
+            .padding(top = 2.dp)
+            .size(width = 16.dp, height = 3.dp)
+            .background(color, CircleShape)
+            .border(0.5.dp, swatchEdge, CircleShape),
         )
       }
+    } else {
+      val icon = when {
+        tool.isLasso -> PenLabIcons.Lasso
+        tool.isText -> PenLabIcons.Text
+        else -> PenLabIcons.Eraser
+      }
+      Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
     }
   }
 }
-
-private fun Modifier.matchParentSizeCompat(): Modifier = this.then(Modifier.fillMaxSize())
 
 /**
  * The wheel button's face (and the dragged ball's): a raised disc with an accent ring and a dark
@@ -1208,17 +1448,6 @@ private fun Modifier.hubFace(coreColor: Color, wellColor: Color): Modifier = thi
   drawCircle(androidx.compose.ui.graphics.Brush.radialGradient(0f to coreColor, 1f to PenLabColors.toolbar, center = c.copy(y = c.y - r * 0.4f), radius = r * 1.4f), r, c)
   drawCircle(wellColor, r - 7.dp.toPx(), c)
   drawCircle(PenLabColors.accent, r - 1.5.dp.toPx(), c, style = Stroke(2.5.dp.toPx()))
-}
-
-/** The size under a tool: line width (or eraser diameter, text height) in millimetres. */
-private fun sizeLabel(tool: InkTool, mmPerDp: Float): String {
-  val mm =
-    when {
-      tool.isText -> tool.sizeDp // the text tool's size is already in mm
-      tool.isEraser -> tool.sizeDp * 2 * mmPerDp
-      else -> tool.sizeDp * mmPerDp
-    }
-  return if (mm >= 10) "%.0f".format(mm) else if (mm >= 1) "%.1f".format(mm) else "%.2f".format(mm).removePrefix("0")
 }
 
 /**
@@ -1271,11 +1500,13 @@ internal fun ToolGlyph(tool: InkTool, darkPage: Boolean, mmPerDp: Float, modifie
   }
 }
 
-internal val RailWidth = 60.dp
-private val BarHeight = 60.dp
-private val ToolCellWidth = 56.dp
-private val ToolCellHeight = 58.dp
+internal val RailWidth = 58.dp
+internal val BarHeight = 48.dp
+private val HorizontalCellWidth = 42.dp
+private val RailCellWidth = 54.dp
+private val RailCellHeight = 46.dp
 private val HubSize = 60.dp
 private val BallSize = 56.dp
 private val CornerReach = 150.dp
 private val EdgeGap = 12.dp
+private val INLINE_TOP_ROW_MIN_WIDTH = 1060.dp

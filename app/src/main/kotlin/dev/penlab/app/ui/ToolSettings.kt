@@ -7,40 +7,93 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.penlab.app.ink.InkTool
 import dev.penlab.app.ink.InkTools
-import dev.penlab.app.ink.PenStyle
 import dev.penlab.app.ink.LineType
+import dev.penlab.app.ink.PenStyle
 
 /**
  * The toolbar's tools and the favourite sizes, kept between launches (SharedPreferences).
  *
- * Tools are stored as text, one per slot, `KIND:colour:size:style` (colour as hex ARGB), e.g.
- * `PEN:ff111111:2.2:PRESSURE`. Anything unreadable falls back to the starting tools.
+ * Tools are stored as text, one per slot, `KIND:colour:size:style:eraseMode:lineType` (colour as
+ * hex ARGB), e.g. `PEN:ff111111:2.2:PRESSURE:whole:SOLID`. Anything unreadable falls back to the
+ * starting tools.
+ *
+ * All customized pen slots (up to [MAX_PEN_COUNT]) are cached in a separate pool so lowering
+ * [penCount] and later increasing it restores every pen's colour, width, style, and line type.
  */
 @Stable
 class ToolSettings(context: Context) {
   private val prefs = context.getSharedPreferences("tools", Context.MODE_PRIVATE)
 
-  /** The saved toolbar, or the starting one. Always the same kinds in the same order. */
-  fun loadTools(): List<InkTool> {
+  /**
+   * Loads [penCount] customizable pens followed by the canonical non-pen utility tools.
+   * Existing 3-pen saves are preserved cleanly in slots 0..2, with slot 3 gaining the new default
+   * forest green pen (`#1E7E3E`).
+   */
+  fun loadTools(penCount: Int = DEFAULT_PEN_COUNT): List<InkTool> {
+    val safePenCount = penCount.coerceIn(MIN_PEN_COUNT, MAX_PEN_COUNT)
     val saved = prefs.getString(KEY_TOOLS, null)?.split(";")?.mapNotNull(::decode).orEmpty()
-    // Keep each saved tool in the slot of its kind; new kinds (added in an update) get defaults.
-    val byKind = saved.groupBy { it.kind }.mapValues { it.value.toMutableList() }
-    val tools = InkTools.defaults.map { default -> byKind[default.kind]?.removeFirstOrNull() ?: default }
-    // Once (13 Nov): the pens go back to white, blue and red, keeping their sizes and types;
-    // the tool order changed too, so start on the first pen.
+    val savedPool = prefs.getString(KEY_PEN_POOL, null)?.split(";")?.mapNotNull(::decode)
+      ?.filter { it.kind == InkTool.Kind.PEN }.orEmpty()
+
+    val savedPens = saved.filter { it.kind == InkTool.Kind.PEN }
+    val penPool = buildPenPool(savedPens, savedPool)
+    val utilitiesByKind = saved.filter { it.kind != InkTool.Kind.PEN }.groupBy { it.kind }
+    val utilities = InkTools.defaultUtilities.map { default ->
+      utilitiesByKind[default.kind]?.firstOrNull() ?: default
+    }
+
+    var activePens = penPool.take(safePenCount)
+    // Legacy one-time reset (13 Nov): preserve for very old installs without touching slot 3+.
     if (!prefs.getBoolean(KEY_PENS_RESET, false)) {
       prefs.edit().putBoolean(KEY_PENS_RESET, true).putInt(KEY_SELECTED, 0).apply()
-      var pen = 0
-      return tools.map { tool ->
-        if (tool.kind == InkTool.Kind.PEN && pen < 3) tool.copy(paperColor = InkTools.defaults[pen++].paperColor) else tool
-      }.also(::saveTools)
+      activePens = activePens.mapIndexed { idx, pen ->
+        if (idx < 3) pen.copy(paperColor = InkTools.defaultPenForSlot(idx).paperColor) else pen
+      }
+      val combined = activePens + utilities
+      saveTools(combined)
+      return combined
     }
-    return tools
+    return activePens + utilities
+  }
+
+  /**
+   * Dynamically adjusts the active [current] tool list to hold [penCount] pens while preserving
+   * any previously saved pens from the pen pool and keeping all utility tools intact.
+   */
+  fun resizeTools(current: List<InkTool>, penCount: Int): List<InkTool> {
+    val safePenCount = penCount.coerceIn(MIN_PEN_COUNT, MAX_PEN_COUNT)
+    val currentPens = current.filter { it.kind == InkTool.Kind.PEN }
+    val savedPool = prefs.getString(KEY_PEN_POOL, null)?.split(";")?.mapNotNull(::decode)
+      ?.filter { it.kind == InkTool.Kind.PEN }.orEmpty()
+    val mergedPool = buildPenPool(currentPens, savedPool)
+    savePenPool(mergedPool)
+    val utilities = current.filter { it.kind != InkTool.Kind.PEN }.ifEmpty { InkTools.defaultUtilities }
+    val resized = mergedPool.take(safePenCount) + utilities
+    saveTools(resized)
+    return resized
   }
 
   fun saveTools(tools: List<InkTool>) {
-    prefs.edit().putString(KEY_TOOLS, tools.joinToString(";", transform = ::encode)).apply()
+    val activePens = tools.filter { it.kind == InkTool.Kind.PEN }
+    val existingPool = prefs.getString(KEY_PEN_POOL, null)?.split(";")?.mapNotNull(::decode)
+      ?.filter { it.kind == InkTool.Kind.PEN }.orEmpty()
+    val mergedPool = buildPenPool(activePens, existingPool)
+    prefs.edit()
+      .putString(KEY_TOOLS, tools.joinToString(";", transform = ::encode))
+      .putString(KEY_PEN_POOL, mergedPool.joinToString(";", transform = ::encode))
+      .apply()
   }
+
+  private fun savePenPool(pool: List<InkTool>) {
+    prefs.edit().putString(KEY_PEN_POOL, pool.joinToString(";", transform = ::encode)).apply()
+  }
+
+  private fun buildPenPool(primary: List<InkTool>, fallback: List<InkTool>): List<InkTool> =
+    List(MAX_PEN_COUNT) { slot ->
+      primary.getOrNull(slot)
+        ?: fallback.getOrNull(slot)
+        ?: InkTools.defaultPenForSlot(slot)
+    }
 
   var selectedIndex: Int
     get() = prefs.getInt(KEY_SELECTED, 0)
@@ -94,6 +147,7 @@ class ToolSettings(context: Context) {
 
   private companion object {
     const val KEY_TOOLS = "tools"
+    const val KEY_PEN_POOL = "pen_pool"
     const val KEY_SELECTED = "selected"
     const val KEY_FAVOURITES = "favourites_"
     const val KEY_PENS_RESET = "pens_reset_2026_11_13"

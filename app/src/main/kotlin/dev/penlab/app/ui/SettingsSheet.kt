@@ -1,5 +1,6 @@
 package dev.penlab.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,21 +27,30 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import dev.penlab.app.ui.components.PenLabIconButton
+import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabSectionHeader
 import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.components.PenLabSwitchRow
@@ -51,6 +61,7 @@ import dev.penlab.app.ui.theme.PageThemeMode
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
+import dev.penlab.app.ui.theme.PenLabTextStyles
 import dev.penlab.app.ui.theme.ThemeMode
 import dev.penlab.app.ui.theme.penLabColorScheme
 import dev.penlab.app.ui.theme.softShadow
@@ -64,6 +75,8 @@ import dev.penlab.app.ui.theme.softShadow
 @Composable
 fun SettingsSheet(
   viewSettings: ViewSettings,
+  toolbarConfig: ToolbarConfig,
+  toolDock: ToolDock,
   storageShared: Boolean,
   onAllowStorage: () -> Unit,
   onDismiss: () -> Unit,
@@ -71,6 +84,7 @@ fun SettingsSheet(
   val scheme = MaterialTheme.colorScheme
   val extended = LocalPenLabColors.current
   val systemDark = isSystemInDarkTheme()
+  var customizeToolbarExpanded by remember { mutableStateOf(false) }
 
   Dialog(
     onDismissRequest = onDismiss,
@@ -220,6 +234,124 @@ fun SettingsSheet(
           Spacer(Modifier.height(PenLabSpacing.xl))
           HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
 
+          // ---- Toolbar ----
+          PenLabSectionHeader(title = "Toolbar", topPadding = PenLabSpacing.lg, bottomPadding = PenLabSpacing.sm)
+
+          // Pen slots stepper (− 4 +, range 1..6)
+          Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = PenLabSpacing.touchTarget),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+              Text(
+                text = "Pen slots",
+                color = scheme.onSurface,
+                style = MaterialTheme.typography.bodyLarge,
+              )
+              Text(
+                text = "Quick-switch pens on the toolbar (1 to 6).",
+                color = scheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+              )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              PenLabIconButton(
+                icon = PenLabIcons.Minus,
+                contentDescription = "Fewer pen slots",
+                enabled = toolbarConfig.penCount > MIN_PEN_COUNT,
+                onClick = { toolbarConfig.setPenCount(toolbarConfig.penCount - 1) },
+                iconSize = 18.dp,
+              )
+              Text(
+                text = "${toolbarConfig.penCount}",
+                color = scheme.onSurface,
+                style = PenLabTextStyles.tabularLabel,
+                modifier = Modifier.width(28.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+              )
+              PenLabIconButton(
+                icon = PenLabIcons.Plus,
+                contentDescription = "More pen slots",
+                enabled = toolbarConfig.penCount < MAX_PEN_COUNT,
+                onClick = { toolbarConfig.setPenCount(toolbarConfig.penCount + 1) },
+                iconSize = 18.dp,
+              )
+            }
+          }
+
+          Spacer(Modifier.height(PenLabSpacing.md))
+          SettingFieldLabel("Dock position")
+          Spacer(Modifier.height(PenLabSpacing.xs))
+          val selectedDockOption = DockPositionOption.fromDockSide(toolDock.side)
+          PenLabSegmentedControl(
+            options = DockPositionOption.entries,
+            selected = selectedDockOption,
+            onSelect = { option ->
+              val target = option.toDockSide(currentSide = toolDock.side)
+              toolDock.dockTo(target)
+            },
+            label = { it.label },
+          )
+
+          Spacer(Modifier.height(PenLabSpacing.md))
+          PenLabMenuItem(
+            label = "Customize toolbar items",
+            subtitle = "${toolbarConfig.visibleOrderedItems.size} items visible · tap to toggle or reorder",
+            icon = PenLabIcons.PenTools,
+            onClick = { customizeToolbarExpanded = !customizeToolbarExpanded },
+            trailingContent = {
+              Icon(
+                imageVector = if (customizeToolbarExpanded) PenLabIcons.ChevronUp else PenLabIcons.ChevronDown,
+                contentDescription = null,
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+              )
+            },
+          )
+
+          AnimatedVisibility(visible = customizeToolbarExpanded) {
+            Column(
+              modifier = Modifier.fillMaxWidth().padding(top = PenLabSpacing.xs),
+              verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+              val order = toolbarConfig.order
+              val visible = toolbarConfig.visible
+              order.forEachIndexed { index, item ->
+                val isVisible = item in visible
+                val canDisable = !isVisible || visible.size > 1
+                ToolbarItemCustomizeRow(
+                  item = item,
+                  penCount = toolbarConfig.penCount,
+                  visible = isVisible,
+                  canToggle = canDisable,
+                  canMoveUp = index > 0,
+                  canMoveDown = index < order.lastIndex,
+                  onToggle = { toolbarConfig.toggleItem(item) },
+                  onMoveUp = { toolbarConfig.moveItem(item, -1) },
+                  onMoveDown = { toolbarConfig.moveItem(item, +1) },
+                )
+              }
+            }
+          }
+
+          Spacer(Modifier.height(PenLabSpacing.sm))
+          Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            OutlinedButton(
+              onClick = {
+                toolbarConfig.reset()
+                toolDock.dockTo(DockSide.TOP)
+              },
+              shape = PenLabShapes.pill,
+              modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+              contentPadding = PaddingValues(horizontal = PenLabSpacing.lg, vertical = PenLabSpacing.sm),
+            ) {
+              Text("Reset toolbar", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge)
+            }
+          }
+
+          Spacer(Modifier.height(PenLabSpacing.xl))
+          HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
+
           // ---- Storage ----
           PenLabSectionHeader(title = "Storage", topPadding = PenLabSpacing.lg, bottomPadding = PenLabSpacing.sm)
 
@@ -293,6 +425,119 @@ private fun SettingFieldLabel(text: String) {
     color = MaterialTheme.colorScheme.onSurfaceVariant,
     style = MaterialTheme.typography.labelLarge,
   )
+}
+
+private enum class DockPositionOption(val label: String) {
+  TOP("Top"),
+  BOTTOM("Bottom"),
+  LEFT("Left"),
+  RIGHT("Right"),
+  CORNER("Corner");
+
+  fun toDockSide(currentSide: DockSide): DockSide =
+    when (this) {
+      TOP -> DockSide.TOP
+      BOTTOM -> DockSide.BOTTOM
+      LEFT -> DockSide.LEFT
+      RIGHT -> DockSide.RIGHT
+      CORNER -> if (currentSide.isCorner) currentSide else DockSide.BOTTOM_RIGHT
+    }
+
+  companion object {
+    fun fromDockSide(side: DockSide): DockPositionOption =
+      when {
+        side == DockSide.TOP -> TOP
+        side == DockSide.BOTTOM -> BOTTOM
+        side == DockSide.LEFT -> LEFT
+        side == DockSide.RIGHT -> RIGHT
+        else -> CORNER
+      }
+  }
+}
+
+private fun toolbarItemIcon(item: ToolbarItem): ImageVector =
+  when (item) {
+    ToolbarItem.PENS -> PenLabIcons.Pen
+    ToolbarItem.ERASER -> PenLabIcons.Eraser
+    ToolbarItem.SELECT -> PenLabIcons.Lasso
+    ToolbarItem.FILL -> PenLabIcons.Fill
+    ToolbarItem.TOOLS -> PenLabIcons.Ruler
+    ToolbarItem.MORE -> PenLabIcons.ChevronDown
+    ToolbarItem.UNDO_REDO -> PenLabIcons.Undo
+    ToolbarItem.HIGHLIGHTER -> PenLabIcons.Highlighter
+    ToolbarItem.TEXT -> PenLabIcons.Text
+    ToolbarItem.LAYERS -> PenLabIcons.Layers
+    ToolbarItem.CLEAR -> PenLabIcons.Clear
+  }
+
+@Composable
+private fun ToolbarItemCustomizeRow(
+  item: ToolbarItem,
+  penCount: Int,
+  visible: Boolean,
+  canToggle: Boolean,
+  canMoveUp: Boolean,
+  canMoveDown: Boolean,
+  onToggle: () -> Unit,
+  onMoveUp: () -> Unit,
+  onMoveDown: () -> Unit,
+) {
+  val scheme = MaterialTheme.colorScheme
+  val displayLabel = if (item == ToolbarItem.PENS) "Pens ($penCount)" else item.label
+  Row(
+    modifier =
+      Modifier
+        .fillMaxWidth()
+        .heightIn(min = PenLabSpacing.touchTarget)
+        .clip(PenLabShapes.small)
+        .padding(start = PenLabSpacing.sm, end = PenLabSpacing.xs),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(
+      imageVector = toolbarItemIcon(item),
+      contentDescription = null,
+      tint = if (visible) scheme.onSurface else PenLabComponentTokens.toolIconDisabled,
+      modifier = Modifier.size(19.dp),
+    )
+    Spacer(Modifier.width(PenLabSpacing.md))
+    Text(
+      text = displayLabel,
+      color = if (visible) scheme.onSurface else scheme.onSurfaceVariant,
+      style = MaterialTheme.typography.bodyMedium,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      modifier = Modifier.weight(1f),
+    )
+    PenLabIconButton(
+      icon = PenLabIcons.ChevronUp,
+      contentDescription = "Move ${item.label} up",
+      enabled = canMoveUp,
+      onClick = onMoveUp,
+      iconSize = 16.dp,
+    )
+    PenLabIconButton(
+      icon = PenLabIcons.ChevronDown,
+      contentDescription = "Move ${item.label} down",
+      enabled = canMoveDown,
+      onClick = onMoveDown,
+      iconSize = 16.dp,
+    )
+    Spacer(Modifier.width(PenLabSpacing.xs))
+    Switch(
+      checked = visible,
+      onCheckedChange = { onToggle() },
+      enabled = canToggle,
+      colors =
+        SwitchDefaults.colors(
+          checkedThumbColor = scheme.onPrimary,
+          checkedTrackColor = scheme.primary,
+          checkedBorderColor = scheme.primary,
+          uncheckedThumbColor = scheme.outline,
+          uncheckedTrackColor = scheme.surfaceContainerHighest,
+          uncheckedBorderColor = scheme.outline,
+        ),
+    )
+  }
 }
 
 /**

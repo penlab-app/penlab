@@ -20,12 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.zIndex
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.Box
@@ -39,6 +34,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -54,7 +51,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
@@ -65,13 +61,11 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.penlab.app.ink.InkCanvasView
 import dev.penlab.app.ink.InkStroke
 import dev.penlab.app.ink.InkTool
-import dev.penlab.app.ink.InkTools
 import dev.penlab.app.ink.PageLayout
 import dev.penlab.app.ink.notebookStrokes
 import dev.penlab.app.ink.PageStore
@@ -84,38 +78,41 @@ import dev.penlab.app.notes.NotebookInfo
 import dev.penlab.app.notes.NotebookKind
 import dev.penlab.app.notes.NotebookStore
 import dev.penlab.app.notes.cleanFolder
-import dev.penlab.app.ui.BackToLibrary
 import dev.penlab.app.notes.IncomingPdf
+import dev.penlab.app.ui.BarHeight
+import dev.penlab.app.ui.FileChromePill
+import dev.penlab.app.ui.FileOptionsPopover
+import dev.penlab.app.ui.FileQuickMenuPopover
+import dev.penlab.app.ui.MORE_CELL
 import dev.penlab.app.ui.MenuAction
-import dev.penlab.app.ui.TopMoreMenu
-import dev.penlab.app.ui.SaveIcon
-import dev.penlab.app.ui.ExportIcon
-import dev.penlab.app.ui.ImageIcon
+import dev.penlab.app.ui.MoreToolsPanel
+import dev.penlab.app.ui.MoveNotebookDialog
+import dev.penlab.app.ui.PageConfigChromePill
+import dev.penlab.app.ui.PageConfigPopover
+import dev.penlab.app.ui.PageConfigTab
+import dev.penlab.app.ui.ToolbarConfig
+import dev.penlab.app.ui.ToolbarItem
+import dev.penlab.app.ui.stepZoomIn
+import dev.penlab.app.ui.stepZoomOut
 import dev.penlab.app.ui.TextBoxDialog
 import dev.penlab.app.ink.PageItem
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.result.PickVisualMediaRequest
-import dev.penlab.app.ui.FitWidthIcon
-import dev.penlab.app.ui.HomeIcon
 import dev.penlab.app.ui.IdeaIcon
 import dev.penlab.app.ui.RequestDialog
 import dev.penlab.app.ui.TopIconButton
-import dev.penlab.app.ui.SearchIcon
 import dev.penlab.app.ui.SearchPanel
 import dev.penlab.app.ui.SearchStepper
-import dev.penlab.app.ui.SettingsIcon
 import dev.penlab.app.ui.SettingsSheet
 import dev.penlab.app.ui.resolveCanvasDarkPage
 import dev.penlab.app.search.HandwritingIndex
-import dev.penlab.app.ui.FullScreenIcon
 import androidx.compose.ui.draw.alpha
 import dev.penlab.app.ui.FullScreenExitIcon
 import dev.penlab.app.ui.CORNER_BUTTON_ALPHA
 import dev.penlab.app.ui.CloseIcon
 import dev.penlab.app.ui.PEEK_TOOLS_MS
 import dev.penlab.app.ui.PenToolsIcon
-import dev.penlab.app.ui.PresentIcon
 import dev.penlab.app.ui.ScreenChrome
 import dev.penlab.app.ui.peekMayEnd
 import kotlinx.coroutines.delay
@@ -138,8 +135,6 @@ import dev.penlab.app.ink.handwritingLikeStrokes
 import dev.penlab.app.ui.PAPER_CELL
 import dev.penlab.app.ui.INSTRUMENTS_CELL
 import dev.penlab.app.ui.InstrumentsPanel
-import dev.penlab.app.ui.PageCounter
-import dev.penlab.app.ui.PagesPanel
 import dev.penlab.app.ui.PaperPanel
 import dev.penlab.app.ui.PasteMenu
 import dev.penlab.app.ui.SelectionActions
@@ -153,18 +148,12 @@ import dev.penlab.app.ui.DockItem
 import dev.penlab.app.ui.LAYERS_CELL
 import dev.penlab.app.ui.LayersPanel
 import dev.penlab.app.ui.RenameDialog
-import dev.penlab.app.ui.PaperIcon
-import dev.penlab.app.ui.LayersIcon
-import dev.penlab.app.ui.RulerIcon
-import dev.penlab.app.ui.ClearIcon
 import dev.penlab.app.ui.DockSide
 import dev.penlab.app.ui.DockInsets
 import dev.penlab.app.ui.RailWidth
 import dev.penlab.app.ui.ToolbarMessage
 import dev.penlab.app.ui.ViewPanel
-import dev.penlab.app.ui.ViewReadout
 import dev.penlab.app.ui.ViewSettings
-import dev.penlab.app.ui.toolbarHeight
 import dev.penlab.app.ui.theme.Accent
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabTheme
@@ -216,6 +205,8 @@ class MainActivity : ComponentActivity() {
   private var open by mutableStateOf<OpenNotebook?>(null)
 
   private lateinit var viewSettings: ViewSettings
+  private lateinit var toolbarConfig: ToolbarConfig
+  private lateinit var toolDock: ToolDock
 
   // Library-wide handwriting search: the words, the matches, and how far catching up has got.
   private val librarySearch by lazy { LibrarySearch(notebooks, resources.displayMetrics.xdpi / 25.4f) }
@@ -257,12 +248,15 @@ class MainActivity : ComponentActivity() {
    * where it saves. [pages] is null for the stress test, which must never touch real notes.
    */
   private class OpenNotebook(
-    var info: NotebookInfo,
+    initialInfo: NotebookInfo,
     val canvas: InkCanvasView,
     val pages: PageStore?,
     val pdf: PdfBackground? = null,
     val search: HandwritingIndex? = null,
   ) {
+    /** Observable metadata so live rename/move/page updates reflect immediately in top chrome. */
+    var info by mutableStateOf(initialInfo)
+
     /** False until the saved strokes are on the canvas; saving before that would overwrite them. */
     var loaded = false
 
@@ -300,6 +294,8 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge(statusBarStyle = initialBars, navigationBarStyle = initialBars)
     requestHighestRefreshRate()
     viewSettings = ViewSettings(this)
+    toolbarConfig = ToolbarConfig(this)
+    toolDock = ToolDock(this)
     Motion.load(this)
     tabs = tabPrefs.getString("ids", null)?.split(",")?.filter { it.isNotEmpty() }.orEmpty()
     val toolSettings = ToolSettings(this)
@@ -368,6 +364,8 @@ class MainActivity : ComponentActivity() {
         if (settingsOpen) {
           SettingsSheet(
             viewSettings = viewSettings,
+            toolbarConfig = toolbarConfig,
+            toolDock = toolDock,
             storageShared = !needsStorageAccess,
             onAllowStorage = ::requestStorageAccess,
             onDismiss = { settingsOpen = false },
@@ -376,6 +374,9 @@ class MainActivity : ComponentActivity() {
         val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
           val notebook = open
           if (uri != null && notebook != null) importImage(uri, notebook)
+        }
+        val pickPdfFromCanvas = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+          if (uri != null) importPdfAndOpen(uri)
         }
         val current = open
         if (current == null) {
@@ -467,22 +468,43 @@ class MainActivity : ComponentActivity() {
             current.canvas.setDarkPage(effectiveDarkPage)
           }
           key(current.info.id) {
+            val recentNotebooks =
+              remember(current.info, tabs, library) {
+                buildList {
+                  add(current.info)
+                  val seen = hashSetOf(current.info.id)
+                  for (id in tabs) {
+                    if (seen.add(id)) library.firstOrNull { it.id == id }?.let(::add)
+                  }
+                  for (info in library) {
+                    if (size >= MAX_RECENT_FILES) break
+                    if (seen.add(info.id)) add(info)
+                  }
+                }
+              }
             NoteScreen(
-              current.canvas,
-              effectiveDarkPage,
-              viewSettings,
-              toolSettings,
-              title = current.info.title,
+              canvas = current.canvas,
+              darkPage = effectiveDarkPage,
+              isPdfNotebook = current.pdf != null,
+              notebookInfo = current.info,
+              viewSettings = viewSettings,
+              toolSettings = toolSettings,
+              toolbarConfig = toolbarConfig,
+              dock = toolDock,
+              recentNotebooks = recentNotebooks,
+              folders = folders,
+              folderColorFor = { folder -> dev.penlab.app.ui.folderColor(folder, folderColors) },
               onBack = ::closeNotebook,
-              otherTabs = tabs.filter { it != current.info.id }.mapNotNull { id -> library.firstOrNull { it.id == id } },
-              tabColor = { info -> dev.penlab.app.ui.folderColor(info.folder, folderColors) },
-              onSwitchTab = ::switchTo,
-              onCloseTab = ::closeTab,
+              onSwitchNotebook = ::switchTo,
+              onRenameNotebook = ::renameOpenNotebook,
+              onMoveNotebook = ::moveOpenNotebook,
+              onTurnNotebook = if (current.info.kind == NotebookKind.A4 && current.info.pdfPages.isEmpty()) ::turnOpenNotebook else null,
               onExport = { startExport(current.info, false) },
               onShare = { startExport(current.info, true) },
               onOpenSettings = { settingsOpen = true },
               onReport = { where -> reportingFrom = where },
               onInsertImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+              onImportPdf = { pickPdfFromCanvas.launch(arrayOf(*plugins.importMimeTypes().toTypedArray(), "application/pdf")) },
               pluginActions = plugins::pageActions,
               onPluginAction = ::runPluginAction,
               exportMessage = exportMessage,
@@ -1006,6 +1028,92 @@ class MainActivity : ComponentActivity() {
   }
 
   /** From one notebook tab to another: saves this one (and its cover), opens [info]. */
+  /** Renames the open notebook immediately in chrome and persists to [NotebookStore]. */
+  private fun renameOpenNotebook(newTitle: String) {
+    val current = open ?: return
+    val clean = newTitle.trim().ifEmpty { current.info.title }
+    if (clean == current.info.title) return
+    val updated = current.info.copy(title = clean, modified = System.currentTimeMillis())
+    current.info = updated
+    updateInfo(updated)
+  }
+
+  /** Moves the open notebook to [targetFolder] immediately in chrome and persists to [NotebookStore]. */
+  private fun moveOpenNotebook(targetFolder: String) {
+    val current = open ?: return
+    val clean = cleanFolder(targetFolder)
+    if (clean == current.info.folder) return
+    val updated = current.info.copy(folder = clean, modified = System.currentTimeMillis())
+    current.info = updated
+    libraryFolder = clean
+    io.execute {
+      if (clean.isNotEmpty()) notebooks.createFolder(clean)
+      notebooks.write(updated)
+      refreshLibrary()
+    }
+  }
+
+  /**
+   * Turns the currently open plain A4 notebook between portrait and landscape without racing with
+   * async saves: captures its live snapshot, shifts ink/items on [io], saves, and reopens cleanly.
+   */
+  private fun turnOpenNotebook() {
+    val current = open ?: return
+    val info = current.info
+    if (info.kind != NotebookKind.A4 || info.pdfPages.isNotEmpty()) return
+    main.removeCallbacks(saveNow)
+    val snapshot = current.canvas.snapshot()
+    val store = current.pages ?: notebooks.pageStore(info)
+    current.pdf?.close()
+    current.search?.close()
+    open = null
+    io.execute {
+      val old = PageLayout.paged(info.pageWidthMm, info.pageHeightMm, info.pageCount, info.bookmarks, emptyList())
+      val turned = info.copy(pageWidthMm = info.pageHeightMm, pageHeightMm = info.pageWidthMm, modified = System.currentTimeMillis())
+      val new = PageLayout.paged(turned.pageWidthMm, turned.pageHeightMm, info.pageCount, info.bookmarks, emptyList())
+      fun shift(y: Float): Float {
+        val p = old.pageAt(y)
+        return y - old.top(p) + new.top(p)
+      }
+      val strokes = snapshot.strokes.map { s ->
+        val dy = shift(s.bounds.centerY()) - s.bounds.centerY()
+        if (dy == 0f) s else s.translated(0f, dy)
+      }
+      val items = snapshot.items.map { item ->
+        val dy = shift(item.cy) - item.cy
+        item.mapped(android.graphics.Matrix().apply { setTranslate(0f, dy) })
+      }
+      store.clearHistoryNow()
+      store.saveNow(PageSnapshot(strokes, snapshot.pageStyle, FloatArray(9).also { android.graphics.Matrix().getValues(it) }, items))
+      notebooks.write(turned)
+      refreshLibrary()
+      main.post { openNotebook(turned) }
+    }
+  }
+
+  /**
+   * Imports a PDF chosen from inside the canvas's More menu into the current notebook's folder
+   * (via the PDF importer plugin) and opens it cleanly.
+   */
+  private fun importPdfAndOpen(uri: Uri) {
+    val folder = open?.info?.folder ?: libraryFolder
+    save()
+    open?.let(::saveCover)
+    exportMessage = "Importing PDF…"
+    io.execute {
+      val info = importFile(uri, IncomingPdf.fileName(displayName(uri)), folder)
+      if (info == null) {
+        main.post { exportMessage = "That file could not be read as a PDF." }
+      } else {
+        refreshLibrary()
+        main.post {
+          exportMessage = null
+          switchTo(info)
+        }
+      }
+    }
+  }
+
   private fun switchTo(info: NotebookInfo) {
     val current = open ?: return openNotebook(info)
     if (current.info.id == info.id) return
@@ -1015,11 +1123,6 @@ class MainActivity : ComponentActivity() {
     current.search?.close()
     open = null
     openNotebook(info)
-  }
-
-  private fun closeTab(info: NotebookInfo) {
-    tabs = tabs.filter { it != info.id }
-    tabPrefs.edit().putString("ids", tabs.joinToString(",")).apply()
   }
 
   /** Saves and goes back to the library. */
@@ -1244,32 +1347,39 @@ class MainActivity : ComponentActivity() {
 private const val AUTOSAVE_DELAY_MS = 400L
 private const val COVER_FILE = "cover.jpg"
 private const val MAX_TABS = 3
+private const val MAX_RECENT_FILES = 6
 
 /** How much one press of a zoom key zooms. */
 private const val KEY_ZOOM_STEP = 1.25f
 
-/** Height of the row of buttons at the top of the note screen, plus its margins. */
-private val TOP_BUTTONS_HEIGHT = 68.dp
+/** Height of the top floating island row plus its margins when the center bar drops to row 2. */
+private val TOP_BUTTONS_HEIGHT = BarHeight + 20.dp
 
-/** The whole app for now: the page, the tool strip on its left edge, and the strip's panels. */
+/** The canvas screen: edge-to-edge paper, 3-island floating top chrome, and customizable toolbar. */
 @Composable
 private fun NoteScreen(
   canvas: InkCanvasView,
   darkPage: Boolean,
+  isPdfNotebook: Boolean,
+  notebookInfo: NotebookInfo,
   viewSettings: ViewSettings,
   toolSettings: ToolSettings,
-  title: String,
+  toolbarConfig: ToolbarConfig,
+  dock: ToolDock,
+  recentNotebooks: List<NotebookInfo>,
+  folders: List<String>,
+  folderColorFor: (String) -> Int?,
   onBack: () -> Unit,
-  /** The other notebook tabs (see MainActivity.tabs), their folder colours, and switching. */
-  otherTabs: List<NotebookInfo>,
-  tabColor: (NotebookInfo) -> Int?,
-  onSwitchTab: (NotebookInfo) -> Unit,
-  onCloseTab: (NotebookInfo) -> Unit,
+  onSwitchNotebook: (NotebookInfo) -> Unit,
+  onRenameNotebook: (String) -> Unit,
+  onMoveNotebook: (String) -> Unit,
+  onTurnNotebook: (() -> Unit)?,
   onExport: () -> Unit,
   onShare: () -> Unit,
   onOpenSettings: () -> Unit,
   onReport: (where: String) -> Unit,
   onInsertImage: () -> Unit,
+  onImportPdf: () -> Unit,
   /** Plugin page actions for the "more" menu (true) or the lasso menu (false), and running one. */
   pluginActions: (selectionEmpty: Boolean) -> List<PluginRegistry.Entry<PageAction>>,
   onPluginAction: (PluginRegistry.Entry<PageAction>) -> Unit,
@@ -1278,9 +1388,8 @@ private fun NoteScreen(
   onPageEdited: () -> Unit,
   search: HandwritingIndex?,
 ) {
-  // The toolbar's slots, as saved last time. Changing a size or colour replaces the tool in
-  // its slot (and saves it).
-  val tools = remember { mutableStateListOf<InkTool>().apply { addAll(toolSettings.loadTools()) } }
+  // The toolbar's slots, dynamically sized to [toolbarConfig.penCount] pens + utility tools.
+  val tools = remember { mutableStateListOf<InkTool>().apply { addAll(toolSettings.loadTools(toolbarConfig.penCount)) } }
   var selected by remember { mutableIntStateOf(toolSettings.selectedIndex.coerceIn(0, tools.lastIndex)) }
   val context = LocalContext.current
   val mmPerDp = remember {
@@ -1289,32 +1398,37 @@ private fun NoteScreen(
   }
   var pageStyle by remember { mutableStateOf(canvas.pageStyle) }
   var rulingMm by remember { mutableStateOf(canvas.rulingMm) }
-  // Layers as the canvas has them (refreshed when they change), and the one being renamed.
   var layerState by remember { mutableStateOf(canvas.layers) }
-  // Which panel is open: a tool's index, PAPER_CELL, or null. [shownPanel] remembers the last
-  // one so it can finish fading out after [openPanel] is cleared.
+  // Which toolbar panel is open: a tool's index, PAPER_CELL, LAYERS_CELL, INSTRUMENTS_CELL, MORE_CELL, or null.
   var openPanel by remember { mutableStateOf<Int?>(null) }
   var shownPanel by remember { mutableIntStateOf(0) }
 
   var canUndo by remember { mutableStateOf(canvas.canUndo) }
   var canRedo by remember { mutableStateOf(canvas.canRedo) }
   var canClear by remember { mutableStateOf(!canvas.isEmpty) }
-  // Where the lasso selection is on screen, or null. Read when placing its buttons.
   var selectionRect by remember { mutableStateOf<Rect?>(null) }
-  // Where the pen was held to open the paste menu, or null when it is closed.
   var pasteMenuAt by remember { mutableStateOf<Offset?>(null) }
-  // Page zoom and angle for the readout, updated only when the whole-number values change.
+  // Page zoom and angle for the right island readout, updated only when whole-number values change.
   var viewZoom by remember { mutableIntStateOf(canvas.zoomPercent) }
   var viewAngle by remember { mutableIntStateOf(Math.round(canvas.angleDegrees)) }
+
+  // Top-chrome popovers (mutually exclusive with each other and with toolbar panels).
+  var fileQuickMenuOpen by remember { mutableStateOf(false) }
+  var fileOptionsOpen by remember { mutableStateOf(false) }
   var viewPanelOpen by remember { mutableStateOf(false) }
-  var moreMenuOpen by remember { mutableStateOf(false) }
-  // Full screen: the top bar and Android's status bar hide; the tools stay.
+  var pageConfigOpen by remember { mutableStateOf(false) }
+  var pageConfigTab by remember { mutableStateOf(if (canvas.pageLayout != null) PageConfigTab.PAGES else PageConfigTab.PAPER) }
+  var searchOpen by remember { mutableStateOf(false) }
+
+  // Current-file dialogs triggered from FileQuickMenuPopover.
+  var renamingNotebook by remember { mutableStateOf(false) }
+  var movingNotebook by remember { mutableStateOf(false) }
+
+  // Full screen: the 3-island top chrome and Android's status bar hide; the tools stay.
   var fullScreen by remember { mutableStateOf(false) }
-  // Present mode (projecting in class): only the page and the ink show. Never remembered across
-  // launches. The toolbar comes back for a few seconds ([PEEK_TOOLS_MS]) on request.
+  // Present mode: only the page and ink show; toolbar peeks briefly on request.
   var present by remember { mutableStateOf(false) }
   var toolsPeeking by remember { mutableStateOf(false) }
-  // Bumped by every use of the peeking toolbar, so the hide timer restarts from the last one.
   var peekUses by remember { mutableIntStateOf(0) }
   val chrome = ScreenChrome(fullScreen = fullScreen, present = present, toolsPeeking = toolsPeeking)
   val view = androidx.compose.ui.platform.LocalView.current
@@ -1334,8 +1448,8 @@ private fun NoteScreen(
     }
     onDispose { bars?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
   }
-  // Handwriting search: the panel, the words, the matches, which match is shown, and the reader's status.
-  var searchOpen by remember { mutableStateOf(false) }
+
+  // Handwriting search state.
   var searchQuery by remember { mutableStateOf("") }
   var searchHits by remember { mutableStateOf<List<HandwritingIndex.Hit>>(emptyList()) }
   var searchShown by remember { mutableStateOf<Int?>(null) }
@@ -1343,7 +1457,6 @@ private fun NoteScreen(
   fun runSearch() {
     searchHits = search?.search(searchQuery).orEmpty()
   }
-  // After a jump (search result, page grid): where you were writing, to go back in one tap.
   var jumpBack by remember { mutableStateOf<Pair<FloatArray, Int>?>(null) }
   fun showHit(index: Int) {
     val hit = searchHits.getOrNull(index) ?: return
@@ -1355,32 +1468,30 @@ private fun NoteScreen(
   DisposableEffect(search) {
     search?.onStatus = { status ->
       searchStatus = status
-      runSearch() // new lines may match
+      runSearch()
     }
     onDispose { search?.onStatus = {} }
   }
-  // Notebook pages: which one is in the middle of the screen, and a counter that changes with
-  // the content so the page grid redraws its thumbnails.
+
   var currentPage by remember { mutableIntStateOf(canvas.currentPage) }
   var contentVersion by remember { mutableIntStateOf(0) }
-  var pagesOpen by remember { mutableStateOf(false) }
   var rulerOn by remember { mutableStateOf(canvas.rulerVisible) }
-  // The text form: which box is being edited (null = new one) and its current text.
-  var editingText by remember { mutableStateOf<Pair<String?, String>?>(null) }
   var protractorOn by remember { mutableStateOf(canvas.protractorVisible) }
-  val dock = remember { ToolDock(context) }
-  // Everything that opens over the canvas and is dismissed by a press outside it. One list, one
-  // rule: while any of these is open, a press outside it only closes it (no ink, no tap). The tool
-  // panel, the wheel and the paste menu are always dismissed by a press anywhere off the toolbar;
-  // the top-bar surfaces (view panel, page grid, search, more menu) only by a press off the top
-  // bar, because the bar's own buttons toggle them.
-  val topBarBounds = remember { arrayOfNulls<Rect>(2) }
-  fun topBarOverlayOpen() = viewPanelOpen || pagesOpen || searchOpen || moreMenuOpen
+  var editingText by remember { mutableStateOf<Pair<String?, String>?>(null) }
+
+  // Exact hit regions for the floating top islands and their open popovers:
+  // [0] Left pill, [1] Right pill, [2] Left popover, [3] Right popover.
+  val topBarBounds = remember { arrayOfNulls<Rect>(4) }
+  fun topBarOverlayOpen() =
+    fileQuickMenuOpen || fileOptionsOpen || viewPanelOpen || pageConfigOpen || searchOpen
   fun closeTopBarOverlays() {
+    fileQuickMenuOpen = false
+    fileOptionsOpen = false
     viewPanelOpen = false
-    pagesOpen = false
+    pageConfigOpen = false
     searchOpen = false
-    moreMenuOpen = false
+    topBarBounds[2] = null
+    topBarBounds[3] = null
   }
   fun closeOverlays(topBarToo: Boolean) {
     openPanel = null
@@ -1392,14 +1503,13 @@ private fun NoteScreen(
     closeOverlays(topBarToo = true)
     onOpenSettings()
   }
-  // The colour wheel: which tool slot it is choosing for, or null when closed.
+
   var colorWheelFor by remember { mutableStateOf<Int?>(null) }
-  // The eyedropper is waiting for a touch on the page (a hint says so).
   var eyedropperOn by remember { mutableStateOf(false) }
   var renamingLayer by remember { mutableStateOf<Int?>(null) }
   fun hidePeekingTools() {
     toolsPeeking = false
-    closeOverlays(topBarToo = true) // so a panel does not come back with the next peek
+    closeOverlays(topBarToo = true)
     colorWheelFor = null
   }
   fun enterPresent() {
@@ -1416,11 +1526,10 @@ private fun NoteScreen(
     present = false
   }
   DisposableEffect(present) {
-    canvas.presenting = present // hides the selection box and handles, and stops new selections
+    canvas.presenting = present
     onDispose { canvas.presenting = false }
   }
   BackHandler(enabled = chrome.backLeavesPresent) { leavePresent() }
-  // The peeking toolbar hides again a few seconds after it was last used.
   LaunchedEffect(present, toolsPeeking, peekUses, openPanel, dock.wheelOpen, dock.dragging, colorWheelFor, eyedropperOn, renamingLayer) {
     if (present && toolsPeeking && peekMayEnd(openPanel != null, dock.wheelOpen, dock.dragging, colorWheelFor != null || eyedropperOn || renamingLayer != null)) {
       delay(PEEK_TOOLS_MS)
@@ -1431,16 +1540,38 @@ private fun NoteScreen(
   val scope = rememberCoroutineScope()
   LaunchedEffect(exportMessage) { showExportMessage(exportMessage, messages, onExportMessageShown) }
 
-  // The canvas is a classic Android view. It is told about the chosen tool here, directly from
-  // each tap that changes it (not as a by-product of the screen redrawing), and it tells
-  // Compose when the page changed or the pen came down.
   fun sendToolsToCanvas() {
-    canvas.tool = tools[selected]
-    canvas.eraserRadiusDp = tools.first { it.isEraser }.sizeDp
-    canvas.partialErase = tools.first { it.isEraser }.partialErase
+    val safeIndex = selected.coerceIn(0, tools.lastIndex)
+    if (safeIndex != selected) selected = safeIndex
+    canvas.tool = tools[safeIndex]
+    val eraser = tools.firstOrNull { it.isEraser }
+    if (eraser != null) {
+      canvas.eraserRadiusDp = eraser.sizeDp
+      canvas.partialErase = eraser.partialErase
+    }
     toolSettings.saveTools(tools)
-    toolSettings.selectedIndex = selected
+    toolSettings.selectedIndex = safeIndex
   }
+
+  // Live-resize pen slots whenever the user adjusts penCount in Settings.
+  LaunchedEffect(toolbarConfig.penCount) {
+    val currentPenCount = tools.count { it.kind == InkTool.Kind.PEN }
+    if (currentPenCount != toolbarConfig.penCount) {
+      val prevTool = tools.getOrNull(selected)
+      val resized = toolSettings.resizeTools(tools.toList(), toolbarConfig.penCount)
+      tools.clear()
+      tools.addAll(resized)
+      selected =
+        when {
+          prevTool == null -> 0
+          prevTool.kind == InkTool.Kind.PEN -> selected.coerceIn(0, toolbarConfig.penCount - 1)
+          else -> tools.indexOfFirst { it.kind == prevTool.kind }.takeIf { it >= 0 } ?: 0
+        }
+      if (openPanel != null && openPanel!! >= 0) openPanel = null
+      sendToolsToCanvas()
+    }
+  }
+
   DisposableEffect(canvas) {
     sendToolsToCanvas()
     canvas.onHistoryChanged = {
@@ -1451,9 +1582,9 @@ private fun NoteScreen(
       onPageEdited()
     }
     canvas.onPageTouched = {
-      jumpBack = null // writing there means you've settled where you jumped to
-      closeOverlays(topBarToo = true) // writing closes any open panel or menu
-      if (present && toolsPeeking) hidePeekingTools() // she is writing again: the tools step aside
+      jumpBack = null
+      closeOverlays(topBarToo = true)
+      if (present && toolsPeeking) hidePeekingTools()
     }
     canvas.onPasteMenu = { x, y ->
       if (!present) {
@@ -1466,7 +1597,7 @@ private fun NoteScreen(
     canvas.onNotice = { text -> if (!present) scope.launch { messages.currentSnackbarData?.dismiss(); messages.showSnackbar(text, duration = SnackbarDuration.Short) } }
     canvas.onLayersChanged = {
       layerState = canvas.layers
-      onPageEdited() // worth saving
+      onPageEdited()
     }
     canvas.onPicturesUpdated = { contentVersion++ }
     canvas.onViewChanged = { zoom, angle ->
@@ -1499,32 +1630,37 @@ private fun NoteScreen(
       openPanel = cell
     }
   }
-  val isPalm = { canvas.isPenWriting }
 
-  // Bold accent: page edges in the look's colour (faint, so the page still reads as paper).
+  fun clearPageWithUndo() {
+    openPanel = null
+    canvas.clear()
+    scope.launch {
+      messages.currentSnackbarData?.dismiss()
+      val result = messages.showSnackbar("Page cleared", actionLabel = "Undo", duration = SnackbarDuration.Short)
+      if (result == SnackbarResult.ActionPerformed) canvas.undo()
+    }
+  }
+
+  val isPalm = { canvas.isPenWriting }
   val edgeAccent = androidx.compose.material3.MaterialTheme.colorScheme.primary
   LaunchedEffect(edgeAccent) { canvas.pageEdgeAccent = edgeAccent.copy(alpha = 0.55f).toArgb() }
 
-  // Undo and redo leave the strip when the window is too short for all of it.
-  val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
-  val showHistory = windowHeight >= toolbarHeight(tools.size, showHistory = true) + WINDOW_MARGIN
+  // Measure left & right floating island widths so DockedToolbar knows the exact free middle span.
+  var leftIslandWidthPx by remember { mutableIntStateOf(0) }
+  var rightIslandWidthPx by remember { mutableIntStateOf(0) }
 
   Box(
     Modifier.fillMaxSize().pointerInput(dock) {
-      // Any press (pen or finger) outside the toolbar and its panel closes the panel and the
-      // wheel. Watching here, above everything, catches presses the page itself misses
-      // (user request: sometimes the ruler panel stayed open after picking it from the wheel).
       awaitPointerEventScope {
         while (true) {
           val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
           if (event.type != androidx.compose.ui.input.pointer.PointerEventType.Press) continue
           val at = event.changes.firstOrNull()?.position ?: continue
           if (dock.isOnDock(at)) {
-            if (toolsPeeking) peekUses++ // using the peeking toolbar keeps it a little longer
+            if (toolsPeeking) peekUses++
             if (topBarOverlayOpen()) closeTopBarOverlays()
             continue
           }
-          // A press on the top bar leaves its own surfaces to the bar's buttons (they toggle).
           val onTopBar = topBarBounds.any { it?.contains(at) == true }
           val somethingOpen = openPanel != null || dock.wheelOpen || pasteMenuAt != null || (!onTopBar && topBarOverlayOpen())
           closeOverlays(topBarToo = !onTopBar)
@@ -1537,33 +1673,53 @@ private fun NoteScreen(
 
     val density = LocalDensity.current
     val safe = WindowInsets.safeDrawing
+    val statusTopPx = WindowInsets.statusBars.getTop(density)
     val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
     val insets =
       with(density) {
         DockInsets(
-          top = safe.getTop(density).toDp(),
+          top = statusTopPx.toDp(),
           bottom = safe.getBottom(density).toDp(),
           left = safe.getLeft(density, layoutDirection).toDp(),
           right = safe.getRight(density, layoutDirection).toDp(),
           topButtons = TOP_BUTTONS_HEIGHT,
+          topRowLeftClearance = leftIslandWidthPx.toDp(),
+          topRowRightClearance = rightIslandWidthPx.toDp(),
+          topChromeVisible = chrome.topBar,
         )
       }
+
+    // Build ordered DockItems directly from ToolbarConfig.
+    val penIndices = tools.indices.filter { tools[it].kind == InkTool.Kind.PEN }
+    val eraserIndex = tools.indexOfFirst { it.isEraser }
+    val lassoIndex = tools.indexOfFirst { it.isLasso }
+    val fillIndex = tools.indexOfFirst { it.isFill }
+    val highlighterIndex = tools.indexOfFirst { it.isHighlighter }
+    val textIndex = tools.indexOfFirst { it.isText }
+
     val dockItems = buildList {
-      tools.indices.forEach { add(DockItem.Tool(it)) }
-      if (showHistory && !dock.side.isCorner) {
-        add(DockItem.Undo)
-        add(DockItem.Redo)
-      }
-      // On the corner wheel only the tools; the page actions move to the top bar.
-      if (!dock.side.isCorner) {
-        add(DockItem.Paper)
-        add(DockItem.Layers)
-        add(DockItem.Instruments)
-        add(DockItem.Clear)
+      for (item in toolbarConfig.visibleOrderedItems) {
+        when (item) {
+          ToolbarItem.PENS -> penIndices.forEach { add(DockItem.Tool(it)) }
+          ToolbarItem.ERASER -> if (eraserIndex >= 0) add(DockItem.Tool(eraserIndex))
+          ToolbarItem.SELECT -> if (lassoIndex >= 0) add(DockItem.Tool(lassoIndex))
+          ToolbarItem.FILL -> if (fillIndex >= 0) add(DockItem.Tool(fillIndex))
+          ToolbarItem.TOOLS -> add(DockItem.Instruments)
+          ToolbarItem.MORE -> add(DockItem.More)
+          ToolbarItem.UNDO_REDO -> {
+            add(DockItem.Undo)
+            add(DockItem.Redo)
+          }
+          ToolbarItem.HIGHLIGHTER -> if (highlighterIndex >= 0) add(DockItem.Tool(highlighterIndex))
+          ToolbarItem.TEXT -> if (textIndex >= 0) add(DockItem.Tool(textIndex))
+          ToolbarItem.LAYERS -> add(DockItem.Layers)
+          ToolbarItem.CLEAR -> add(DockItem.Clear)
+        }
       }
     }
+
     val onDockItem: (DockItem) -> Unit = { item ->
-      canvas.onColorSampled = null // touching the toolbar cancels a waiting eyedropper
+      canvas.onColorSampled = null
       eyedropperOn = false
       closeTopBarOverlays()
       pasteMenuAt = null
@@ -1571,7 +1727,7 @@ private fun NoteScreen(
         is DockItem.Tool -> {
           val index = item.index
           if (index == selected) {
-            if (!tools[index].isLasso) togglePanel(index) // the lasso has no options
+            if (!tools[index].isLasso) togglePanel(index)
           } else {
             selected = index
             openPanel = null
@@ -1582,7 +1738,7 @@ private fun NoteScreen(
         DockItem.Undo -> canvas.undo()
         DockItem.Redo -> canvas.redo()
         DockItem.Paper -> {
-          dock.wheelOpen = false // the panel takes over from the wheel
+          dock.wheelOpen = false
           togglePanel(PAPER_CELL)
         }
         DockItem.Layers -> {
@@ -1593,18 +1749,15 @@ private fun NoteScreen(
           dock.wheelOpen = false
           togglePanel(INSTRUMENTS_CELL)
         }
-        DockItem.Clear -> {
-          openPanel = null
-          canvas.clear()
-          // Clearing is one tap, so say what happened and offer the way back.
-          scope.launch {
-            messages.currentSnackbarData?.dismiss()
-            val result = messages.showSnackbar("Page cleared", actionLabel = "Undo", duration = SnackbarDuration.Short)
-            if (result == SnackbarResult.ActionPerformed) canvas.undo()
-          }
+        DockItem.More -> {
+          dock.wheelOpen = false
+          togglePanel(MORE_CELL)
         }
+        DockItem.Clear -> clearPageWithUndo()
       }
     }
+
+    val dockZ = if (dock.dragging || openPanel != null || dock.wheelOpen) 2.5f else 1.5f
     if (chrome.toolbar) DockedToolbar(
       dock = dock,
       items = dockItems,
@@ -1624,10 +1777,47 @@ private fun NoteScreen(
       onSidesCovered = { left, right ->
         canvas.setSideInsets(left, right)
       },
-      // Above the top bar's band, which is composed later (user request: the band covered the toolbar).
-      modifier = Modifier.fillMaxSize().zIndex(1f),
+      instrumentsActive = rulerOn || protractorOn,
+      modifier = Modifier.fillMaxSize().zIndex(dockZ),
     ) {
-        if (shownPanel == LAYERS_CELL) {
+      when (shownPanel) {
+        MORE_CELL -> {
+          MoreToolsPanel(
+            canClear = canClear,
+            onAddFromPdf = {
+              openPanel = null
+              onImportPdf()
+            },
+            onAddImage = {
+              openPanel = null
+              onInsertImage()
+            },
+            onSelectHighlighter = {
+              if (highlighterIndex >= 0) {
+                selected = highlighterIndex
+                sendToolsToCanvas()
+                shownPanel = highlighterIndex
+                openPanel = highlighterIndex
+              } else {
+                openPanel = null
+              }
+            },
+            onSelectTextBox = {
+              if (textIndex >= 0) {
+                selected = textIndex
+                sendToolsToCanvas()
+              }
+              openPanel = null
+            },
+            onOpenLayers = {
+              shownPanel = LAYERS_CELL
+              openPanel = LAYERS_CELL
+            },
+            onClearPage = { clearPageWithUndo() },
+            isPalm = isPalm,
+          )
+        }
+        LAYERS_CELL -> {
           LayersPanel(
             names = layerState.names,
             hidden = layerState.hidden,
@@ -1646,7 +1836,8 @@ private fun NoteScreen(
             onAdd = canvas::addLayer,
             isPalm = isPalm,
           )
-        } else if (shownPanel == INSTRUMENTS_CELL) {
+        }
+        INSTRUMENTS_CELL -> {
           InstrumentsPanel(
             rulerOn = rulerOn,
             protractorOn = protractorOn,
@@ -1658,16 +1849,18 @@ private fun NoteScreen(
               protractorOn = it
               canvas.protractorVisible = it
             },
+            shapeSnappingOn = viewSettings.shapeSnapping,
+            onShapeSnapping = viewSettings::setShapeSnapping,
             isPalm = isPalm,
           )
-        } else if (shownPanel == PAPER_CELL) {
+        }
+        PAPER_CELL -> {
           PaperPanel(
             style = pageStyle,
             darkPage = darkPage,
             onStylePicked = {
               pageStyle = it
               canvas.pageStyle = it
-              // Each paper has its own usual spacing; a new paper starts from it.
               rulingMm = 0f
               canvas.rulingMm = 0f
             },
@@ -1676,55 +1869,60 @@ private fun NoteScreen(
               rulingMm = it
               canvas.rulingMm = it
             },
-            isPalm = isPalm,
-          )
-        } else {
-          ToolOptionsPanel(
-            tool = tools[shownPanel],
-            darkPage = darkPage,
-            // A pick closes the panel, so it is never in the way of the next stroke.
-            onStylePicked = {
-              tools[shownPanel] = tools[shownPanel].copy(style = it)
-              openPanel = null
-              dock.wheelOpen = false // a pick from the panel is done with the wheel too
-              sendToolsToCanvas()
-            },
-            onLinePicked = {
-              tools[shownPanel] = tools[shownPanel].copy(line = it)
-              sendToolsToCanvas()
-            },
-            onEraseModePicked = {
-              tools[shownPanel] = tools[shownPanel].copy(partialErase = it)
-              sendToolsToCanvas()
-            },
-            favourites = toolSettings.favourites.getValue(tools[shownPanel].kind),
-            mmPerDp = mmPerDp,
-            // Sliding changes the size live and keeps the panel open.
-            onSizeChanging = {
-              tools[shownPanel] = tools[shownPanel].copy(sizeDp = Math.round(it * 10f) / 10f)
-              sendToolsToCanvas()
-            },
-            onSizePicked = {
-              tools[shownPanel] = tools[shownPanel].copy(sizeDp = it)
-              openPanel = null
-              dock.wheelOpen = false // a pick from the panel is done with the wheel too
-              sendToolsToCanvas()
-            },
-            onAddFavourite = { toolSettings.addFavourite(tools[shownPanel].kind, tools[shownPanel].sizeDp) },
-            onRemoveFavourite = { toolSettings.removeFavourite(tools[shownPanel].kind, it) },
-            onColorPicked = {
-              tools[shownPanel] = tools[shownPanel].copy(paperColor = it)
-              openPanel = null
-              dock.wheelOpen = false // a pick from the panel is done with the wheel too
-              sendToolsToCanvas()
-            },
-            onMoreColors = {
-              colorWheelFor = shownPanel
-              openPanel = null
-            },
+            isPdfNotebook = isPdfNotebook,
+            showPaperModeToggle = true,
             isPalm = isPalm,
           )
         }
+        else -> {
+          val panelTool = tools.getOrNull(shownPanel)
+          if (panelTool != null) {
+            ToolOptionsPanel(
+              tool = panelTool,
+              darkPage = darkPage,
+              onStylePicked = {
+                tools[shownPanel] = tools[shownPanel].copy(style = it)
+                openPanel = null
+                dock.wheelOpen = false
+                sendToolsToCanvas()
+              },
+              onLinePicked = {
+                tools[shownPanel] = tools[shownPanel].copy(line = it)
+                sendToolsToCanvas()
+              },
+              onEraseModePicked = {
+                tools[shownPanel] = tools[shownPanel].copy(partialErase = it)
+                sendToolsToCanvas()
+              },
+              favourites = toolSettings.favourites.getValue(panelTool.kind),
+              mmPerDp = mmPerDp,
+              onSizeChanging = {
+                tools[shownPanel] = tools[shownPanel].copy(sizeDp = Math.round(it * 10f) / 10f)
+                sendToolsToCanvas()
+              },
+              onSizePicked = {
+                tools[shownPanel] = tools[shownPanel].copy(sizeDp = it)
+                openPanel = null
+                dock.wheelOpen = false
+                sendToolsToCanvas()
+              },
+              onAddFavourite = { toolSettings.addFavourite(panelTool.kind, tools[shownPanel].sizeDp) },
+              onRemoveFavourite = { toolSettings.removeFavourite(panelTool.kind, it) },
+              onColorPicked = {
+                tools[shownPanel] = tools[shownPanel].copy(paperColor = it)
+                openPanel = null
+                dock.wheelOpen = false
+                sendToolsToCanvas()
+              },
+              onMoreColors = {
+                colorWheelFor = shownPanel
+                openPanel = null
+              },
+              isPalm = isPalm,
+            )
+          }
+        }
+      }
     }
 
     if (selectionRect != null && chrome.selectionUi) {
@@ -1758,205 +1956,267 @@ private fun NoteScreen(
 
     val railLeft = if (dock.side == DockSide.LEFT) RailWidth else 0.dp
     val railRight = if (dock.side == DockSide.RIGHT) RailWidth else 0.dp
-    // Portrait: the two button groups don't fit side by side (the right one hid
-    // Paper, Layers, Ruler and Clear), so the right group moves to a second line.
-    val twoLineBar = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 1000
-    val secondLine = if (twoLineBar) 44.dp else 0.dp
-    // The right-hand buttons' width: the left group stops short of it and scrolls instead of
-    // sliding under it.
-    var rightBarWidth by remember { mutableIntStateOf(0) }
-    if (chrome.topBar) {
-    // A band behind the top bar so its buttons read cleanly over any page (ink, page edges).
-    // Solid under every row of buttons (both rows in portrait) and cut off with a hairline: the
-    // earlier fade looked smeared (user request). The toolbar is drawn above it (zIndex).
-    val barTop = with(density) { WindowInsets.safeDrawing.getTop(this).toDp() }
-    val barSolid = barTop + 12.dp + 36.dp + secondLine + 10.dp
-    Box(
-      Modifier.align(Alignment.TopStart).fillMaxWidth()
-        .height(barSolid)
-        .background(dev.penlab.app.ui.theme.PenLabColors.backdrop)
-        .drawBehind {
-          drawLine(dev.penlab.app.ui.theme.PenLabColors.hairline, androidx.compose.ui.geometry.Offset(0f, size.height - 0.5f), androidx.compose.ui.geometry.Offset(size.width, size.height - 0.5f), strokeWidth = 1f)
-        }
-    )
-    Column(Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(top = 12.dp, start = 12.dp + railLeft, end = if (twoLineBar) 12.dp else with(density) { rightBarWidth.toDp() } + 24.dp).onGloballyPositioned { topBarBounds[0] = it.boundsInRoot() }) {
-      // When the group is cut off, its right edge fades out (a sign there's more to scroll) instead
-      // of a hard cut through a button (QC round 3).
-      val leftScroll = androidx.compose.foundation.rememberScrollState()
-      Row(
-        Modifier
-          .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-          .drawWithContent {
-            drawContent()
-            if (leftScroll.canScrollForward) {
-              val fade = 40.dp.toPx()
-              drawRect(
-                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                  listOf(androidx.compose.ui.graphics.Color.Black, androidx.compose.ui.graphics.Color.Transparent),
-                  startX = size.width - fade, endX = size.width,
-                ),
-                topLeft = androidx.compose.ui.geometry.Offset(size.width - fade, 0f),
-                size = androidx.compose.ui.geometry.Size(fade, size.height),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-              )
-            }
-          }
-          .horizontalScroll(leftScroll),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        BackToLibrary(title = title, onClick = onBack)
-        for (tab in otherTabs) {
-          Spacer(Modifier.width(6.dp))
-          dev.penlab.app.ui.NotebookTab(tab.title, tabColor(tab), onClick = { onSwitchTab(tab) }, onClose = { onCloseTab(tab) })
-        }
-        val layout = canvas.pageLayout
-        if (layout != null) {
-          Spacer(Modifier.width(8.dp))
-          // Read contentVersion so the count follows added and deleted pages.
-          val count = contentVersion.let { layout.count }
-          PageCounter(page = { currentPage }, count = count, onClick = {
-            val next = !pagesOpen
-            closeOverlays(topBarToo = true)
-            pagesOpen = next
-          })
-        }
-        if (dock.side.isCorner) {
-          // With the corner wheel, the page actions live up here; their panels open below.
-          Spacer(Modifier.width(16.dp))
-          for ((item, icon, label) in listOf(
-            Triple(DockItem.Paper, PaperIcon, "Paper style"),
-            Triple(DockItem.Layers, LayersIcon, "Layers"),
-            Triple(DockItem.Instruments, RulerIcon, "Ruler and protractor"),
-            Triple(DockItem.Clear, ClearIcon, "Clear page"),
-          )) {
-            TopIconButton(
-              icon,
-              label,
-              onClick = { onDockItem(item) },
-              modifier = Modifier.onGloballyPositioned { dock.topBarCell(item.key, it.boundsInRoot().center) },
-            )
-            Spacer(Modifier.width(8.dp))
-          }
-        }
-      }
-      val layout = canvas.pageLayout
-      if (pagesOpen && layout != null) {
-        Spacer(Modifier.height(8.dp + secondLine))
-        PagesPanel(
-          count = contentVersion.let { layout.count },
-          currentPage = currentPage,
-          bookmarks = contentVersion.let { layout.bookmarks },
-          version = contentVersion,
-          thumbnail = canvas::pageThumbnail,
-          onJump = {
-            if (jumpBack == null) jumpBack = canvas.currentView() to currentPage
-            canvas.scrollToPage(it)
-            pagesOpen = false
-          },
-          onToggleBookmark = canvas::toggleBookmark,
-          onInsert = canvas::insertPage,
-          onDelete = canvas::deletePage,
-          isPalm = isPalm,
-        )
-      }
-    }
+    val topChromeZ = if (topBarOverlayOpen()) 3f else 2f
 
-    Column(
-      Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 12.dp + secondLine, end = 12.dp + railRight).onGloballyPositioned { topBarBounds[1] = it.boundsInRoot() },
-      horizontalAlignment = Alignment.End,
-    ) {
-      Row(Modifier.onSizeChanged { rightBarWidth = it.width }, verticalAlignment = Alignment.CenterVertically) {
-      if (search != null) {
-        TopIconButton(SearchIcon, "Search your handwriting", onClick = {
-          val next = !searchOpen
-          closeOverlays(topBarToo = true)
-          searchOpen = next
-          if (next) runSearch()
-        })
-        Spacer(Modifier.width(8.dp))
-      }
-      ViewReadout(
-        zoomPercent = { viewZoom },
-        angleDegrees = { viewAngle },
-        settings = viewSettings,
-        onClick = {
-          val next = !viewPanelOpen
-          closeOverlays(topBarToo = true)
-          viewPanelOpen = next
-        },
-      )
-      Spacer(Modifier.width(8.dp))
-      // Always on the bar, not in the menu.
-      TopIconButton(FullScreenIcon, "Full screen", onClick = {
-        closeOverlays(topBarToo = true)
-        fullScreen = true
-      })
-      Spacer(Modifier.width(8.dp))
-      // Everything that isn't needed while writing lives in one menu (user request: bar too crowded).
-      TopMoreMenu(
-        expanded = moreMenuOpen,
-        onExpandedChange = { expand ->
-          if (expand) closeOverlays(topBarToo = true)
-          moreMenuOpen = expand
-        },
-        actions = buildList {
-          add(MenuAction(SaveIcon, "Save as PDF", onExport))
-          add(MenuAction(ExportIcon, "Share as PDF", onShare))
-          add(MenuAction(PresentIcon, "Present", { enterPresent() }))
-          add(MenuAction(ImageIcon, "Insert a photo", onInsertImage))
-          if (canvas.pageLayout != null) add(MenuAction(FitWidthIcon, "Fit page to width", canvas::fitToWidth))
-          else add(MenuAction(HomeIcon, "Back to where I was writing", canvas::goHome))
-          // Plugin actions (none with only the built-in plugins).
-          for (entry in pluginActions(true)) add(MenuAction(IdeaIcon, entry.capability.label, { onPluginAction(entry) }, entry.capability.iconRes))
-          add(MenuAction(SettingsIcon, "Settings", ::openSettings))
-          add(MenuAction(IdeaIcon, "Note a bug or idea", {
-            val page = if (canvas.pageLayout != null) ", page ${currentPage + 1}" else ""
-            onReport("$title$page")
-          }))
-        },
-      )
-      }
-      if (searchOpen) {
-        Spacer(Modifier.height(8.dp))
-        SearchPanel(
-          query = searchQuery,
-          onQueryChange = {
-            searchQuery = it
-            searchShown = null
-            runSearch()
+    if (chrome.topBar) {
+      // ---- Left Floating Island + Popovers ----
+      Column(
+        modifier =
+          Modifier
+            .align(Alignment.TopStart)
+            .zIndex(topChromeZ)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(top = 12.dp, start = 12.dp + railLeft),
+        horizontalAlignment = Alignment.Start,
+      ) {
+        FileChromePill(
+          title = notebookInfo.title,
+          folder = notebookInfo.folder,
+          quickMenuOpen = fileQuickMenuOpen,
+          optionsOpen = fileOptionsOpen,
+          onBack = onBack,
+          onToggleQuickMenu = {
+            val next = !fileQuickMenuOpen
+            closeOverlays(topBarToo = true)
+            fileQuickMenuOpen = next
           },
-          hits = searchHits,
-          status = searchStatus,
-          paged = canvas.pageLayout != null,
-          onOpen = ::showHit,
+          onToggleOptions = {
+            val next = !fileOptionsOpen
+            closeOverlays(topBarToo = true)
+            fileOptionsOpen = next
+          },
           isPalm = isPalm,
+          modifier =
+            Modifier
+              .onSizeChanged { leftIslandWidthPx = it.width }
+              .onGloballyPositioned { topBarBounds[0] = it.boundsInRoot() },
         )
-      } else {
-        searchShown?.let { shown ->
+
+        if (fileQuickMenuOpen) {
           Spacer(Modifier.height(8.dp))
-          SearchStepper(
-            index = shown,
-            count = searchHits.size,
-            onStep = ::showHit,
-            onClose = { searchShown = null },
+          FileQuickMenuPopover(
+            current = notebookInfo,
+            recentNotebooks = recentNotebooks,
+            folderColorFor = folderColorFor,
+            onSwitchNotebook = { target ->
+              closeOverlays(topBarToo = true)
+              onSwitchNotebook(target)
+            },
+            onRename = {
+              closeOverlays(topBarToo = true)
+              renamingNotebook = true
+            },
+            onMoveToFolder = {
+              closeOverlays(topBarToo = true)
+              movingNotebook = true
+            },
+            onTurnOrientation = onTurnNotebook?.let { turn ->
+              {
+                closeOverlays(topBarToo = true)
+                turn()
+              }
+            },
             isPalm = isPalm,
+            modifier = Modifier.onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
+          )
+        } else if (fileOptionsOpen) {
+          Spacer(Modifier.height(8.dp))
+          FileOptionsPopover(
+            onExportPdf = {
+              closeOverlays(topBarToo = true)
+              onExport()
+            },
+            onShare = {
+              closeOverlays(topBarToo = true)
+              onShare()
+            },
+            onSyncGoogleDrive = {
+              closeOverlays(topBarToo = true)
+              onExport()
+            },
+            onPresentMode = {
+              enterPresent()
+            },
+            onOpenSettings = ::openSettings,
+            onReportBugs = {
+              closeOverlays(topBarToo = true)
+              val page = if (canvas.pageLayout != null) ", page ${currentPage + 1}" else ""
+              onReport("${notebookInfo.title}$page")
+            },
+            pluginActions =
+              pluginActions(true).map { entry ->
+                MenuAction(IdeaIcon, entry.capability.label, {
+                  closeOverlays(topBarToo = true)
+                  onPluginAction(entry)
+                }, entry.capability.iconRes)
+              },
+            isPalm = isPalm,
+            modifier = Modifier.onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
           )
         }
       }
-      if (viewPanelOpen) {
-        Spacer(Modifier.height(8.dp))
-        ViewPanel(
-          settings = viewSettings,
-          zoomPercent = viewZoom,
-          angleDegrees = viewAngle,
-          onZoomPreset = { canvas.setView(zoom = it / 100f) },
-          onAnglePreset = { canvas.setView(angleDegrees = it.toFloat()) },
-          onOpenSettings = ::openSettings,
+
+      // ---- Right Floating Island + Popovers ----
+      val layout = canvas.pageLayout
+      val isPaged = layout != null
+      val pageCount = if (layout != null) contentVersion.let { layout.count } else 1
+      Column(
+        modifier =
+          Modifier
+            .align(Alignment.TopEnd)
+            .zIndex(topChromeZ)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(top = 12.dp, end = 12.dp + railRight),
+        horizontalAlignment = Alignment.End,
+      ) {
+        PageConfigChromePill(
+          searchAvailable = search != null,
+          searchOpen = searchOpen,
+          zoomPercent = { viewZoom },
+          viewLocked = viewSettings.zoomLocked || viewSettings.rotationLocked,
+          viewPanelOpen = viewPanelOpen,
+          isPaged = isPaged,
+          currentPage = { currentPage },
+          pageCount = pageCount,
+          pageConfigOpen = pageConfigOpen,
+          onToggleSearch = {
+            val next = !searchOpen
+            closeOverlays(topBarToo = true)
+            searchOpen = next
+            if (next) runSearch()
+          },
+          onZoomOut = {
+            canvas.setView(zoom = stepZoomOut(viewZoom) / 100f)
+          },
+          onToggleViewPanel = {
+            val next = !viewPanelOpen
+            closeOverlays(topBarToo = true)
+            viewPanelOpen = next
+          },
+          onZoomIn = {
+            canvas.setView(zoom = stepZoomIn(viewZoom) / 100f)
+          },
+          onEnterFullScreen = {
+            closeOverlays(topBarToo = true)
+            fullScreen = true
+          },
+          onTogglePageConfig = {
+            val next = !pageConfigOpen
+            closeOverlays(topBarToo = true)
+            pageConfigOpen = next
+          },
           isPalm = isPalm,
+          modifier =
+            Modifier
+              .onSizeChanged { rightIslandWidthPx = it.width }
+              .onGloballyPositioned { topBarBounds[1] = it.boundsInRoot() },
         )
+
+        if (searchOpen) {
+          Spacer(Modifier.height(8.dp))
+          SearchPanel(
+            query = searchQuery,
+            onQueryChange = {
+              searchQuery = it
+              searchShown = null
+              runSearch()
+            },
+            hits = searchHits,
+            status = searchStatus,
+            paged = isPaged,
+            onOpen = ::showHit,
+            isPalm = isPalm,
+            modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
+          )
+        } else if (viewPanelOpen) {
+          Spacer(Modifier.height(8.dp))
+          ViewPanel(
+            settings = viewSettings,
+            zoomPercent = viewZoom,
+            angleDegrees = viewAngle,
+            onZoomPreset = { canvas.setView(zoom = it / 100f) },
+            onAnglePreset = { canvas.setView(angleDegrees = it.toFloat()) },
+            isPaged = isPaged,
+            onFitOrHome = {
+              closeOverlays(topBarToo = true)
+              if (isPaged) canvas.fitToWidth() else canvas.goHome()
+            },
+            onOpenSettings = ::openSettings,
+            isPalm = isPalm,
+            modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
+          )
+        } else if (pageConfigOpen) {
+          Spacer(Modifier.height(8.dp))
+          PageConfigPopover(
+            isPaged = isPaged,
+            isPdfNotebook = isPdfNotebook,
+            selectedTab = pageConfigTab,
+            onSelectTab = { pageConfigTab = it },
+            pageCount = pageCount,
+            currentPage = currentPage,
+            bookmarks = layout?.let { contentVersion.let { layout.bookmarks } }.orEmpty(),
+            contentVersion = contentVersion,
+            thumbnail = canvas::pageThumbnail,
+            onJumpPage = {
+              if (jumpBack == null) jumpBack = canvas.currentView() to currentPage
+              canvas.scrollToPage(it)
+              pageConfigOpen = false
+              topBarBounds[3] = null
+            },
+            onToggleBookmark = canvas::toggleBookmark,
+            onInsertPage = canvas::insertPage,
+            onDeletePage = canvas::deletePage,
+            pageStyle = pageStyle,
+            darkPage = darkPage,
+            rulingMm = rulingMm,
+            onStylePicked = {
+              pageStyle = it
+              canvas.pageStyle = it
+              rulingMm = 0f
+              canvas.rulingMm = 0f
+            },
+            onSpacing = {
+              rulingMm = it
+              canvas.rulingMm = it
+            },
+            layerNames = layerState.names,
+            hiddenLayers = layerState.hidden,
+            currentLayer = layerState.current,
+            onSelectLayer = canvas::selectLayer,
+            onLayerVisible = canvas::setLayerVisible,
+            onRenameLayer = { renamingLayer = it },
+            onDeleteLayer = { index ->
+              canvas.deleteLayer(index)
+              scope.launch {
+                messages.currentSnackbarData?.dismiss()
+                val result = messages.showSnackbar("Layer deleted", actionLabel = "Undo", duration = SnackbarDuration.Short)
+                if (result == SnackbarResult.ActionPerformed) canvas.undo()
+              }
+            },
+            onAddLayer = canvas::addLayer,
+            isPalm = isPalm,
+            modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
+          )
+        } else {
+          searchShown?.let { shown ->
+            Spacer(Modifier.height(8.dp))
+            SearchStepper(
+              index = shown,
+              count = searchHits.size,
+              onStep = ::showHit,
+              onClose = {
+                searchShown = null
+                topBarBounds[3] = null
+              },
+              isPalm = isPalm,
+              modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
+            )
+          }
+        }
       }
+    } else {
+      topBarBounds.fill(null)
     }
-    } // (full screen and present mode hide the top bar)
     jumpBack?.takeIf { chrome.messages }?.let { (view, page) ->
       val label = if (canvas.pageLayout != null) "Back to page ${page + 1}" else "Back to where I was"
       Box(Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 20.dp)) {
@@ -1976,7 +2236,7 @@ private fun NoteScreen(
       // Present mode's only controls, just as faint: the pen tools for a few seconds, and the exit.
       // Above the toolbar (zIndex) in case the toolbar sits in this corner.
       Row(
-        Modifier.align(Alignment.TopEnd).zIndex(2f).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA),
+        Modifier.align(Alignment.TopEnd).zIndex(3f).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA),
         verticalAlignment = Alignment.CenterVertically,
       ) {
         TopIconButton(PenToolsIcon, if (toolsPeeking) "Hide pen tools" else "Show pen tools", onClick = {
@@ -1995,39 +2255,40 @@ private fun NoteScreen(
     canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
 
     colorWheelFor?.let { slot ->
-      val tool = tools[slot]
-      ColorWheel(
-        initial = tool.paperColor,
-        darkPage = darkPage,
-        recent = toolSettings.recentColors,
-        onPicked = { color, done ->
-          tools[slot] = tools[slot].copy(paperColor = color)
-          sendToolsToCanvas()
-          if (done) {
-            toolSettings.addRecentColor(color)
-            colorWheelFor = null
-          }
-        },
-        onEyedropper = {
-          colorWheelFor = null
-          eyedropperOn = true
-          canvas.onColorSampled = { sampled ->
-            eyedropperOn = false
-            if (sampled != null) {
-              // Keep the tool's own see-through amount (a highlighter stays a highlighter).
-              val color = (sampled and 0x00FFFFFF) or (tools[slot].paperColor and 0xFF000000.toInt())
-              tools[slot] = tools[slot].copy(paperColor = color)
+      val tool = tools.getOrNull(slot)
+      if (tool != null) {
+        ColorWheel(
+          initial = tool.paperColor,
+          darkPage = darkPage,
+          recent = toolSettings.recentColors,
+          onPicked = { color, done ->
+            tools[slot] = tools[slot].copy(paperColor = color)
+            sendToolsToCanvas()
+            if (done) {
               toolSettings.addRecentColor(color)
-              sendToolsToCanvas()
+              colorWheelFor = null
             }
-          }
-        },
-        onDismiss = {
-          toolSettings.addRecentColor(tools[slot].paperColor)
-          colorWheelFor = null
-        },
-        hub = if (dock.side.isCorner) dock.wheelHub else null,
-      )
+          },
+          onEyedropper = {
+            colorWheelFor = null
+            eyedropperOn = true
+            canvas.onColorSampled = { sampled ->
+              eyedropperOn = false
+              if (sampled != null) {
+                val color = (sampled and 0x00FFFFFF) or (tools[slot].paperColor and 0xFF000000.toInt())
+                tools[slot] = tools[slot].copy(paperColor = color)
+                toolSettings.addRecentColor(color)
+                sendToolsToCanvas()
+              }
+            }
+          },
+          onDismiss = {
+            toolSettings.addRecentColor(tools[slot].paperColor)
+            colorWheelFor = null
+          },
+          hub = if (dock.side.isCorner) dock.wheelHub else null,
+        )
+      }
     }
 
     if (eyedropperOn) {
@@ -2039,6 +2300,31 @@ private fun NoteScreen(
           eyedropperOn = false
         },
         modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 72.dp),
+      )
+    }
+
+    if (renamingNotebook) {
+      RenameDialog(
+        title = "Rename notebook",
+        initial = notebookInfo.title,
+        onDismiss = { renamingNotebook = false },
+        onDone = { title ->
+          renamingNotebook = false
+          onRenameNotebook(title)
+        },
+      )
+    }
+
+    if (movingNotebook) {
+      MoveNotebookDialog(
+        notebookTitle = notebookInfo.title,
+        currentFolder = notebookInfo.folder,
+        folders = folders,
+        onDismiss = { movingNotebook = false },
+        onMove = { folder ->
+          movingNotebook = false
+          onMoveNotebook(folder)
+        },
       )
     }
 
@@ -2070,8 +2356,6 @@ private fun NoteScreen(
       hostState = messages,
       modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 16.dp),
     ) { data ->
-      // Present mode keeps the host (so messages still time out) but shows nothing; whatever is
-      // still waiting appears when she leaves.
       if (chrome.messages) ToolbarMessage(data.visuals.message, data.visuals.actionLabel, onAction = data::performAction)
     }
   }
@@ -2093,9 +2377,6 @@ private fun Modifier.besideSelection(rect: () -> Rect?): Modifier = layout { mea
     buttons.place(x, y)
   }
 }
-
-/** Space kept free above and below the strip when deciding whether undo and redo fit. */
-private val WINDOW_MARGIN = 32.dp
 
 /**
  * Shows an export message, and clears it only after it has been seen. (Clearing it first changed

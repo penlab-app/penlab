@@ -23,19 +23,27 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -101,20 +109,27 @@ import android.graphics.BitmapFactory
 import androidx.activity.result.PickVisualMediaRequest
 import dev.penlab.app.ui.IdeaIcon
 import dev.penlab.app.ui.RequestDialog
-import dev.penlab.app.ui.TopIconButton
 import dev.penlab.app.ui.SearchPanel
 import dev.penlab.app.ui.SearchStepper
 import dev.penlab.app.ui.SettingsSheet
 import dev.penlab.app.ui.resolveCanvasDarkPage
 import dev.penlab.app.search.HandwritingIndex
-import androidx.compose.ui.draw.alpha
-import dev.penlab.app.ui.FullScreenExitIcon
-import dev.penlab.app.ui.CORNER_BUTTON_ALPHA
-import dev.penlab.app.ui.CloseIcon
+import dev.penlab.app.ui.FULLSCREEN_EXIT_ALPHA
 import dev.penlab.app.ui.PEEK_TOOLS_MS
-import dev.penlab.app.ui.PenToolsIcon
+import dev.penlab.app.ui.PRESENT_HINT_MESSAGE
+import dev.penlab.app.ui.PRESENT_HINT_MS
+import dev.penlab.app.ui.PenLabIcons
 import dev.penlab.app.ui.ScreenChrome
+import dev.penlab.app.ui.SelectionPluginAction
+import dev.penlab.app.ui.components.PenLabChromePill
+import dev.penlab.app.ui.components.PenLabDialog
+import dev.penlab.app.ui.components.PenLabIconButton
+import dev.penlab.app.ui.components.PenLabSnackbar
+import dev.penlab.app.ui.ignorePalm
 import dev.penlab.app.ui.peekMayEnd
+import dev.penlab.app.ui.placeSelectionBar
+import dev.penlab.app.ui.presentPillAlpha
+import dev.penlab.app.ui.shouldShowFloatingPastePill
 import kotlinx.coroutines.delay
 import dev.penlab.app.search.LibrarySearch
 import androidx.core.view.doOnLayout
@@ -342,11 +357,20 @@ class MainActivity : ComponentActivity() {
           )
         }
         pluginText?.let { text ->
-          androidx.compose.material3.AlertDialog(
-            onDismissRequest = { pluginText = null },
-            confirmButton = { androidx.compose.material3.TextButton(onClick = { pluginText = null }) { androidx.compose.material3.Text("OK") } },
-            text = { androidx.compose.material3.Text(text) },
-          )
+          PenLabDialog(
+            title = "Plugin result",
+            onDismiss = { pluginText = null },
+            primaryLabel = "Done",
+            onPrimaryClick = { pluginText = null },
+            secondaryLabel = null,
+            onSecondaryClick = null,
+          ) {
+            androidx.compose.material3.Text(
+              text = text,
+              color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+              style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            )
+          }
         }
         reportingFrom?.let { where ->
           val existing = remember(where) { requests.read() }
@@ -1407,6 +1431,8 @@ private fun NoteScreen(
   var canRedo by remember { mutableStateOf(canvas.canRedo) }
   var canClear by remember { mutableStateOf(!canvas.isEmpty) }
   var selectionRect by remember { mutableStateOf<Rect?>(null) }
+  var selectionMoreOpen by remember { mutableStateOf(false) }
+  var hasClipboard by remember { mutableStateOf(canvas.hasClipboard) }
   var pasteMenuAt by remember { mutableStateOf<Offset?>(null) }
   // Page zoom and angle for the right island readout, updated only when whole-number values change.
   var viewZoom by remember { mutableIntStateOf(canvas.zoomPercent) }
@@ -1430,6 +1456,7 @@ private fun NoteScreen(
   var present by remember { mutableStateOf(false) }
   var toolsPeeking by remember { mutableStateOf(false) }
   var peekUses by remember { mutableIntStateOf(0) }
+  var presentHintVisible by remember { mutableStateOf(false) }
   val chrome = ScreenChrome(fullScreen = fullScreen, present = present, toolsPeeking = toolsPeeking)
   val view = androidx.compose.ui.platform.LocalView.current
   DisposableEffect(chrome.keepScreenOn) {
@@ -1482,6 +1509,7 @@ private fun NoteScreen(
   // Exact hit regions for the floating top islands and their open popovers:
   // [0] Left pill, [1] Right pill, [2] Left popover, [3] Right popover.
   val topBarBounds = remember { arrayOfNulls<Rect>(4) }
+  val pasteMenuBounds = remember { arrayOfNulls<Rect>(1) }
   fun topBarOverlayOpen() =
     fileQuickMenuOpen || fileOptionsOpen || viewPanelOpen || pageConfigOpen || searchOpen
   fun closeTopBarOverlays() {
@@ -1497,6 +1525,8 @@ private fun NoteScreen(
     openPanel = null
     dock.wheelOpen = false
     pasteMenuAt = null
+    pasteMenuBounds[0] = null
+    selectionMoreOpen = false
     if (topBarToo) closeTopBarOverlays()
   }
   fun openSettings() {
@@ -1520,10 +1550,18 @@ private fun NoteScreen(
     canvas.onColorSampled = null
     toolsPeeking = false
     present = true
+    presentHintVisible = true
   }
   fun leavePresent() {
+    presentHintVisible = false
     hidePeekingTools()
     present = false
+  }
+  LaunchedEffect(presentHintVisible) {
+    if (presentHintVisible) {
+      delay(PRESENT_HINT_MS)
+      presentHintVisible = false
+    }
   }
   DisposableEffect(present) {
     canvas.presenting = present
@@ -1583,9 +1621,11 @@ private fun NoteScreen(
     }
     canvas.onPageTouched = {
       jumpBack = null
+      presentHintVisible = false
       closeOverlays(topBarToo = true)
       if (present && toolsPeeking) hidePeekingTools()
     }
+    canvas.onClipboardChanged = { hasClipboard = it }
     canvas.onPasteMenu = { x, y ->
       if (!present) {
         closeOverlays(topBarToo = true)
@@ -1604,13 +1644,17 @@ private fun NoteScreen(
       viewZoom = zoom
       viewAngle = angle
     }
-    canvas.onSelectionChanged = { r -> selectionRect = r?.let { Rect(it.left, it.top, it.right, it.bottom) } }
+    canvas.onSelectionChanged = { r ->
+      selectionRect = r?.let { Rect(it.left, it.top, it.right, it.bottom) }
+      if (r == null) selectionMoreOpen = false
+    }
 
     onDispose {
       canvas.onHistoryChanged = {}
       canvas.onNotice = {}
       canvas.onPageTouched = {}
       canvas.onSelectionChanged = {}
+      canvas.onClipboardChanged = {}
       canvas.onPasteMenu = { _, _ -> }
       canvas.onViewChanged = { _, _ -> }
       canvas.onCurrentPageChanged = {}
@@ -1675,6 +1719,9 @@ private fun NoteScreen(
           if (dock.isOnDock(at)) {
             if (toolsPeeking) peekUses++
             if (topBarOverlayOpen()) closeTopBarOverlays()
+            continue
+          }
+          if (pasteMenuAt != null && pasteMenuBounds[0]?.contains(at) == true) {
             continue
           }
           val onTopBar = topBarBounds.any { it?.contains(at) == true }
@@ -1937,18 +1984,64 @@ private fun NoteScreen(
       }
     }
 
+    val railLeft = if (dock.side == DockSide.LEFT) RailWidth else 0.dp
+    val railRight = if (dock.side == DockSide.RIGHT) RailWidth else 0.dp
+    val selectionTopClearancePx =
+      with(density) {
+        if (chrome.topBar) statusTopPx + (TOP_BUTTONS_HEIGHT + 4.dp).roundToPx()
+        else statusTopPx + 12.dp.roundToPx()
+      }
+    val selectionBottomClearancePx =
+      with(density) {
+        safe.getBottom(density) + (if (dock.side == DockSide.BOTTOM) BarHeight + 24.dp else 12.dp).roundToPx()
+      }
+    val selectionLeftClearancePx = with(density) { safe.getLeft(density, layoutDirection) + (railLeft + 12.dp).roundToPx() }
+    val selectionRightClearancePx = with(density) { safe.getRight(density, layoutDirection) + (railRight + 12.dp).roundToPx() }
+
     if (selectionRect != null && chrome.selectionUi) {
       SelectionActions(
-        onCut = canvas::cutSelection,
+        hasClipboard = hasClipboard,
+        canFillSelection = selectionRect.let { canvas.selectionHasStrokes },
+        moreExpanded = selectionMoreOpen,
+        onMoreExpandedChange = { selectionMoreOpen = it },
         onCopy = canvas::copySelection,
+        onCut = canvas::cutSelection,
+        onPaste = canvas::paste,
         onDuplicate = canvas::duplicateSelection,
-        onMirror = canvas::mirrorSelection,
-        onFill = if (!selectionRect.let { canvas.selectionHasStrokes }) null else ({ canvas.fillSelection(tools.firstOrNull { it.isFill }?.paperColor ?: dev.penlab.app.ink.InkTools.fillColors[0].paperColor) }),
         onDelete = canvas::deleteSelection,
-        onDone = canvas::clearSelection,
+        onMirror = canvas::mirrorSelection,
+        onFill = {
+          canvas.fillSelection(
+            tools.firstOrNull { it.isFill }?.paperColor ?: dev.penlab.app.ink.InkTools.fillColors[0].paperColor
+          )
+        },
+        onDeselect = canvas::clearSelection,
+        pluginActions =
+          pluginActions(false).map { entry ->
+            SelectionPluginAction(
+              id = entry.plugin.id,
+              label = entry.capability.label,
+              onClick = { onPluginAction(entry) },
+              iconRes = entry.capability.iconRes,
+            )
+          },
+        onUnavailablePlugin = { slot ->
+          scope.launch {
+            messages.currentSnackbarData?.dismiss()
+            messages.showSnackbar(slot.unavailableNotice, duration = SnackbarDuration.Short)
+          }
+        },
         isPalm = isPalm,
-        extra = pluginActions(false).map { entry -> entry.capability.label to { onPluginAction(entry) } },
-        modifier = Modifier.besideSelection { selectionRect },
+        modifier =
+          Modifier
+            .zIndex(2.2f)
+            .besideSelection(
+              rect = { selectionRect },
+              topClearancePx = selectionTopClearancePx,
+              bottomClearancePx = selectionBottomClearancePx,
+              leftClearancePx = selectionLeftClearancePx,
+              rightClearancePx = selectionRightClearancePx,
+            ),
       )
     }
     pasteMenuAt?.takeIf { chrome.selectionUi }?.let { point ->
@@ -1956,18 +2049,49 @@ private fun NoteScreen(
         onPaste = {
           canvas.pasteAtHeldPoint()
           pasteMenuAt = null
+          pasteMenuBounds[0] = null
         },
         onClear = {
           canvas.clearClipboard()
           pasteMenuAt = null
+          pasteMenuBounds[0] = null
         },
         isPalm = isPalm,
-        modifier = Modifier.besideSelection { Rect(point, point) },
+        modifier =
+          Modifier
+            .zIndex(2.2f)
+            .besideSelection(
+              rect = { Rect(point, point) },
+              topClearancePx = selectionTopClearancePx,
+              bottomClearancePx = selectionBottomClearancePx,
+              leftClearancePx = selectionLeftClearancePx,
+              rightClearancePx = selectionRightClearancePx,
+            )
+            .onGloballyPositioned { pasteMenuBounds[0] = it.boundsInRoot() },
+      )
+    }
+    if (
+      shouldShowFloatingPastePill(
+        selectionUiVisible = chrome.selectionUi,
+        hasClipboard = hasClipboard,
+        hasSelection = selectionRect != null,
+        pasteMenuOpen = pasteMenuAt != null,
+        isLassoSelected = tools.getOrNull(selected)?.isLasso == true,
+      )
+    ) {
+      PasteMenu(
+        onPaste = canvas::paste,
+        onClear = canvas::clearClipboard,
+        isPalm = isPalm,
+        modifier =
+          Modifier
+            .align(Alignment.TopCenter)
+            .zIndex(2f)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(top = if (chrome.topBar) TOP_BUTTONS_HEIGHT + 4.dp else 12.dp),
       )
     }
 
-    val railLeft = if (dock.side == DockSide.LEFT) RailWidth else 0.dp
-    val railRight = if (dock.side == DockSide.RIGHT) RailWidth else 0.dp
     val topChromeZ = if (topBarOverlayOpen()) 3f else 2f
 
     if (chrome.topBar) {
@@ -1998,6 +2122,7 @@ private fun NoteScreen(
             fileOptionsOpen = next
           },
           isPalm = isPalm,
+          isPdfNotebook = isPdfNotebook,
           modifier =
             Modifier
               .onSizeChanged { leftIslandWidthPx = it.width }
@@ -2239,26 +2364,85 @@ private fun NoteScreen(
       }
     }
     if (chrome.leaveFullScreenButton) {
-      // The way back: small and faint in the corner, so it doesn't distract from the page.
-      Box(Modifier.align(Alignment.TopEnd).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA)) {
-        TopIconButton(FullScreenExitIcon, "Leave full screen", onClick = { fullScreen = false })
+      // Subtle floating exit pill tucked in the top-right safe area.
+      PenLabChromePill(
+        isPalm = isPalm,
+        contentPadding = PaddingValues(0.dp),
+        modifier =
+          Modifier
+            .align(Alignment.TopEnd)
+            .zIndex(3f)
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(top = 12.dp, end = 12.dp + railRight)
+            .graphicsLayer { alpha = FULLSCREEN_EXIT_ALPHA },
+      ) {
+        PenLabIconButton(
+          icon = PenLabIcons.FullScreenExit,
+          contentDescription = "Leave full screen",
+          onClick = { fullScreen = false },
+        )
       }
     }
     if (chrome.presentButtons) {
-      // Present mode's only controls, just as faint: the pen tools for a few seconds, and the exit.
-      // Above the toolbar (zIndex) in case the toolbar sits in this corner.
-      Row(
-        Modifier.align(Alignment.TopEnd).zIndex(3f).padding(top = 12.dp, end = 12.dp + railRight).alpha(CORNER_BUTTON_ALPHA),
-        verticalAlignment = Alignment.CenterVertically,
+      // Whisper-quiet translucent Present mode corner pill anchored bottom-right out of the writing center.
+      val presentPillAlphaAnim by animateFloatAsState(
+        targetValue = presentPillAlpha(toolsPeeking),
+        animationSpec = Motion.tween(160),
+        label = "presentPillAlpha",
+      )
+      PenLabChromePill(
+        isPalm = isPalm,
+        contentPadding = PaddingValues(horizontal = 2.dp),
+        modifier =
+          Modifier
+            .align(Alignment.BottomEnd)
+            .zIndex(3f)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(end = 16.dp + railRight, bottom = 16.dp)
+            .graphicsLayer { alpha = presentPillAlphaAnim },
       ) {
-        TopIconButton(PenToolsIcon, if (toolsPeeking) "Hide pen tools" else "Show pen tools", onClick = {
-          if (toolsPeeking) hidePeekingTools() else {
-            peekUses++
-            toolsPeeking = true
-          }
-        })
-        Spacer(Modifier.width(8.dp))
-        TopIconButton(CloseIcon, "Leave present mode", onClick = { leavePresent() })
+        PenLabIconButton(
+          icon = PenLabIcons.PenTools,
+          contentDescription = "Peek writing tools",
+          selected = toolsPeeking,
+          onClick = {
+            presentHintVisible = false
+            if (toolsPeeking) {
+              hidePeekingTools()
+            } else {
+              peekUses++
+              toolsPeeking = true
+            }
+          },
+        )
+        Box(
+          Modifier
+            .width(1.dp)
+            .height(20.dp)
+            .background(androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
+        )
+        PenLabIconButton(
+          icon = PenLabIcons.Close,
+          contentDescription = "Exit present mode",
+          onClick = { leavePresent() },
+        )
+      }
+
+      AnimatedVisibility(
+        visible = presentHintVisible,
+        enter = fadeIn(Motion.tween(180)),
+        exit = fadeOut(Motion.tween(140)),
+        modifier =
+          Modifier
+            .align(Alignment.BottomCenter)
+            .zIndex(2.5f)
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(bottom = 20.dp),
+      ) {
+        PenLabSnackbar(
+          message = PRESENT_HINT_MESSAGE,
+          modifier = Modifier.ignorePalm(isPalm),
+        )
       }
     }
     // Locks and input toggles are kept in settings; the canvas reads its own copy for speed.
@@ -2362,19 +2546,38 @@ private fun NoteScreen(
 }
 
 /**
- * Places the selection's buttons centred above its box, or below it when there is no room above,
- * always inside the window. The rectangle is read here, in layout, so following a pan does not
- * re-run the screen's composition.
+ * Places the selection or paste pill centred above its box, or flips below when there is no room
+ * under the top chrome, always clamped inside the safe window bounds. The rectangle is read here,
+ * in layout, so following a pan does not re-run the screen's composition.
  */
-private fun Modifier.besideSelection(rect: () -> Rect?): Modifier = layout { measurable, constraints ->
+private fun Modifier.besideSelection(
+  rect: () -> Rect?,
+  topClearancePx: Int = 0,
+  bottomClearancePx: Int = 0,
+  leftClearancePx: Int = 0,
+  rightClearancePx: Int = 0,
+): Modifier = layout { measurable, constraints ->
   val buttons = measurable.measure(Constraints())
   layout(constraints.maxWidth, constraints.maxHeight) {
     val r = rect() ?: return@layout
     val gap = 12.dp.roundToPx()
-    val x = (r.center.x - buttons.width / 2f).roundToInt().coerceIn(gap, maxOf(gap, constraints.maxWidth - buttons.width - gap))
-    val above = (r.top - gap - buttons.height).roundToInt()
-    val y = if (above >= gap) above else (r.bottom + gap).roundToInt().coerceAtMost(constraints.maxHeight - buttons.height - gap)
-    buttons.place(x, y)
+    val placed =
+      placeSelectionBar(
+        selectionLeft = r.left,
+        selectionTop = r.top,
+        selectionRight = r.right,
+        selectionBottom = r.bottom,
+        barWidth = buttons.width,
+        barHeight = buttons.height,
+        containerWidth = constraints.maxWidth,
+        containerHeight = constraints.maxHeight,
+        gapPx = gap,
+        topClearancePx = topClearancePx,
+        bottomClearancePx = bottomClearancePx,
+        leftClearancePx = leftClearancePx,
+        rightClearancePx = rightClearancePx,
+      )
+    buttons.place(placed.x, placed.y)
   }
 }
 

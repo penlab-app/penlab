@@ -50,6 +50,25 @@ const val PEEK_TOOLS_MS = 4000L
 /** The corner buttons are faint so they do not draw the class's eyes (same as Leave full screen). */
 const val CORNER_BUTTON_ALPHA = 0.55f
 
+/** Whisper-quiet translucent opacity for the Present mode corner pill at rest. */
+const val PRESENT_PILL_REST_ALPHA = 0.60f
+
+/** Full opacity for the Present mode corner pill while writing tools are peeking. */
+const val PRESENT_PILL_ACTIVE_ALPHA = 1.0f
+
+/** Subtle translucent opacity for the Fullscreen exit floating pill. */
+const val FULLSCREEN_EXIT_ALPHA = 0.72f
+
+/** Duration of the non-intrusive entry hint shown when entering Present mode. */
+const val PRESENT_HINT_MS = 2800L
+
+/** Concise hint shown briefly upon entering Present mode. */
+const val PRESENT_HINT_MESSAGE = "Presenting · Tap corner button for tools"
+
+/** Resolves the Present mode floating pill alpha from whether writing tools are peeking. */
+fun presentPillAlpha(toolsPeeking: Boolean): Float =
+  if (toolsPeeking) PRESENT_PILL_ACTIVE_ALPHA else PRESENT_PILL_REST_ALPHA
+
 /**
  * Whether the peeking toolbar may hide now. It stays while something opened from it is in use (a
  * panel, the wheel, the colour picker, a drag), because hiding it under her pen would be rude.

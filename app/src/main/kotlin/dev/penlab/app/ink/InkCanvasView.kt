@@ -2672,7 +2672,7 @@ class InkCanvasView(
   }
 
   val hasClipboard: Boolean
-    get() = clipboard.isNotEmpty()
+    get() = clipboard.isNotEmpty() || clipboardItems.isNotEmpty()
 
   val hasSelection: Boolean
     get() = hasAnySelection

@@ -1,9 +1,9 @@
 package dev.penlab.app.ui
 
 import android.content.Context
-import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,11 +52,11 @@ object Motion {
     get() = speed != MotionSpeed.OFF
 
   /** A spring whose settling time follows the setting (stiffness scales with 1/time²). */
-  fun <T> spring(dampingRatio: Float = 1f, stiffness: Float = 500f): AnimationSpec<T> =
+  fun <T> spring(dampingRatio: Float = 1f, stiffness: Float = 500f): FiniteAnimationSpec<T> =
     if (!enabled) snap()
     else androidx.compose.animation.core.spring(dampingRatio, stiffness / (speed.factor * speed.factor))
 
-  fun <T> tween(durationMillis: Int, delayMillis: Int = 0, easing: Easing = Standard): AnimationSpec<T> =
+  fun <T> tween(durationMillis: Int, delayMillis: Int = 0, easing: Easing = Standard): FiniteAnimationSpec<T> =
     if (!enabled) snap()
     else androidx.compose.animation.core.tween((durationMillis * speed.factor).roundToInt(), (delayMillis * speed.factor).roundToInt(), easing)
 

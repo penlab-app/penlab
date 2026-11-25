@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.notes.NotebookInfo
 import dev.penlab.app.notes.NotebookKind
@@ -75,7 +76,7 @@ enum class PageConfigTab(val label: String) {
 
 /**
  * Left floating island of the 3-island top chrome:
- * `[ < | file name (+ folder subtitle if in a folder) | ⋮ ]`.
+ * `[ < | file name (+ compact PDF badge / folder subtitle) | ⋮ ]`.
  */
 @Composable
 fun FileChromePill(
@@ -88,6 +89,7 @@ fun FileChromePill(
   onToggleOptions: () -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  isPdfNotebook: Boolean = false,
 ) {
   val scheme = MaterialTheme.colorScheme
   val titleBg by animateColorAsState(
@@ -119,12 +121,13 @@ fun FileChromePill(
             role = Role.Button,
             onClick = onToggleQuickMenu,
           )
-          .widthIn(min = 64.dp, max = 148.dp)
+          .widthIn(min = 64.dp, max = 160.dp)
           .padding(horizontal = 8.dp)
           .semantics {
+            val pdfPrefix = if (isPdfNotebook) "PDF notebook, " else ""
             contentDescription =
-              if (folder.isNotEmpty()) "$title in ${folder.replace("/", ", ")}. Double tap for recent files and file actions."
-              else "$title. Double tap for recent files and file actions."
+              if (folder.isNotEmpty()) "$pdfPrefix$title in ${folder.replace("/", ", ")}. Double tap for recent files and file actions."
+              else "$pdfPrefix$title. Double tap for recent files and file actions."
           },
       contentAlignment = Alignment.CenterStart,
     ) {
@@ -143,14 +146,25 @@ fun FileChromePill(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )
-          if (folder.isNotEmpty()) {
-            Text(
-              text = folder.replace("/", " › "),
-              color = if (quickMenuOpen) scheme.onPrimaryContainer.copy(alpha = 0.8f) else scheme.onSurfaceVariant,
-              style = MaterialTheme.typography.labelSmall,
-              maxLines = 1,
-              overflow = TextOverflow.Ellipsis,
-            )
+          if (isPdfNotebook || folder.isNotEmpty()) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+              if (isPdfNotebook) {
+                PdfNotebookBadge(inverted = quickMenuOpen)
+              }
+              if (folder.isNotEmpty()) {
+                Text(
+                  text = folder.replace("/", " › "),
+                  color = if (quickMenuOpen) scheme.onPrimaryContainer.copy(alpha = 0.8f) else scheme.onSurfaceVariant,
+                  style = MaterialTheme.typography.labelSmall,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                  modifier = Modifier.weight(1f, fill = false),
+                )
+              }
+            }
           }
         }
         Icon(
@@ -167,6 +181,45 @@ fun FileChromePill(
       selected = optionsOpen,
       onClick = onToggleOptions,
       width = 42.dp,
+    )
+  }
+}
+
+/** Compact tonal badge indicating the open notebook is an annotated PDF. */
+@Composable
+private fun PdfNotebookBadge(inverted: Boolean) {
+  val scheme = MaterialTheme.colorScheme
+  val badgeBg =
+    if (inverted) scheme.onPrimaryContainer.copy(alpha = 0.14f)
+    else scheme.primaryContainer
+  val badgeFg = scheme.onPrimaryContainer
+  Row(
+    modifier =
+      Modifier
+        .clip(PenLabShapes.extraSmall)
+        .background(badgeBg)
+        .padding(horizontal = 4.dp, vertical = 1.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(2.dp),
+  ) {
+    Icon(
+      imageVector = PenLabIcons.Pdf,
+      contentDescription = null,
+      tint = badgeFg,
+      modifier = Modifier.size(10.dp),
+    )
+    Text(
+      text = "PDF",
+      color = badgeFg,
+      style =
+        MaterialTheme.typography.labelSmall.copy(
+          fontSize = 9.5.sp,
+          lineHeight = 11.sp,
+          fontWeight = FontWeight.SemiBold,
+          letterSpacing = 0.4.sp,
+        ),
+      maxLines = 1,
+      softWrap = false,
     )
   }
 }

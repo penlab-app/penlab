@@ -1,11 +1,15 @@
 package dev.penlab.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,21 +31,25 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -50,8 +58,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.InkTool
 import dev.penlab.app.ink.InkTools
@@ -60,6 +75,7 @@ import dev.penlab.app.ink.NamedColor
 import dev.penlab.app.ink.PageBackground
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.ink.PenStyle
+import dev.penlab.app.ui.components.PenLabChromePill
 import dev.penlab.app.ui.components.PenLabIconButton
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabPopoverSurface
@@ -1185,103 +1201,626 @@ private fun PaperPreview(style: PageStyle, darkPage: Boolean) {
   }
 }
 
-// ---- Selection actions, Paste menu & legacy top-bar helpers (Stage 5 upgrades SelectionActions) --
+// ---- Lasso selection floating action bar (Sketch 2) & Paste menu ------------------------------
+
+/** A registered `SELECTION_NOT_EMPTY` plugin action exposed in the selection `More ▾` menu. */
+data class SelectionPluginAction(
+  val id: String,
+  val label: String,
+  val onClick: () -> Unit,
+  val iconRes: Int = 0,
+)
 
 /**
- * The buttons that float by a lasso selection. The selection itself is moved by dragging it
- * with the pen; these cover what dragging cannot.
+ * Extensible built-in plugin slots showcased in the Lasso `More ▾` popover (from Sketch 2:
+ * LaTeX & Diagrams). When a registered plugin matches a slot, tapping invokes that plugin;
+ * otherwise tapping surfaces an honest notice explaining that the plugin is not installed yet.
+ */
+enum class BuiltInSelectionPluginSlot(
+  val id: String,
+  val label: String,
+  val subtitle: String,
+  val unavailableNotice: String,
+  val matchKeywords: List<String>,
+) {
+  LATEX(
+    id = "latex",
+    label = "Convert to LaTeX",
+    subtitle = "Plugin · Handwritten maths to LaTeX",
+    unavailableNotice = "Install the LaTeX plugin to enable this action.",
+    matchKeywords = listOf("latex", "tex", "math", "equation"),
+  ),
+  DIAGRAMS(
+    id = "diagrams",
+    label = "Clean up diagram",
+    subtitle = "Plugin · Neat geometric diagrams",
+    unavailableNotice = "Install the Diagrams plugin to enable this action.",
+    matchKeywords = listOf("diagram", "figure", "geometry", "clean"),
+  );
+
+  internal fun matches(action: SelectionPluginAction): Boolean {
+    val haystack = "${action.id} ${action.label}".lowercase(Locale.US)
+    return matchKeywords.any { it in haystack }
+  }
+}
+
+/** One entry rendered under the Plugins section of the Lasso `More ▾` dropdown. */
+sealed interface SelectionPluginMenuEntry {
+  data class Registered(
+    val action: SelectionPluginAction,
+    val matchedSlot: BuiltInSelectionPluginSlot? = null,
+  ) : SelectionPluginMenuEntry
+
+  data class UnavailableSlot(val slot: BuiltInSelectionPluginSlot) : SelectionPluginMenuEntry
+}
+
+/** Pure resolved state for [SelectionActions] (unit-tested without Android runtime). */
+data class SelectionBarState(
+  val pasteEnabled: Boolean,
+  val showFill: Boolean,
+  val pluginEntries: List<SelectionPluginMenuEntry>,
+)
+
+/**
+ * Resolves the enabled state and `More ▾` plugin entries for the Lasso selection bar.
+ * Any registered plugin matching a built-in slot replaces that slot cleanly with zero duplicates;
+ * unmatched built-in slots remain discoverable as honest unavailable plugin slots.
+ */
+internal fun resolveSelectionBarState(
+  hasClipboard: Boolean,
+  canFillSelection: Boolean,
+  registeredPlugins: List<SelectionPluginAction>,
+): SelectionBarState {
+  val claimedSlots = mutableSetOf<BuiltInSelectionPluginSlot>()
+  val entries = buildList {
+    for (plugin in registeredPlugins) {
+      val slot = BuiltInSelectionPluginSlot.entries.firstOrNull { it !in claimedSlots && it.matches(plugin) }
+      if (slot != null) claimedSlots += slot
+      add(SelectionPluginMenuEntry.Registered(plugin, matchedSlot = slot))
+    }
+    for (slot in BuiltInSelectionPluginSlot.entries) {
+      if (slot !in claimedSlots) {
+        add(SelectionPluginMenuEntry.UnavailableSlot(slot))
+      }
+    }
+  }
+  return SelectionBarState(
+    pasteEnabled = hasClipboard,
+    showFill = canFillSelection,
+    pluginEntries = entries,
+  )
+}
+
+/** Pure computed coordinates for placing a floating bar beside a selection rectangle. */
+internal data class SelectionBarPlacement(
+  val x: Int,
+  val y: Int,
+  val placedAbove: Boolean,
+)
+
+/**
+ * Places a floating selection or paste pill centred above the selection box, or flips it below
+ * when there is not enough room under the top chrome, always clamped cleanly inside safe bounds.
+ */
+internal fun placeSelectionBar(
+  selectionLeft: Float,
+  selectionTop: Float,
+  selectionRight: Float,
+  selectionBottom: Float,
+  barWidth: Int,
+  barHeight: Int,
+  containerWidth: Int,
+  containerHeight: Int,
+  gapPx: Int,
+  topClearancePx: Int = 0,
+  bottomClearancePx: Int = 0,
+  leftClearancePx: Int = 0,
+  rightClearancePx: Int = 0,
+): SelectionBarPlacement {
+  val minLeft = maxOf(gapPx, leftClearancePx)
+  val maxLeft = maxOf(minLeft, containerWidth - barWidth - maxOf(gapPx, rightClearancePx))
+  val centerX = (selectionLeft + selectionRight) / 2f
+  val x = (centerX - barWidth / 2f).roundToInt().coerceIn(minLeft, maxLeft)
+
+  val minTop = maxOf(gapPx, topClearancePx)
+  val maxTop = maxOf(minTop, containerHeight - barHeight - maxOf(gapPx, bottomClearancePx))
+  val aboveY = (selectionTop - gapPx - barHeight).roundToInt()
+  val belowY = (selectionBottom + gapPx).roundToInt()
+
+  return if (aboveY >= minTop) {
+    SelectionBarPlacement(x = x, y = aboveY.coerceIn(minTop, maxTop), placedAbove = true)
+  } else {
+    SelectionBarPlacement(x = x, y = belowY.coerceIn(minTop, maxTop), placedAbove = false)
+  }
+}
+
+/** Whether the floating lone Paste pill should appear while Lasso is selected with clipboard content. */
+internal fun shouldShowFloatingPastePill(
+  selectionUiVisible: Boolean,
+  hasClipboard: Boolean,
+  hasSelection: Boolean,
+  pasteMenuOpen: Boolean,
+  isLassoSelected: Boolean,
+): Boolean = selectionUiVisible && hasClipboard && !hasSelection && !pasteMenuOpen && isLassoSelected
+
+/**
+ * Floating Lasso selection bar faithful to Sketch 2:
+ * `[ Copy | Cut | Paste | Dupl. | Delete | Mirror H | Mirror V | More ▾ ]`.
+ *
+ * Uses [PenLabChromePill] with Phosphor Duotone icons, >=48dp touch targets, muted disabled Paste
+ * when clipboard is empty (so layout never jumps), destructive error tint on Delete, and an
+ * edge-clamped `More ▾` [PenLabPopoverSurface] for Fill, Deselect, and Plugin actions.
  */
 @Composable
 fun SelectionActions(
-  onCut: () -> Unit,
+  hasClipboard: Boolean,
+  canFillSelection: Boolean,
+  moreExpanded: Boolean,
+  onMoreExpandedChange: (Boolean) -> Unit,
   onCopy: () -> Unit,
+  onCut: () -> Unit,
+  onPaste: () -> Unit,
   onDuplicate: () -> Unit,
-  onMirror: (sideways: Boolean) -> Unit,
   onDelete: () -> Unit,
-  onDone: () -> Unit,
+  onMirror: (sideways: Boolean) -> Unit,
+  onFill: () -> Unit,
+  onDeselect: () -> Unit,
+  pluginActions: List<SelectionPluginAction>,
+  onUnavailablePlugin: (BuiltInSelectionPluginSlot) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
-  /** Fill the inside of the selected closed shapes. */
-  onFill: (() -> Unit)? = null,
-  /** Buttons added by plugins (label, action); none with only the built-in plugins. */
-  extra: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
-  val shape = RoundedCornerShape(14.dp)
-  Row(
-    modifier
-      .floatingChromeSurface(
-        shape = shape,
-        background = PenLabComponentTokens.selectionBarBg,
-        elevation = 8.dp,
-        subtleLightHairline = true,
-        borderColor = PenLabComponentTokens.selectionBarBorder,
-        isDark = LocalPenLabColors.current.isDark,
+  val state =
+    remember(hasClipboard, canFillSelection, pluginActions) {
+      resolveSelectionBarState(
+        hasClipboard = hasClipboard,
+        canFillSelection = canFillSelection,
+        registeredPlugins = pluginActions,
       )
-      .ignorePalm(isPalm)
-      .padding(horizontal = 4.dp),
-    verticalAlignment = Alignment.CenterVertically,
+    }
+
+  PenLabChromePill(
+    modifier = modifier.height(BarHeight),
+    isPalm = isPalm,
+    contentPadding = PaddingValues(horizontal = 6.dp),
+    horizontalArrangement = Arrangement.spacedBy(0.dp),
   ) {
-    PillButton("Cut", onCut)
-    PillButton("Copy", onCopy)
-    PillButton("Duplicate", onDuplicate)
-    if (onFill != null) PillButton("Fill", onFill)
-    for ((label, action) in extra) PillButton(label, action)
-    PillButton("Delete", onDelete)
-    PillDivider()
-    IconButton(onClick = { onMirror(true) }, modifier = Modifier.size(44.dp)) {
-      Icon(MirrorIcon, contentDescription = "Mirror left to right", tint = PenLabColors.icon, modifier = Modifier.size(20.dp))
-    }
-    IconButton(onClick = { onMirror(false) }, modifier = Modifier.size(44.dp)) {
-      Icon(
-        MirrorIcon,
-        contentDescription = "Mirror top to bottom",
-        tint = PenLabColors.icon,
-        modifier = Modifier.size(20.dp).rotate(90f),
+    SelectionPillAction(
+      label = "Copy",
+      icon = PenLabIcons.Copy,
+      onClick = {
+        onMoreExpandedChange(false)
+        onCopy()
+      },
+    )
+    SelectionPillAction(
+      label = "Cut",
+      icon = PenLabIcons.Cut,
+      onClick = {
+        onMoreExpandedChange(false)
+        onCut()
+      },
+    )
+    SelectionPillAction(
+      label = "Paste",
+      icon = PenLabIcons.Paste,
+      enabled = state.pasteEnabled,
+      onClick = {
+        onMoreExpandedChange(false)
+        onPaste()
+      },
+    )
+    SelectionPillAction(
+      label = "Dupl.",
+      icon = PenLabIcons.Duplicate,
+      contentDescription = "Duplicate selection",
+      onClick = {
+        onMoreExpandedChange(false)
+        onDuplicate()
+      },
+    )
+    SelectionPillAction(
+      label = "Delete",
+      icon = PenLabIcons.Delete,
+      destructive = true,
+      onClick = {
+        onMoreExpandedChange(false)
+        onDelete()
+      },
+    )
+
+    SelectionPillDivider()
+
+    PenLabIconButton(
+      icon = PenLabIcons.FlipHorizontal,
+      contentDescription = "Mirror horizontally",
+      iconSize = 20.dp,
+      onClick = {
+        onMoreExpandedChange(false)
+        onMirror(true)
+      },
+    )
+    PenLabIconButton(
+      icon = PenLabIcons.FlipVertical,
+      contentDescription = "Mirror vertically",
+      iconSize = 20.dp,
+      onClick = {
+        onMoreExpandedChange(false)
+        onMirror(false)
+      },
+    )
+
+    SelectionPillDivider()
+
+    Box(contentAlignment = Alignment.Center) {
+      SelectionMoreTrigger(
+        expanded = moreExpanded,
+        onClick = { onMoreExpandedChange(!moreExpanded) },
       )
+      if (moreExpanded) {
+        val density = LocalDensity.current
+        val positionProvider =
+          remember(density) {
+            SelectionMorePopupPositionProvider(
+              gapPx = with(density) { 8.dp.roundToPx() },
+              marginPx = with(density) { PenLabSpacing.edgeMargin.roundToPx() },
+            )
+          }
+        Popup(
+          popupPositionProvider = positionProvider,
+          onDismissRequest = { onMoreExpandedChange(false) },
+          properties = PopupProperties(focusable = true, dismissOnBackPress = true, dismissOnClickOutside = true),
+        ) {
+          SelectionMorePopover(
+            showFill = state.showFill,
+            pluginEntries = state.pluginEntries,
+            onFill = {
+              onMoreExpandedChange(false)
+              onFill()
+            },
+            onDeselect = {
+              onMoreExpandedChange(false)
+              onDeselect()
+            },
+            onRunRegisteredPlugin = { action ->
+              onMoreExpandedChange(false)
+              action.onClick()
+            },
+            onUnavailablePlugin = { slot ->
+              onMoreExpandedChange(false)
+              onUnavailablePlugin(slot)
+            },
+            isPalm = isPalm,
+          )
+        }
+      }
     }
-    PillDivider()
-    PillButton("Done", onDone)
   }
 }
 
 @Composable
-private fun PillDivider() {
-  Box(Modifier.size(width = 1.dp, height = 20.dp).background(MaterialTheme.colorScheme.outlineVariant))
+private fun SelectionMorePopover(
+  showFill: Boolean,
+  pluginEntries: List<SelectionPluginMenuEntry>,
+  onFill: () -> Unit,
+  onDeselect: () -> Unit,
+  onRunRegisteredPlugin: (SelectionPluginAction) -> Unit,
+  onUnavailablePlugin: (BuiltInSelectionPluginSlot) -> Unit,
+  isPalm: () -> Boolean,
+) {
+  val scheme = MaterialTheme.colorScheme
+  PenLabPopoverSurface(
+    isPalm = isPalm,
+    modifier = Modifier.width(284.dp).heightIn(max = 460.dp),
+    contentPadding = PaddingValues(vertical = PenLabSpacing.sm, horizontal = PenLabSpacing.sm),
+    verticalArrangement = Arrangement.spacedBy(2.dp),
+  ) {
+    Column(
+      modifier = Modifier.verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+      if (showFill) {
+        PenLabMenuItem(
+          label = "Fill selection",
+          icon = PenLabIcons.Fill,
+          onClick = onFill,
+        )
+      }
+      PenLabMenuItem(
+        label = "Deselect",
+        icon = PenLabIcons.Check,
+        onClick = onDeselect,
+      )
+
+      HorizontalDivider(
+        color = scheme.outlineVariant,
+        thickness = 1.dp,
+        modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.xs),
+      )
+
+      Text(
+        text = "Plugins",
+        color = scheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+      )
+
+      for (entry in pluginEntries) {
+        when (entry) {
+          is SelectionPluginMenuEntry.Registered -> {
+            val action = entry.action
+            if (action.iconRes != 0) {
+              Row(
+                modifier =
+                  Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = PenLabSpacing.touchTarget)
+                    .clip(PenLabShapes.small)
+                    .clickable(role = Role.Button) { onRunRegisteredPlugin(action) }
+                    .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Icon(
+                  painter = painterResource(action.iconRes),
+                  contentDescription = null,
+                  tint = scheme.onSurfaceVariant,
+                  modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(PenLabSpacing.md))
+                Text(
+                  text = action.label,
+                  color = scheme.onSurface,
+                  style = MaterialTheme.typography.labelLarge,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
+            } else {
+              val icon =
+                when (entry.matchedSlot) {
+                  BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
+                  BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
+                  null -> PenLabIcons.Sparkles
+                }
+              PenLabMenuItem(
+                label = action.label,
+                icon = icon,
+                onClick = { onRunRegisteredPlugin(action) },
+              )
+            }
+          }
+          is SelectionPluginMenuEntry.UnavailableSlot -> {
+            val slot = entry.slot
+            val icon =
+              when (slot) {
+                BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
+                BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
+              }
+            PenLabMenuItem(
+              label = slot.label,
+              subtitle = slot.subtitle,
+              icon = icon,
+              onClick = { onUnavailablePlugin(slot) },
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+private class SelectionMorePopupPositionProvider(
+  private val gapPx: Int,
+  private val marginPx: Int,
+) : PopupPositionProvider {
+  override fun calculatePosition(
+    anchorBounds: IntRect,
+    windowSize: IntSize,
+    layoutDirection: LayoutDirection,
+    popupContentSize: IntSize,
+  ): IntOffset {
+    val maxX = maxOf(marginPx, windowSize.width - popupContentSize.width - marginPx)
+    val preferredX = anchorBounds.right - popupContentSize.width
+    val x = preferredX.coerceIn(marginPx, maxX)
+
+    val belowY = anchorBounds.bottom + gapPx
+    val aboveY = anchorBounds.top - gapPx - popupContentSize.height
+    val maxY = maxOf(marginPx, windowSize.height - popupContentSize.height - marginPx)
+    val y =
+      when {
+        belowY + popupContentSize.height <= windowSize.height - marginPx -> belowY
+        aboveY >= marginPx -> aboveY
+        else -> belowY.coerceIn(marginPx, maxY)
+      }
+    return IntOffset(x, y)
+  }
+}
+
+@Composable
+private fun SelectionPillAction(
+  label: String,
+  icon: ImageVector,
+  onClick: () -> Unit,
+  enabled: Boolean = true,
+  destructive: Boolean = false,
+  contentDescription: String = label,
+) {
+  val scheme = MaterialTheme.colorScheme
+  val interaction = remember { MutableInteractionSource() }
+  val pressed by interaction.collectIsPressedAsState()
+  val pressScale by animateFloatAsState(
+    targetValue = if (pressed && enabled) 0.94f else 1f,
+    animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
+    label = "selectionActionPress",
+  )
+  val tint =
+    when {
+      !enabled -> PenLabComponentTokens.toolIconDisabled
+      destructive -> PenLabComponentTokens.selectionBarDestructive
+      else -> scheme.onSurface
+    }
+  val iconTint =
+    when {
+      !enabled -> PenLabComponentTokens.toolIconDisabled
+      destructive -> PenLabComponentTokens.selectionBarDestructive
+      else -> scheme.onSurfaceVariant
+    }
+
+  Row(
+    modifier =
+      Modifier
+        .height(BarHeight)
+        .widthIn(min = PenLabSpacing.touchTarget)
+        .padding(vertical = 4.dp)
+        .clip(PenLabShapes.pill)
+        .clickable(
+          enabled = enabled,
+          interactionSource = interaction,
+          indication = ripple(bounded = true),
+          role = Role.Button,
+          onClick = onClick,
+        )
+        .padding(horizontal = 9.dp)
+        .semantics { this.contentDescription = contentDescription }
+        .graphicsLayer {
+          scaleX = pressScale
+          scaleY = pressScale
+        },
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),
+  ) {
+    Icon(
+      imageVector = icon,
+      contentDescription = null,
+      tint = iconTint,
+      modifier = Modifier.size(17.dp),
+    )
+    Text(
+      text = label,
+      color = tint,
+      style =
+        MaterialTheme.typography.labelLarge.copy(
+          fontWeight = if (destructive) FontWeight.SemiBold else FontWeight.Medium,
+        ),
+      maxLines = 1,
+      softWrap = false,
+    )
+  }
+}
+
+@Composable
+private fun SelectionMoreTrigger(
+  expanded: Boolean,
+  onClick: () -> Unit,
+) {
+  val scheme = MaterialTheme.colorScheme
+  val interaction = remember { MutableInteractionSource() }
+  val pressed by interaction.collectIsPressedAsState()
+  val pressScale by animateFloatAsState(
+    targetValue = if (pressed) 0.94f else 1f,
+    animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
+    label = "selectionMorePress",
+  )
+  val chevronRotation by animateFloatAsState(
+    targetValue = if (expanded) 180f else 0f,
+    animationSpec = Motion.tween(140),
+    label = "selectionMoreChevron",
+  )
+  val bg by animateColorAsState(
+    targetValue = if (expanded) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent,
+    animationSpec = Motion.tween(120),
+    label = "selectionMoreBg",
+  )
+  val fg = if (expanded) scheme.onPrimaryContainer else scheme.onSurface
+
+  Row(
+    modifier =
+      Modifier
+        .height(BarHeight)
+        .widthIn(min = PenLabSpacing.touchTarget)
+        .padding(vertical = 4.dp)
+        .clip(PenLabShapes.pill)
+        .background(bg)
+        .clickable(
+          interactionSource = interaction,
+          indication = ripple(bounded = true),
+          role = Role.Button,
+          onClick = onClick,
+        )
+        .padding(horizontal = 10.dp)
+        .semantics {
+          contentDescription = "More selection actions"
+          if (expanded) selected = true
+        }
+        .graphicsLayer {
+          scaleX = pressScale
+          scaleY = pressScale
+        },
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+  ) {
+    Text(
+      text = "More",
+      color = fg,
+      style = MaterialTheme.typography.labelLarge,
+      maxLines = 1,
+      softWrap = false,
+    )
+    Icon(
+      imageVector = PenLabIcons.ChevronDown,
+      contentDescription = null,
+      tint = if (expanded) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+      modifier =
+        Modifier
+          .size(14.dp)
+          .graphicsLayer { rotationZ = chevronRotation },
+    )
+  }
+}
+
+@Composable
+private fun SelectionPillDivider() {
+  Box(
+    modifier = Modifier.width(6.dp).height(BarHeight),
+    contentAlignment = Alignment.Center,
+  ) {
+    Box(
+      Modifier
+        .size(width = 1.dp, height = 20.dp)
+        .background(MaterialTheme.colorScheme.outlineVariant),
+    )
+  }
 }
 
 /**
- * Opens where the pen was held still on the page, when something has been copied: Paste puts
- * it there, the x empties the clipboard.
+ * Floating Paste pill shown both at a 500ms hold-to-paste point on the page and as the lone
+ * clipboard Paste pill when Lasso is picked with items on the clipboard.
  */
 @Composable
-fun PasteMenu(onPaste: () -> Unit, onClear: () -> Unit, isPalm: () -> Boolean, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(14.dp)
-  Row(
-    modifier
-      .floatingChromeSurface(
-        shape = shape,
-        background = PenLabComponentTokens.selectionBarBg,
-        elevation = 8.dp,
-        subtleLightHairline = true,
-        borderColor = PenLabComponentTokens.selectionBarBorder,
-        isDark = LocalPenLabColors.current.isDark,
-      )
-      .ignorePalm(isPalm)
-      .padding(horizontal = 4.dp),
-    verticalAlignment = Alignment.CenterVertically,
+fun PasteMenu(
+  onPaste: () -> Unit,
+  onClear: () -> Unit,
+  isPalm: () -> Boolean,
+  modifier: Modifier = Modifier,
+) {
+  PenLabChromePill(
+    modifier = modifier.height(BarHeight),
+    isPalm = isPalm,
+    contentPadding = PaddingValues(horizontal = 6.dp),
+    horizontalArrangement = Arrangement.spacedBy(0.dp),
   ) {
-    PillButton("Paste", onPaste)
-    Box(Modifier.size(width = 1.dp, height = 20.dp).background(MaterialTheme.colorScheme.outlineVariant))
-    IconButton(onClick = onClear, modifier = Modifier.size(48.dp)) {
-      Icon(CloseIcon, contentDescription = "Clear clipboard", tint = PenLabColors.icon, modifier = Modifier.size(18.dp))
-    }
-  }
-}
-
-@Composable
-private fun PillButton(label: String, onClick: () -> Unit) {
-  TextButton(onClick = onClick) {
-    Text(label, color = PenLabColors.icon, style = MaterialTheme.typography.labelLarge)
+    SelectionPillAction(
+      label = "Paste",
+      icon = PenLabIcons.Paste,
+      onClick = onPaste,
+    )
+    SelectionPillDivider()
+    PenLabIconButton(
+      icon = PenLabIcons.Close,
+      contentDescription = "Clear clipboard",
+      iconSize = 18.dp,
+      onClick = onClear,
+    )
   }
 }
 

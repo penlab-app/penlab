@@ -2,6 +2,7 @@ package dev.penlab.app.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -172,9 +173,9 @@ fun PenLabSectionHeader(
 }
 
 /**
- * Full-width switch row with >=48dp touch height, optional supporting subtitle, and a Material 3
- * [Switch] tinted with [MaterialTheme.colorScheme.primary] / [MaterialTheme.colorScheme.onPrimary]
- * when checked.
+ * Full-width switch row with >=48dp touch height, optional Phosphor Duotone leading icon and
+ * supporting subtitle, and a Material 3 [Switch] tinted with [MaterialTheme.colorScheme.primary] /
+ * [MaterialTheme.colorScheme.onPrimary] when checked.
  */
 @Composable
 fun PenLabSwitchRow(
@@ -182,6 +183,7 @@ fun PenLabSwitchRow(
   checked: Boolean,
   onCheckedChange: (Boolean) -> Unit,
   modifier: Modifier = Modifier,
+  icon: ImageVector? = null,
   subtitle: String? = null,
   enabled: Boolean = true,
 ) {
@@ -201,6 +203,20 @@ fun PenLabSwitchRow(
         .padding(horizontal = PenLabSpacing.xs, vertical = PenLabSpacing.xs),
     verticalAlignment = Alignment.CenterVertically,
   ) {
+    if (icon != null) {
+      Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint =
+          when {
+            !enabled -> PenLabComponentTokens.toolIconDisabled
+            checked -> scheme.primary
+            else -> scheme.onSurfaceVariant
+          },
+        modifier = Modifier.size(22.dp),
+      )
+      Spacer(Modifier.width(PenLabSpacing.md))
+    }
     Column(
       modifier = Modifier.weight(1f).padding(end = PenLabSpacing.md),
       verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -310,6 +326,10 @@ fun PenLabSliderRow(
                 .heightIn(min = PenLabSpacing.touchTarget)
                 .clip(PenLabShapes.small)
                 .background(if (selected) PenLabComponentTokens.chipSelectedBg else PenLabComponentTokens.chipIdleBg)
+                .then(
+                  if (selected) Modifier.border(1.5.dp, scheme.primary, PenLabShapes.small)
+                  else Modifier
+                )
                 .combinedClickable(
                   enabled = enabled,
                   onClick = { onSelectFavourite?.invoke(fav) },

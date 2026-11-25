@@ -5,6 +5,7 @@ import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -52,6 +53,8 @@ fun MarkerWheel(
   val spin = remember { Animatable(0f) } // degrees
   val open = remember { Animatable(0f) }
   val scope = rememberCoroutineScope()
+  val outlineOuter = MaterialTheme.colorScheme.inverseSurface
+  val outlineInner = MaterialTheme.colorScheme.inverseOnSurface
   LaunchedEffect(Unit) { open.animateTo(1f, Motion.tween(520, easing = Motion.Standard)) }
 
   Canvas(
@@ -107,7 +110,10 @@ fun MarkerWheel(
         close()
       }
       drawPath(path, colour)
-      if (outline) drawPath(path, Color.White, style = Stroke(2.5.dp.toPx()))
+      if (outline) {
+        drawPath(path, outlineOuter, style = Stroke(3.5.dp.toPx()))
+        drawPath(path, outlineInner, style = Stroke(1.6.dp.toPx()))
+      }
     }
 
     // Greys: three rings round the middle, light at the top going round to dark.

@@ -2,8 +2,10 @@ package dev.penlab.app.ui
 
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Bold
 import com.adamglin.phosphoricons.Duotone
 import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.bold.Check as BoldCheck
 import com.adamglin.phosphoricons.duotone.ArrowArcLeft
 import com.adamglin.phosphoricons.duotone.ArrowArcRight
 import com.adamglin.phosphoricons.duotone.ArrowsClockwise
@@ -125,6 +127,8 @@ object PenLabIcons {
   val ChevronRight: ImageVector get() = PhosphorIcons.Duotone.CaretRight
   val Rotate: ImageVector get() = PhosphorIcons.Duotone.ArrowsClockwise
   val Check: ImageVector get() = PhosphorIcons.Duotone.Check
+  /** Bare bold checkmark stroke (no duotone background box) for compact circular swatches. */
+  val CheckBare: ImageVector get() = PhosphorIcons.Bold.BoldCheck
   val Search: ImageVector get() = PhosphorIcons.Duotone.MagnifyingGlass
   val Home: ImageVector get() = PhosphorIcons.Duotone.House
   val FitWidth: ImageVector get() = PhosphorIcons.Duotone.ArrowsOutLineHorizontal

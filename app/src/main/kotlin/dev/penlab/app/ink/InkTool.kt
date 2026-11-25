@@ -42,7 +42,7 @@ data class InkTool(
 
 /** The kinds of pen. See [PenBrushes] for what each one does. */
 enum class PenStyle(val label: String) {
-  BALLPOINT("Pen"),
+  BALLPOINT("Ballpoint"),
   PRESSURE("Pressure"),
   FOUNTAIN("Fountain"),
 }

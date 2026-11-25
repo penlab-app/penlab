@@ -609,11 +609,11 @@ fun PageConfigPopover(
       else listOf(PageConfigTab.PAPER, PageConfigTab.LAYERS)
     }
   val activeTab = if (selectedTab in tabs) selectedTab else tabs.first()
-  val width = if (activeTab == PageConfigTab.PAGES) 468.dp else 320.dp
+  val width = if (activeTab == PageConfigTab.PAGES) 424.dp else 332.dp
 
   PenLabPopoverSurface(
     isPalm = isPalm,
-    modifier = modifier.width(width).heightIn(max = 580.dp),
+    modifier = modifier.width(width).heightIn(max = 616.dp),
     contentPadding = PaddingValues(PenLabSpacing.md),
     verticalArrangement = Arrangement.spacedBy(PenLabSpacing.md),
   ) {
@@ -644,7 +644,6 @@ fun PageConfigPopover(
           onInsert = onInsertPage,
           onDelete = onDeletePage,
           showHeading = false,
-          modifier = Modifier.weight(1f, fill = false),
         )
       }
       PageConfigTab.PAPER -> {

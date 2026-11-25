@@ -1641,6 +1641,22 @@ private fun NoteScreen(
     }
   }
 
+  fun startEyedropper(slot: Int) {
+    openPanel = null
+    dock.wheelOpen = false
+    colorWheelFor = null
+    eyedropperOn = true
+    canvas.onColorSampled = { sampled ->
+      eyedropperOn = false
+      if (sampled != null && slot in tools.indices) {
+        val color = (sampled and 0x00FFFFFF) or (tools[slot].paperColor and 0xFF000000.toInt())
+        tools[slot] = tools[slot].copy(paperColor = color)
+        toolSettings.addRecentColor(color)
+        sendToolsToCanvas()
+      }
+    }
+  }
+
   val isPalm = { canvas.isPenWriting }
   val edgeAccent = androidx.compose.material3.MaterialTheme.colorScheme.primary
   LaunchedEffect(edgeAccent) { canvas.pageEdgeAccent = edgeAccent.copy(alpha = 0.55f).toArgb() }
@@ -1882,8 +1898,6 @@ private fun NoteScreen(
               darkPage = darkPage,
               onStylePicked = {
                 tools[shownPanel] = tools[shownPanel].copy(style = it)
-                openPanel = null
-                dock.wheelOpen = false
                 sendToolsToCanvas()
               },
               onLinePicked = {
@@ -1902,22 +1916,20 @@ private fun NoteScreen(
               },
               onSizePicked = {
                 tools[shownPanel] = tools[shownPanel].copy(sizeDp = it)
-                openPanel = null
-                dock.wheelOpen = false
                 sendToolsToCanvas()
               },
               onAddFavourite = { toolSettings.addFavourite(panelTool.kind, tools[shownPanel].sizeDp) },
               onRemoveFavourite = { toolSettings.removeFavourite(panelTool.kind, it) },
               onColorPicked = {
                 tools[shownPanel] = tools[shownPanel].copy(paperColor = it)
-                openPanel = null
-                dock.wheelOpen = false
                 sendToolsToCanvas()
               },
               onMoreColors = {
                 colorWheelFor = shownPanel
                 openPanel = null
+                dock.wheelOpen = false
               },
+              onPickEyedropper = { startEyedropper(shownPanel) },
               isPalm = isPalm,
             )
           }
@@ -2269,19 +2281,7 @@ private fun NoteScreen(
               colorWheelFor = null
             }
           },
-          onEyedropper = {
-            colorWheelFor = null
-            eyedropperOn = true
-            canvas.onColorSampled = { sampled ->
-              eyedropperOn = false
-              if (sampled != null) {
-                val color = (sampled and 0x00FFFFFF) or (tools[slot].paperColor and 0xFF000000.toInt())
-                tools[slot] = tools[slot].copy(paperColor = color)
-                toolSettings.addRecentColor(color)
-                sendToolsToCanvas()
-              }
-            }
-          },
+          onEyedropper = { startEyedropper(slot) },
           onDismiss = {
             toolSettings.addRecentColor(tools[slot].paperColor)
             colorWheelFor = null

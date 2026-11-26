@@ -1478,6 +1478,57 @@ class InkCanvasView(
     return bitmap
   }
 
+  /**
+   * The written pages of the notebook (1-based numbers; a page counts if it has ink, a photo, a text box or a PDF slide) and a way
+   * to draw them that is safe OFF the main thread, at most [max], each [widthPx] wide in paper colours on white paper. The strokes and
+   * items are copied now (main thread, cheap: references), and each page is drawn only when the returned sequence reaches it, so a
+   * 60-page notebook never freezes the ink or sits in memory as 60 bitmaps. PDF slides are rendered on the PDF thread and waited for.
+   * An endless canvas has no pages: it gives one picture of what is on screen (drawn now).
+   * For plugin screens that ask for the `notebook` input (docs/plugin-bridge.md); the same shape as Graphite's version.
+   */
+  fun pagesForBackground(max: Int, widthPx: Int): Pair<List<Int>, () -> Sequence<Bitmap>> {
+    val layout = pageLayout ?: run {
+      val picture = pagePicture(widthPx = widthPx)
+      return listOf(1) to { sequenceOf(picture) }
+    }
+    val strokes = history.strokes.filter { !isHiddenLayer(it) }
+    val itemsNow = items.toList()
+    val pages = (0 until layout.count).filter { page ->
+      val rect = layout.rect(page, RectF())
+      layout.backgroundOf(page) >= 0 ||
+        itemsNow.any { RectF.intersects(it.bounds(RectF()), rect) } ||
+        strokes.any { RectF.intersects(it.bounds, rect) }
+    }.take(max)
+    val pdfNow = pdf
+    val painter = ItemPainter(imagesDir)
+    val draw: () -> Sequence<Bitmap> = {
+      val renderer = CanvasStrokeRenderer.create()
+      pages.asSequence().map { page ->
+        val area = layout.rect(page, RectF())
+        val scale = widthPx / area.width()
+        val bitmap = Bitmap.createBitmap(widthPx, (area.height() * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(InkColors.pageOnScreen(false))
+        val slide = layout.backgroundOf(page)
+        if (slide >= 0) pdfNow?.renderNow(slide, widthPx)?.let {
+          canvas.drawBitmap(it, null, RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
+          it.recycle()
+        }
+        val matrix = Matrix().apply {
+          setTranslate(-area.left, -area.top)
+          postScale(scale, scale)
+        }
+        canvas.save()
+        canvas.concat(matrix)
+        for (item in itemsNow) if (RectF.intersects(item.bounds(RectF()), area)) painter.draw(canvas, item) { it }
+        for (ink in strokes) if (RectF.intersects(ink.bounds, area)) renderer.draw(canvas, Stroke(ink.brush, ink.inputBatch()), matrix)
+        canvas.restore()
+        bitmap
+      }
+    }
+    return pages.map { it + 1 } to draw
+  }
+
   // ---- Projector view -----------------------------------------------------------------------
 
   /**
@@ -2508,9 +2559,11 @@ class InkCanvasView(
     lastEraserY = y
     // The cheap bounding-box test rules out almost every stroke before the exact (slower)
     // shape test runs. The drag is one undo step (see startErasing).
-    val touched = history.strokes.filter {
+    var touched = history.strokes.filter {
       RectF.intersects(it.bounds, erasedArea) && !isHiddenLayer(it) && it.stroke.shape.intersects(swept, AffineTransform.IDENTITY)
     }
+    // Whole-stroke erasing takes a patterned line away as one: touching a dash removes every dash.
+    if (!partialErase && touched.isNotEmpty()) touched = touched + withGroupMates(touched, history.strokes) { it.group }.filter { !isHiddenLayer(it) }
     val touchedSet: Set<InkStroke> = Collections.newSetFromMap<InkStroke>(IdentityHashMap()).apply { addAll(touched) }
     var erased =
       if (touched.isEmpty()) false
@@ -2990,11 +3043,11 @@ class InkCanvasView(
   /** The circle that shows how much the eraser covers. Sits above everything else. */
   // ---- Lasso: select, move, delete -------------------------------------------------------
 
-  private enum class LassoGesture { NONE, DRAWING, MOVING, RESIZING, ROTATING }
+  private enum class LassoGesture { NONE, DRAWING, MOVING, RESIZING, ROTATING, LINE_END }
 
   /** A gesture that changes the selection: its originals are hidden while it runs. */
   private val LassoGesture.changesSelection: Boolean
-    get() = this == LassoGesture.MOVING || this == LassoGesture.RESIZING || this == LassoGesture.ROTATING
+    get() = this == LassoGesture.MOVING || this == LassoGesture.RESIZING || this == LassoGesture.ROTATING || this == LassoGesture.LINE_END
 
   private var lassoGesture = LassoGesture.NONE
   private val lassoPath = ArrayList<Point>()
@@ -3349,6 +3402,7 @@ class InkCanvasView(
     if (!hasAnySelection) return false
     val x = event.getX(index)
     val y = event.getY(index)
+    if (lineSelection != null) return lineHandleAt(x, y) >= 0 || isNearLine(x, y)
     return handleAt(x, y) != null || isOnRotateHandle(x, y) || isInSelectionBox(x, y)
   }
 
@@ -3356,8 +3410,23 @@ class InkCanvasView(
     readPagePosition(event, index)
     val x = eraserPoint[0]
     val y = eraserPoint[1]
-    val handle = if (hasAnySelection) handleAt(event.getX(index), event.getY(index)) else null
-    if (hasAnySelection && isOnRotateHandle(event.getX(index), event.getY(index))) {
+    val line = lineSelection
+    val lineHandle = if (line != null) lineHandleAt(event.getX(index), event.getY(index)) else -1
+    val handle = if (hasAnySelection && line == null) handleAt(event.getX(index), event.getY(index)) else null
+    if (line != null && lineHandle >= 0) {
+      // Pen down on one end of a straight line: the end follows the pen, the other stays put.
+      lassoGesture = LassoGesture.LINE_END
+      lineEnd = lineHandle
+      val endX = if (lineHandle == 0) line.ax else line.bx
+      val endY = if (lineHandle == 0) line.ay else line.by
+      lineGrabDx = endX - x // keep the offset between pen and handle, so the end does not jump
+      lineGrabDy = endY - y
+      linePreviewEnds = null
+      linePreview = emptyList()
+      hideSelection(true)
+      finishedView.invalidate()
+      onSelectionChanged(null)
+    } else if (hasAnySelection && line == null && isOnRotateHandle(event.getX(index), event.getY(index))) {
       // Pen down on the rotate handle: turn the selection about its centre.
       lassoGesture = LassoGesture.ROTATING
       rotateCenterX = selectionBounds.centerX()
@@ -3380,7 +3449,7 @@ class InkCanvasView(
       hideSelection(true)
       finishedView.invalidate()
       onSelectionChanged(null)
-    } else if (hasAnySelection && isInSelectionBox(event.getX(index), event.getY(index))) {
+    } else if (hasAnySelection && (if (line != null) isNearLine(event.getX(index), event.getY(index)) else isInSelectionBox(event.getX(index), event.getY(index)))) {
       // Pen down on the selection: drag it. Hide the originals; the overlay draws them moving.
       lassoGesture = LassoGesture.MOVING
       moveStartX = x
@@ -3440,6 +3509,7 @@ class InkCanvasView(
         var degrees = Math.toDegrees((atan2(eraserPoint[1] - rotateCenterY, eraserPoint[0] - rotateCenterX) - rotateStartAngle).toDouble()).toFloat()
         rotateAngle = ((degrees + 540f) % 360f) - 180f // any angle, kept in -180..180 (user request: no snapping)
       }
+      LassoGesture.LINE_END -> moveLineEnd(eraserPoint[0] + lineGrabDx, eraserPoint[1] + lineGrabDy)
       LassoGesture.NONE -> Unit
     }
     selectionView.invalidate()
@@ -3452,6 +3522,7 @@ class InkCanvasView(
       LassoGesture.MOVING -> dropSelection()
       LassoGesture.RESIZING -> dropResize()
       LassoGesture.ROTATING -> dropRotate()
+      LassoGesture.LINE_END -> dropLineEnd()
       LassoGesture.NONE -> Unit
     }
     lassoGesture = LassoGesture.NONE
@@ -3550,6 +3621,158 @@ class InkCanvasView(
     val pad = (SELECTION_PAD_DP + SELECTION_GRAB_DP) * density / pageToScreen.mapRadius(1f)
     return boxCheck[0] in (selectionBounds.left - pad)..(selectionBounds.right + pad) &&
       boxCheck[1] in (selectionBounds.top - pad)..(selectionBounds.bottom + pad)
+  }
+
+  // ---- A straight line: two end handles instead of the box ------------------------------
+
+  /**
+   * Set when the selection is one straight line (one stroke, or all the dashes of one patterned
+   * line, within [StraightLine]'s tolerance): the canvas then shows a round handle at each end
+   * instead of the box. Null for every other selection, which keeps the box.
+   */
+  private var lineSelection: StraightLine.Ends? = null
+
+  /** The first stroke of the selected line in page order: pen, colour, width, layer and pattern to rebuild with. */
+  private var lineTemplate: InkStroke? = null
+  private var lineEnd = 0 // which end the pen is dragging: 0 = A, 1 = B
+  private var lineGrabDx = 0f
+  private var lineGrabDy = 0f
+  private var linePreviewEnds: StraightLine.Ends? = null
+  private var linePreview: List<InkStroke> = emptyList() // what the drag would commit
+  private var linePreviewDrawn: List<Stroke> = emptyList() // the same, ready to draw (not in the mesh cache)
+
+  /** Looks at the selection and sets [lineSelection]. Called whenever the selection changes. */
+  private fun detectLineSelection() {
+    lineSelection = null
+    lineTemplate = null
+    if (selection.isEmpty() || selectedItems.isNotEmpty() || selection.size > MAX_LINE_PIECES) return
+    val group = selection.first().group
+    if (selection.size > 1 && (group == 0L || selection.any { it.group != group })) return
+    // Page order, so the pattern keeps starting from the same end of the line.
+    val strokes = if (selection.size == 1) listOf(selection.first()) else history.strokes.filter { it in selection }
+    var count = 0
+    for (stroke in strokes) count += stroke.pointCount
+    val xy = FloatArray(count * 2)
+    var k = 0
+    for (stroke in strokes) {
+      for (i in 0 until stroke.pointCount) {
+        xy[k++] = stroke.x(i)
+        xy[k++] = stroke.y(i)
+      }
+    }
+    lineSelection = StraightLine.detect(xy, itemMm) ?: return
+    lineTemplate = strokes.first()
+  }
+
+  /** Which end handle (0 or 1) is under a screen point, or -1. */
+  private fun lineHandleAt(screenX: Float, screenY: Float): Int {
+    val line = lineSelection ?: return -1
+    val ends = floatArrayOf(line.ax, line.ay, line.bx, line.by)
+    pageToScreen.mapPoints(ends)
+    val da = hypot(screenX - ends[0], screenY - ends[1])
+    val db = hypot(screenX - ends[2], screenY - ends[3])
+    val reach = HANDLE_GRAB_DP * density
+    return when {
+      da > reach && db > reach -> -1
+      da <= db -> 0
+      else -> 1
+    }
+  }
+
+  /** On the line itself (a thumb's width either side): dragging there moves the whole line. */
+  private fun isNearLine(screenX: Float, screenY: Float): Boolean {
+    val line = lineSelection ?: return false
+    val ends = floatArrayOf(line.ax, line.ay, line.bx, line.by)
+    pageToScreen.mapPoints(ends)
+    val onScreen = StraightLine.Ends(ends[0], ends[1], ends[2], ends[3])
+    return StraightLine.distanceToSegment(screenX, screenY, onScreen) <= (SELECTION_PAD_DP + SELECTION_GRAB_DP) * density
+  }
+
+  /** The pen moved the dragged end to (x, y) (page units): rebuilds the preview line. */
+  private fun moveLineEnd(x: Float, y: Float) {
+    val line = lineSelection ?: return
+    val template = lineTemplate ?: return
+    val ends = StraightLine.moveEnd(line, lineEnd, x, y, StraightLine.MIN_LENGTH_MM * itemMm) ?: return
+    linePreviewEnds = ends
+    linePreview = buildLine(template, ends)
+    // Built straight away and kept out of the mesh cache: a drag makes hundreds of throwaway lines.
+    linePreviewDrawn = linePreview.map { drawableOnScreen(it) }
+  }
+
+  /**
+   * The strokes of a straight line between [ends], made like [template]: same pen, colour, width,
+   * layer and pattern (one stroke if solid, else the dashes, all in the template's group).
+   * Points are spaced like a snapped shape's, with the template's average pressure.
+   */
+  private fun buildLine(template: InkStroke, ends: StraightLine.Ends): List<InkStroke> {
+    val xy = StraightLine.pointsAlong(ends, SHAPE_POINT_SPACING_PX / pageToScreen.mapRadius(1f))
+    val n = xy.size / 2
+    var pressure = 0f
+    var counted = 0
+    for (i in 0 until template.pointCount) {
+      val p = template.points[i * InkStroke.FLOATS_PER_POINT + 2]
+      if (p >= 0f) {
+        pressure += p
+        counted++
+      }
+    }
+    val average = if (counted > 0) (pressure / counted).coerceIn(0.05f, 1f) else StrokeInput.NO_PRESSURE
+    val f = InkStroke.FLOATS_PER_POINT
+    val points = FloatArray(n * f)
+    for (i in 0 until n) {
+      points[i * f] = xy[i * 2]
+      points[i * f + 1] = xy[i * 2 + 1]
+      points[i * f + 2] = average
+      points[i * f + 3] = StrokeInput.NO_TILT
+      points[i * f + 4] = StrokeInput.NO_ORIENTATION
+    }
+    val whole =
+      InkStroke(
+        template.brush, points, LongArray(n) { it * 4L }, template.toolType, template.unitLengthCm,
+        template.isHighlighter, template.layer, template.mediaMark, template.group, template.lineType,
+      )
+    if (template.lineType == LineType.SOLID) return listOf(whole)
+    return LinePattern.split(whole, template.lineType, maxOf(template.brush.size, MIN_DASH_UNIT_MM * itemMm))
+  }
+
+  /** A stroke ready to draw with the page's colours on screen, built fresh (not kept in [StrokeMeshes]). */
+  private fun drawableOnScreen(ink: InkStroke): Stroke {
+    val stroke = ink.build()
+    return if (!darkPage || isOnLightPage(ink)) stroke
+    else stroke.copy(stroke.brush.copyWithColorIntArgb(InkColors.onScreen(stroke.brush.colorIntArgb, true)))
+  }
+
+  /**
+   * Commits an end drag as one undo step: a lone stroke is swapped for the new line in its place;
+   * a patterned line (a different number of dashes) is removed and added again.
+   */
+  private fun dropLineEnd() {
+    hideSelection(false)
+    val old = lineSelection
+    val ends = linePreviewEnds
+    val fresh = linePreview
+    linePreviewEnds = null
+    linePreview = emptyList()
+    linePreviewDrawn = emptyList()
+    val moved = old != null && ends != null && hypot(ends.ax - old.ax, ends.ay - old.ay) + hypot(ends.bx - old.bx, ends.by - old.by) > MIN_LINE_DRAG_DP * density / pageToScreen.mapRadius(1f)
+    if (!moved || fresh.isEmpty()) {
+      finishedView.invalidate()
+      return
+    }
+    val replaced = selection.toList()
+    history.grouped {
+      if (replaced.size == 1 && fresh.size == 1) {
+        history.replace(mapOf(replaced[0] to fresh[0]))
+      } else {
+        val doomed: Set<InkStroke> = Collections.newSetFromMap<InkStroke>(IdentityHashMap()).apply { addAll(replaced) }
+        history.removeAll { it in doomed }
+        for (stroke in fresh) history.add(stroke, insertIndexFor(stroke))
+      }
+    }
+    selection.clear()
+    selection += fresh
+    updateSelectionBounds()
+    pageChanged()
   }
 
   /** Edge handles are left out when the box is too small for them to be told from the corners. */
@@ -3705,8 +3928,10 @@ class InkCanvasView(
       changeItems { it += copies }
       selectedItems += copies.map { it.id }
     }
+    val regroup = HashMap<Long, Long>() // a copied patterned line gets its own group id
     for (stroke in source) {
-      val moved = stroke.translated(dx, dy)
+      var moved = stroke.translated(dx, dy)
+      if (moved.group != 0L) moved = moved.withGroup(regroup.getOrPut(moved.group) { LinePattern.newGroupId() })
       val copy = if (toLayer != null && toLayer != moved.layer) moved.withLayer(toLayer) else moved
       history.add(copy, insertIndexFor(copy))
       selection += copy
@@ -3772,6 +3997,8 @@ class InkCanvasView(
       hideSelection(false)
       finishedView.invalidate()
     }
+    linePreviewEnds = null
+    linePreview = emptyList()
     lassoGesture = LassoGesture.NONE
     lassoPath.clear()
     selectionView.invalidate()
@@ -3798,7 +4025,13 @@ class InkCanvasView(
       // Photos and text boxes: picked up when the loop covers any part of them.
       for (item in items) if (loopTouchesRect(lassoPath, item.bounds(itemBox))) selectedItems += item.id
     }
+    addGroupMates()
     updateSelectionBounds()
+  }
+
+  /** A patterned line is one object: picking up one dash picks up all of them. */
+  private fun addGroupMates() {
+    for (mate in withGroupMates(selection, history.strokes) { it.group }) if (!isHiddenLayer(mate)) selection += mate
   }
 
   /** Commits a drag: the selection is replaced by moved copies, in one undo step. */
@@ -3833,6 +4066,8 @@ class InkCanvasView(
     selection.clear()
     selectedItems.clear()
     selectionBounds.setEmpty()
+    lineSelection = null
+    lineTemplate = null
     lassoGesture = LassoGesture.NONE
     lassoPath.clear()
     selectionView.invalidate()
@@ -3844,6 +4079,7 @@ class InkCanvasView(
     selectionBounds.setEmpty()
     for (stroke in selection) selectionBounds.union(chunkCache.boundsOf(stroke))
     for (item in items) if (item.id in selectedItems) selectionBounds.union(item.bounds(itemBox))
+    detectLineSelection()
   }
 
   private val reportedRect = RectF()
@@ -3855,6 +4091,15 @@ class InkCanvasView(
     }
     // Everything the selection draws on screen (turned box and rotate handle), so the buttons
     // placed above it never cover a handle.
+    lineSelection?.let { line ->
+      // A straight line shows two end handles only (no box, no rotate handle).
+      val ends = floatArrayOf(line.ax, line.ay, line.bx, line.by)
+      pageToScreen.mapPoints(ends)
+      reportedRect.set(minOf(ends[0], ends[2]), minOf(ends[1], ends[3]), maxOf(ends[0], ends[2]), maxOf(ends[1], ends[3]))
+      reportedRect.inset(-HANDLE_RADIUS_DP * density, -HANDLE_RADIUS_DP * density)
+      onSelectionChanged(RectF(reportedRect))
+      return
+    }
     // Start from the first corner and grow. (Testing reportedRect.isEmpty instead was wrong: a
     // single point has zero width, so every corner restarted the rect and only the last one plus
     // the knob survived, and the buttons were placed against that sliver. QA 26 Nov.)
@@ -3915,12 +4160,31 @@ class InkCanvasView(
       movedMatrix.preTranslate(moveDx, moveDy)
       movedMatrix.preScale(resizeScaleX, resizeScaleY, resizeAnchorX, resizeAnchorY)
       movedMatrix.preRotate(rotateAngle, rotateCenterX, rotateCenterY)
-      if (lassoGesture.changesSelection) {
+      if (lassoGesture == LassoGesture.LINE_END) {
+        // The line as it will be if the pen lifts now (until the first move, the line as it is).
+        if (linePreviewDrawn.isEmpty()) for (stroke in selection) renderer.draw(canvas, screenVersion(stroke), pageToScreen)
+        else for (stroke in linePreviewDrawn) renderer.draw(canvas, stroke, pageToScreen)
+      } else if (lassoGesture.changesSelection) {
         canvas.save()
         canvas.concat(movedMatrix)
         for (item in items) if (item.id in selectedItems) itemPainter.draw(canvas, item) { itemTextColor(item, it) }
         for (stroke in selection) renderer.draw(canvas, screenVersion(stroke), movedMatrix)
         canvas.restore()
+      }
+
+      // A straight line: a round handle at each end, nothing else.
+      val line = lineSelection
+      if (line != null) {
+        val ends = linePreviewEnds ?: line
+        val radius = HANDLE_RADIUS_DP * density
+        for (end in 0..1) {
+          point[0] = if (end == 0) ends.ax else ends.bx
+          point[1] = if (end == 0) ends.ay else ends.by
+          movedMatrix.mapPoints(point)
+          canvas.drawCircle(point[0], point[1], radius, handleFill)
+          canvas.drawCircle(point[0], point[1], radius, handleEdge)
+        }
+        return
       }
 
       // The box, drawn through its four corners so it turns with the page and the selection.
@@ -4044,6 +4308,12 @@ class InkCanvasView(
 
     /** Dashes are measured in line widths, but never in less than this (mm). */
     const val MIN_DASH_UNIT_MM = 0.35f
+
+    /** A patterned line with more pieces than this is never offered line handles (the check stays cheap). */
+    const val MAX_LINE_PIECES = 3000
+
+    /** An end drag shorter than this (screen dp) is a tap, not an edit. */
+    const val MIN_LINE_DRAG_DP = 2f
 
     const val MIN_ZOOM = 0.25f
     const val MAX_ZOOM = 8f

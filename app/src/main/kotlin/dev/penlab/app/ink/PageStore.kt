@@ -195,6 +195,8 @@ private fun InkStroke.toSaved() =
     times = times,
     layer = layer,
     mediaMark = mediaMark,
+    group = group,
+    lineType = lineType.ordinal, // LineType entries are only ever appended, so ordinals stay valid
   )
 
 @Suppress("UNCHECKED_CAST")
@@ -253,4 +255,6 @@ private fun SavedStroke.toStroke() =
     isHighlighter,
     layer,
     mediaMark,
+    group,
+    LineType.entries.getOrElse(lineType) { LineType.SOLID },
   )

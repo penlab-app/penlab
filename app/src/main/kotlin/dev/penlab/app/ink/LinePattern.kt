@@ -10,8 +10,10 @@ import kotlin.math.hypot
  *  - phantom (alternate positions): long dash, then two dots.
  *
  * A dashed line is stored as one ordinary stroke per dash or dot, made when the pen lifts, so
- * it saves, exports, erases and selects like any ink. Shapes (hold to perfect) and lines along
- * the ruler get the pattern too.
+ * it saves and exports like any ink. All the pieces of one line carry the same [InkStroke.group]
+ * id and the [LineType], so the lasso, move, the whole-stroke eraser and the line handles treat
+ * the line as one object (file format 5; older files have no groups and keep separate dashes).
+ * Shapes (hold to perfect) and lines along the ruler get the pattern too.
  */
 enum class LineType(val label: String, internal val pattern: FloatArray?) {
   SOLID("Solid", null),
@@ -29,6 +31,7 @@ object LinePattern {
    */
   fun split(stroke: InkStroke, type: LineType, unit: Float): List<InkStroke> {
     val pattern = type.pattern ?: return listOf(stroke)
+    val group = if (stroke.group != 0L) stroke.group else newGroupId()
     val n = stroke.pointCount
     if (n < 2 || unit <= 0f) return listOf(stroke)
     val along = FloatArray(n)
@@ -36,21 +39,18 @@ object LinePattern {
     val total = along[n - 1]
     if (total <= 0f) return listOf(stroke)
 
-    val pieces = ArrayList<InkStroke>()
-    var pos = 0f
-    var k = 0
-    var guard = 0
-    while (pos <= total && guard++ < 100_000) {
-      val length = pattern[k] * unit
-      if (k % 2 == 0) pieces += piece(stroke, along, pos, minOf(pos + length, total))
-      pos += length
-      k = (k + 1) % pattern.size
-    }
-    return pieces
+    return dashRanges(total, pattern, unit).map { (from, to) -> piece(stroke, along, from, to, group, type) }
+  }
+
+  /** A fresh group id for a line (random, so ids from different notebooks never meet; never 0). */
+  fun newGroupId(): Long {
+    var id = java.util.concurrent.ThreadLocalRandom.current().nextLong()
+    while (id == 0L) id = java.util.concurrent.ThreadLocalRandom.current().nextLong()
+    return id
   }
 
   /** The part of the stroke between distances [from] and [to] along it (a dot if equal). */
-  private fun piece(stroke: InkStroke, along: FloatArray, from: Float, to: Float): InkStroke {
+  private fun piece(stroke: InkStroke, along: FloatArray, from: Float, to: Float, group: Long, type: LineType): InkStroke {
     val f = InkStroke.FLOATS_PER_POINT
     val points = ArrayList<Float>()
     val times = ArrayList<Long>()
@@ -89,6 +89,8 @@ object LinePattern {
       stroke.isHighlighter,
       stroke.layer,
       stroke.mediaMark,
+      group,
+      type,
     )
   }
 }

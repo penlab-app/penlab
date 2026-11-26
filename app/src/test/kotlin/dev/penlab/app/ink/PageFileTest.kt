@@ -123,6 +123,43 @@ class PageFileTest {
   }
 
   @Test
+  fun patternedLineGroupsRoundTripAndOlderFilesHaveNone() {
+    val dashes = (0 until 3).map {
+      SavedStroke("pen", 1, 2f, 0.1f, false, 2, -1f, FloatArray(10), LongArray(2), group = 0x1234_5678_9ABC_DEF0L, lineType = LineType.DASHED.ordinal)
+    }
+    val back = roundTrip(SavedPage("BLANK", FloatArray(9), dashes + stroke("pen", false, 2))).strokes
+    for (i in 0 until 3) {
+      assertEquals(0x1234_5678_9ABC_DEF0L, back[i].group)
+      assertEquals(LineType.DASHED.ordinal, back[i].lineType)
+    }
+    assertEquals(0L, back[3].group)
+    assertEquals(LineType.SOLID.ordinal, back[3].lineType)
+
+    // A version-4 file (audio mark, but no group or line type) opens with every stroke on its own.
+    val out = ByteArrayOutputStream()
+    java.io.DataOutputStream(out).use { d ->
+      d.writeInt(0x47525048)
+      d.writeInt(4)
+      d.writeUTF("BLANK")
+      repeat(9) { d.writeFloat(0f) }
+      d.writeInt(2)
+      repeat(2) {
+        d.writeUTF("pen"); d.writeInt(0); d.writeFloat(1f); d.writeFloat(0.1f); d.writeBoolean(false); d.writeInt(2); d.writeFloat(-1f)
+        d.writeInt(1); repeat(5) { d.writeFloat(1f) }; d.writeLong(0L)
+        d.writeInt(1) // layer
+        d.writeLong(42L) // audio mark
+      }
+      d.writeInt(0) // no items
+    }
+    val old = PageFile.read(ByteArrayInputStream(out.toByteArray())).strokes
+    assertEquals(2, old.size)
+    assertEquals(42L, old[1].mediaMark)
+    assertEquals(1, old[1].layer)
+    assertEquals(0L, old[1].group)
+    assertEquals(0, old[1].lineType)
+  }
+
+  @Test
   fun emptyPageRoundTrips() {
     val back = roundTrip(SavedPage("BLANK", FloatArray(9), emptyList()))
     assertTrue(back.strokes.isEmpty())

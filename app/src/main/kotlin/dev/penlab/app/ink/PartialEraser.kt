@@ -41,6 +41,8 @@ object PartialEraser {
             stroke.isHighlighter,
             stroke.layer,
             stroke.mediaMark,
+            stroke.group,
+            stroke.lineType,
           )
         }
         runStart = -1

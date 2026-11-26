@@ -41,6 +41,13 @@ class InkStroke(
    * number and the position in it (ms). [MediaMark.NONE] if nothing was recording.
    */
   val mediaMark: Long = MediaMark.NONE,
+  /**
+   * The dashes and dots of one patterned line share a non-zero group id, so the lasso, the eraser,
+   * move and the line handles treat them as ONE line (0 = a stroke on its own).
+   */
+  val group: Long = 0L,
+  /** The pattern the group was cut with (see [LinePattern]); [LineType.SOLID] for a lone stroke. */
+  val lineType: LineType = LineType.SOLID,
 ) {
   val pointCount: Int
     get() = times.size
@@ -112,10 +119,10 @@ class InkStroke(
   }
 
   /** The same stroke on another layer. */
-  fun withLayer(newLayer: Int) = InkStroke(brush, points, times, toolType, unitLengthCm, isHighlighter, newLayer, mediaMark)
+  fun withLayer(newLayer: Int) = InkStroke(brush, points, times, toolType, unitLengthCm, isHighlighter, newLayer, mediaMark, group, lineType)
 
   /** The same points with another brush (a pasted highlight keeps its flag). */
-  fun withBrush(newBrush: Brush) = InkStroke(newBrush, points, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark)
+  fun withBrush(newBrush: Brush) = InkStroke(newBrush, points, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark, group, lineType)
 
   /**
    * A copy with every point moved by [matrix] (page units): any mix of move, scale, rotate and
@@ -133,7 +140,7 @@ class InkStroke(
       moved[b + 1] = xy[1]
     }
     val newBrush = if (widthScale == 1f) brush else Brushes.scaled(brush, widthScale)
-    return InkStroke(newBrush, moved, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark)
+    return InkStroke(newBrush, moved, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark, group, lineType)
   }
 
   /** Scaled about an anchor, then moved; the line width follows the average scale. */
@@ -145,13 +152,16 @@ class InkStroke(
     return mapped(matrix, sqrt(abs(scaleX * scaleY)))
   }
 
+  /** The same stroke in another group (a pasted copy must not stay tied to the original's dashes). */
+  fun withGroup(newGroup: Long) = InkStroke(brush, points, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark, newGroup, lineType)
+
   fun translated(dx: Float, dy: Float): InkStroke {
     val moved = points.copyOf()
     for (i in 0 until pointCount) {
       moved[i * FLOATS_PER_POINT] += dx
       moved[i * FLOATS_PER_POINT + 1] += dy
     }
-    return InkStroke(brush, moved, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark)
+    return InkStroke(brush, moved, times, toolType, unitLengthCm, isHighlighter, layer, mediaMark, group, lineType)
   }
 
   companion object {

@@ -49,11 +49,12 @@ class SavedHistory(val strokeCount: Int, val undo: List<SavedEdit>, val redo: Li
  */
 object HistoryFile {
   private const val MAGIC = 0x47524853 // "GRHS"
-  private const val VERSION = 3 // 2: strokes carry their layer; 3: and their audio mark
+  private const val VERSION = 4 // 2: strokes carry their layer; 3: and their audio mark; 4: and their line group
 
   /** Whether the file being read stores layers (set per read; reads run one at a time). */
   @Volatile private var hasLayer = true
   @Volatile private var hasAudio = true
+  @Volatile private var hasGroup = true
 
   private const val ADD = 1
   private const val REMOVE = 2
@@ -81,6 +82,7 @@ object HistoryFile {
       if (version !in 1..VERSION) throw IOException("history from another version")
       hasLayer = version >= 2
       hasAudio = version >= 3
+      hasGroup = version >= 4
       SavedHistory(data.readInt(), readList(data), readList(data))
     }
 
@@ -104,7 +106,7 @@ object HistoryFile {
   }
 
   private fun readIndexed(data: DataInputStream): List<Pair<Int, SavedStroke>> =
-    List(count(data)) { data.readInt() to PageFile.readStroke(data, hasLayer, hasAudio) }
+    List(count(data)) { data.readInt() to PageFile.readStroke(data, hasLayer, hasAudio, hasGroup) }
 
   private fun count(data: DataInputStream): Int = data.readInt().also { if (it < 0 || it > 10_000_000) throw IOException("bad count") }
 
@@ -172,9 +174,9 @@ object HistoryFile {
 
   private fun readEdit(data: DataInputStream): SavedEdit =
     when (val tag = data.readByte().toInt()) {
-      ADD -> SavedEdit.Add(data.readInt(), PageFile.readStroke(data, hasLayer, hasAudio))
+      ADD -> SavedEdit.Add(data.readInt(), PageFile.readStroke(data, hasLayer, hasAudio, hasGroup))
       REMOVE -> SavedEdit.Remove(List(count(data)) { readIndexed(data) })
-      REPLACE -> SavedEdit.Replace(List(count(data)) { Triple(data.readInt(), PageFile.readStroke(data, hasLayer, hasAudio), PageFile.readStroke(data, hasLayer, hasAudio)) })
+      REPLACE -> SavedEdit.Replace(List(count(data)) { Triple(data.readInt(), PageFile.readStroke(data, hasLayer, hasAudio, hasGroup), PageFile.readStroke(data, hasLayer, hasAudio, hasGroup)) })
       INSERT -> SavedEdit.Insert(readIndexed(data))
       GROUP -> SavedEdit.Group(readList(data))
       ITEMS -> SavedEdit.Items(List(count(data)) { PageFile.readItem(data) }, List(count(data)) { PageFile.readItem(data) })

@@ -42,6 +42,18 @@ class HistoryFileTest {
     assertEquals(listOf(item), (back.redo[0] as SavedEdit.Items).after)
   }
 
+  @Test
+  fun lineGroupsSurviveInUndoSteps() {
+    fun dash(x: Float) = SavedStroke("pen", 1, 2f, 0.1f, false, 2, -1f, FloatArray(10) { x + it }, LongArray(2), group = 99L, lineType = LineType.CENTRE.ordinal)
+    val history = SavedHistory(2, listOf(SavedEdit.Remove(listOf(listOf(0 to dash(1f), 1 to dash(2f)))), SavedEdit.Replace(listOf(Triple(0, dash(3f), dash(4f))))), emptyList())
+    val bytes = ByteArrayOutputStream().also { HistoryFile.write(history, it) }.toByteArray()
+    val back = HistoryFile.read(ByteArrayInputStream(bytes))
+    val removed = (back.undo[0] as SavedEdit.Remove).steps[0]
+    assertEquals(99L, removed[1].second.group)
+    assertEquals(LineType.CENTRE.ordinal, removed[0].second.lineType)
+    assertEquals(99L, (back.undo[1] as SavedEdit.Replace).swaps[0].third.group)
+  }
+
   @Test(expected = IOException::class)
   fun aPageFileIsNotTakenForHistory() {
     val bytes = ByteArrayOutputStream().also { PageFile.write(SavedPage("BLANK", FloatArray(9), emptyList()), it) }.toByteArray()

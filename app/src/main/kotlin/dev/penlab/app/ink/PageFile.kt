@@ -57,6 +57,10 @@ class SavedStroke(
   val layer: Int = 0,
   /** Place in a recording (version 4 and later; see MediaMark), -1 for none. */
   val mediaMark: Long = -1L,
+  /** Patterned-line group id (version 5 and later; 0 = on its own, also for older files). */
+  val group: Long = 0L,
+  /** Which [LineType] the group was cut with, as its position in [LineType.entries] (version 5 and later). */
+  val lineType: Int = 0,
 ) {
   val pointCount: Int
     get() = times.size
@@ -67,7 +71,9 @@ class SavedStroke(
 }
 
 /**
- * The page file format, version 2 (version 1 = the same without the items at the end).
+ * The page file format, version 5 (version 1 = the same without the items at the end; 3 adds each
+ * stroke's layer, 4 its audio mark, 5 its patterned-line group id and line type, all after the
+ * stroke's points). Every older version still reads.
  * Plain bytes since 20 Nov (gzip-compressed before; both read), laid out as:
  *
  * ```
@@ -90,7 +96,7 @@ class SavedStroke(
  */
 object PageFile {
   internal const val MAGIC = 0x47525048 // "GRPH"
-  private const val VERSION = 4 // 4: strokes carry their audio mark
+  private const val VERSION = 5 // 4: strokes carry their audio mark; 5: and their line group + pattern
 
   /** One point on disk: x, y, pressure, tilt, orientation (4 bytes each) and its time (8). */
   private const val POINT_BYTES = SavedStroke.FLOATS_PER_POINT * 4 + 8
@@ -133,9 +139,11 @@ object PageFile {
     out.write(block.array())
     out.writeInt(stroke.layer)
     out.writeLong(stroke.mediaMark)
+    out.writeLong(stroke.group)
+    out.writeInt(stroke.lineType)
   }
 
-  internal fun readStroke(data: DataInputStream, hasLayer: Boolean = true, hasAudio: Boolean = true): SavedStroke {
+  internal fun readStroke(data: DataInputStream, hasLayer: Boolean = true, hasAudio: Boolean = true, hasGroup: Boolean = true): SavedStroke {
     val family = data.readUTF()
     val color = data.readInt()
     val size = data.readFloat()
@@ -157,7 +165,9 @@ object PageFile {
     }
     val layer = if (hasLayer) data.readInt() else 0
     val mediaMark = if (hasAudio) data.readLong() else -1L
-    return SavedStroke(family, color, size, epsilon, highlighter, toolType, unitLength, points, times, layer, mediaMark)
+    val group = if (hasGroup) data.readLong() else 0L
+    val lineType = if (hasGroup) data.readInt() else 0
+    return SavedStroke(family, color, size, epsilon, highlighter, toolType, unitLength, points, times, layer, mediaMark, group, lineType)
   }
 
   internal fun writeItem(out: DataOutputStream, item: SavedItem) {
@@ -212,7 +222,7 @@ object PageFile {
       val view = FloatArray(9) { data.readFloat() }
       val strokeCount = data.readInt()
       if (strokeCount < 0) throw IOException("bad stroke count")
-      val strokes = List(strokeCount) { readStroke(data, hasLayer = version >= 3, hasAudio = version >= 4) }
+      val strokes = List(strokeCount) { readStroke(data, hasLayer = version >= 3, hasAudio = version >= 4, hasGroup = version >= 5) }
       val items =
         if (version < 2) emptyList()
         else List(data.readInt().also { if (it < 0) throw IOException("bad item count") }) { readItem(data) }

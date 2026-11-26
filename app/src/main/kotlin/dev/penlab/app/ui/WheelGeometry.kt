@@ -41,7 +41,7 @@ internal object WheelGeometry {
    * sides of the edge's direction: the visible arc is 270 - 2 * this = 190 degrees, so it is always
    * more than a half circle (a quarter disc would be 90).
    */
-  const val ARC_CUT_DEG = 68f // Akram 26 Nov sketch: hub closer to the corner (same distance from both edges), ~146° of ring visible
+  const val ARC_CUT_DEG = 72f // Akram 26 Nov sketch: hub closer to the corner (same distance from both edges), ~146° of ring visible
 
   /** A colour dot's cell on the small inner arc (smaller than a tool cell so it fits between button and ring). */
   const val COLOR_CELL_DP = 44f

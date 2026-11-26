@@ -627,7 +627,10 @@ private fun Bar(
     val right = constraints.maxWidth - insets.right.roundToPx() - gap
     val bar = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = (right - left).coerceAtLeast(0)))
     layout(constraints.maxWidth, constraints.maxHeight) {
-      val centre = dock.along * constraints.maxWidth
+      // A bar dropped near the middle snaps to it (also for older saved positions), so it sits
+      // on the screen's centre whenever it fits; further out it stays where it was dropped.
+      val along = snappedAlong(dock.along)
+      val centre = along * constraints.maxWidth
       val screenWidthDp = constraints.maxWidth.toDp()
       val topRowY = (insets.top + EdgeGap).roundToPx()
       val row2Y = (insets.top + insets.topButtons).roundToPx()
@@ -642,7 +645,7 @@ private fun Bar(
             val inlineRight = right - insets.topRowRightClearance.roundToPx() - gap
             val fitsInline = screenWidthDp >= INLINE_TOP_ROW_MIN_WIDTH && (inlineRight - inlineLeft) >= bar.width
             if (fitsInline) {
-              val bx = inlineToolbarX(centre, bar.width, inlineLeft, inlineRight, centreInGap = abs(dock.along - 0.5f) < 0.02f)
+              val bx = inlineToolbarX(centre, bar.width, inlineLeft, inlineRight, centreInGap = along == 0.5f)
               bx to topRowY
             } else {
               val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
@@ -661,6 +664,12 @@ private fun Bar(
     }
   }
 }
+
+/** How far from the middle (as a share of the screen width) a dropped bar still snaps to the centre. */
+private const val ALONG_SNAP = 0.15f
+
+/** [along] (0..1 across the screen), pulled to exactly 0.5 when it is within [ALONG_SNAP] of it. */
+internal fun snappedAlong(along: Float): Float = if (abs(along - 0.5f) <= ALONG_SNAP) 0.5f else along
 
 /**
  * Left edge of the toolbar island in the top row, between the side pills. [gapLeft] and [gapRight]

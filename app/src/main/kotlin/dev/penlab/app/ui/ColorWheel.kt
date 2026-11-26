@@ -226,13 +226,16 @@ fun ColorWheel(
           )
         }
 
-        if (recent.isNotEmpty()) {
-          Box(Modifier.size(width = 1.dp, height = 24.dp).background(scheme.outlineVariant))
+        // The recent-colours area always has room for all slots, so adding a colour never moves
+        // the eyedropper and Done buttons beside it.
+        Box(Modifier.size(width = 1.dp, height = 24.dp).background(scheme.outlineVariant))
+        run {
           Row(
+            modifier = Modifier.width(PenLabSpacing.touchTarget * RECENT_SLOTS + PenLabSpacing.xs * (RECENT_SLOTS - 1)),
             horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            for (c in recent.take(8)) {
+            for (c in recent.take(RECENT_SLOTS)) {
               val recentScreen = toScreen(c)
               val isCurrent = recentScreen == color
               Box(
@@ -531,3 +534,6 @@ internal fun toHsl(argb: Int): FloatArray {
 
 private val MaxWheelDiameter = 440.dp
 private val TopChromeClearance = 80.dp
+
+/** How many recent colours the picker's bottom bar holds (and reserves room for). */
+private const val RECENT_SLOTS = 8

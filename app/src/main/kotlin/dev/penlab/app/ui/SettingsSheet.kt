@@ -367,21 +367,13 @@ fun SettingsSheet(
             modifier = Modifier.fillMaxWidth().padding(vertical = PenLabSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            Box(
-              modifier =
-                Modifier
-                  .size(44.dp)
-                  .clip(PenLabShapes.small)
-                  .background(scheme.surfaceContainerHighest),
-              contentAlignment = Alignment.Center,
-            ) {
-              Icon(
-                imageVector = PenLabIcons.Folder,
-                contentDescription = null,
-                tint = if (storageShared) scheme.primary else scheme.onSurfaceVariant,
-                modifier = Modifier.size(PenLabLayout.iconDefault),
-              )
-            }
+            // Same icon size and gap as the menu rows above, so the text lines up with theirs.
+            Icon(
+              imageVector = PenLabIcons.Folder,
+              contentDescription = null,
+              tint = if (storageShared) scheme.primary else scheme.onSurfaceVariant,
+              modifier = Modifier.size(PenLabLayout.iconMedium),
+            )
             Spacer(Modifier.width(PenLabSpacing.md))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
               Text(

@@ -43,8 +43,8 @@ internal object WheelGeometry {
    */
   const val ARC_CUT_DEG = 68f // Akram 26 Nov sketch: hub closer to the corner (same distance from both edges), ~146° of ring visible
 
-  /** Clear space between the inner ring's cells and the outer ring's cells. */
-  const val OUTER_RING_GAP_DP = 12f
+  /** A colour dot's cell on the small inner arc (smaller than a tool cell so it fits between button and ring). */
+  const val COLOR_CELL_DP = 38f
 
   /** The round button, at the centre of the disc. */
   const val HUB_DP = 72f
@@ -155,26 +155,29 @@ internal object WheelGeometry {
   }
 
   /**
-   * The outer ring, one cell (plus [ringGap]) further out round the same hub. Its cells must be
-   * fully on screen too, and the same distance [inner] keeps from the edge strips now takes a
-   * larger radius, so its arc is narrower in degrees: from -a to 90 + a, where sin(a) is that
-   * distance over the radius. Cells are spaced along it like the inner ring's. [Ring.disc] covers
-   * both rings, so it is the wheel's disc.
+   * The colour arc: a small ring of [colorCell]-sized cells inside the [tool] ring, round the same
+   * hub, at the radius halfway between the button's edge (plus [hubClearance]) and the tool
+   * ring's inner edge, so it touches neither. Its cells must be fully on screen too: a cell
+   * centre may go as far past the hub towards a screen edge as the tool ring's own cells do, less
+   * the difference in half-cell size, so the arc runs from -a to 90 + a with sin(a) = that depth
+   * over the radius. [Ring.disc] is the tool ring's: the disc does not grow.
    */
-  fun outerRing(inner: Ring, cell: Float, discMargin: Float, cellGap: Float, ringGap: Float): Ring {
-    val radius = inner.radius + cell + ringGap
-    val cut = (inner.radius * Math.sin(Math.toRadians((-inner.startDeg).toDouble()))).toFloat().coerceAtLeast(0f)
-    val a = Math.toDegrees(Math.asin((cut / radius).toDouble().coerceIn(0.0, 1.0))).toFloat()
+  fun colorRing(tool: Ring, toolCell: Float, colorCell: Float, hubHalf: Float, hubClearance: Float, cellGap: Float): Ring {
+    val innerEdge = hubHalf + hubClearance
+    val radius = maxOf((innerEdge + tool.radius - toolCell / 2f) / 2f, innerEdge + colorCell / 2f)
+    val toolCut = (tool.radius * Math.sin(Math.toRadians((-tool.startDeg).toDouble()))).toFloat().coerceAtLeast(0f)
+    val depth = (toolCell / 2f + toolCut - colorCell / 2f).coerceAtLeast(0f)
+    val a = Math.toDegrees(Math.asin((depth / radius).toDouble().coerceIn(0.0, 1.0))).toFloat()
     val start = -a
     val end = 90f + a
     val span = end - start
-    val minStep = Math.toDegrees(2.0 * Math.asin(((cell + cellGap) / (2f * radius)).toDouble().coerceAtMost(1.0))).toFloat()
+    val minStep = Math.toDegrees(2.0 * Math.asin(((colorCell + cellGap) / (2f * radius)).toDouble().coerceAtMost(1.0))).toFloat()
     val count = (Math.floor((span / minStep + 1e-4f).toDouble()).toInt() + 1).coerceAtLeast(2)
-    return Ring(radius, start, end, span / (count - 1), radius + cell / 2f + discMargin, count, inner.hubU, inner.hubV)
+    return Ring(radius, start, end, span / (count - 1), tool.disc, count, tool.hubU, tool.hubV)
   }
 
-  /** A press nearer the hub than this is on the inner ring, farther on the outer one. */
-  fun ringSplitRadius(inner: Ring, outer: Ring): Float = (inner.radius + outer.radius) / 2f
+  /** A press nearer the hub than this is on the colour arc, farther on the tool ring. */
+  fun ringSplitRadius(colors: Ring, tools: Ring): Float = (colors.radius + tools.radius) / 2f
 
   /** How far (degrees) a ring holding [n] cells can be scrolled: until the last cell reaches the arc's end. */
   fun scrollSpan(n: Int, ring: Ring): Float = ((n - 1) * ring.stepDeg - (ring.endDeg - ring.startDeg)).coerceAtLeast(0f)

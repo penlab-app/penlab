@@ -308,24 +308,24 @@ class WheelGeometryTest {
     assertEquals(100f, s.y, 0.001f)
   }
 
-  // ---- Two rings: colours inside, tools and actions outside ----
+  // ---- Two rows inside one disc: colours near the button, tools and actions on the ring ----
 
-  private fun outerOf(ring: WheelGeometry.Ring) = WheelGeometry.outerRing(
-    inner = ring,
-    cell = WheelGeometry.CELL_DP * density,
-    discMargin = WheelGeometry.DISC_MARGIN_DP * density,
+  private fun colorsOf(tool: WheelGeometry.Ring) = WheelGeometry.colorRing(
+    tool = tool,
+    toolCell = WheelGeometry.CELL_DP * density,
+    colorCell = WheelGeometry.COLOR_CELL_DP * density,
+    hubHalf = hubHalfPx,
+    hubClearance = WheelGeometry.HUB_CLEARANCE_DP * density,
     cellGap = WheelGeometry.CELL_GAP_DP * density,
-    ringGap = WheelGeometry.OUTER_RING_GAP_DP * density,
   )
 
   @Test
-  fun everyOuterCellIsFullyOnScreenAndClearOfTheGestureStrips() {
-    val half = WheelGeometry.CELL_DP * density / 2f
+  fun everyColourCellIsFullyOnScreenAndClearOfTheGestureStrips() {
+    val half = WheelGeometry.COLOR_CELL_DP * density / 2f
     for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
-      val (c, inner) = ringFor(onLeft, onTop, side, bottom, top)
-      val outer = outerOf(inner)
-      assertEquals(inner.hubU, outer.hubU, 0f) // same hub, same ARC_CUT: only the outer arc narrows
-      for (p in cells(c, outer, onLeft, onTop)) {
+      val (c, tool) = ringFor(onLeft, onTop, side, bottom, top)
+      val colors = colorsOf(tool)
+      for (p in cells(c, colors, onLeft, onTop)) {
         val msg = "corner left=$onLeft top=$onTop insets=$side/$bottom/$top cell=$p"
         assertTrue(msg, p.x - half >= -0.01f && p.x + half <= w + 0.01f && p.y - half >= -0.01f && p.y + half <= h + 0.01f)
         val fromSide = if (onLeft) p.x - half else w - p.x - half
@@ -337,30 +337,32 @@ class WheelGeometryTest {
   }
 
   @Test
-  fun outerCellsAreEvenlySpacedAndClearOfEachOtherAndTheInnerRing() {
+  fun theDiscKeepsItsOriginalSizeAndColourDotsFitBetweenTheButtonAndTheToolRing() {
     val cell = WheelGeometry.CELL_DP * density
+    val dot = WheelGeometry.COLOR_CELL_DP * density
     for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
-      val (c, inner) = ringFor(onLeft, onTop, side, bottom, top)
-      val outer = outerOf(inner)
-      assertTrue(outer.radius >= inner.radius + cell) // a whole cell further out
-      assertTrue("outer holds ${outer.count}", outer.count >= 4)
-      assertEquals(outer.spanDeg, (outer.count - 1) * outer.stepDeg, 0.01f)
-      val pts = cells(c, outer, onLeft, onTop)
-      for (g in pts.zipWithNext { a, b -> (b - a).getDistance() }) assertTrue("outer cells overlap: $g", g >= cell)
-      val innerPts = cells(c, inner, onLeft, onTop)
-      for (p in pts) for (q in innerPts) assertTrue("rings touch", (p - q).getDistance() >= cell)
-      // The disc (the wheel) covers the outer ring and reaches past it.
-      assertEquals(outer.radius + cell / 2f + WheelGeometry.DISC_MARGIN_DP * density, outer.disc, 0.001f)
-      assertTrue(outer.disc > inner.disc)
+      val (c, tool) = ringFor(onLeft, onTop, side, bottom, top)
+      val colors = colorsOf(tool)
+      assertEquals(tool.disc, colors.disc, 0f) // no growth: the colours live inside the tool ring's disc
+      assertTrue(tool.radius >= WheelGeometry.RING_RADIUS_DP * density)
+      assertEquals(tool.hubU, colors.hubU, 0f)
+      assertTrue("colour ring is inside the tool ring", colors.radius + dot / 2f < tool.radius - cell / 2f)
+      assertTrue("colour ring clears the button", colors.radius - dot / 2f >= hubHalfPx + WheelGeometry.HUB_CLEARANCE_DP * density - 0.01f)
+      assertTrue("colours hold ${colors.count}", colors.count >= 4)
+      assertEquals(colors.spanDeg, (colors.count - 1) * colors.stepDeg, 0.01f)
+      val pts = cells(c, colors, onLeft, onTop)
+      for (g in pts.zipWithNext { a, b -> (b - a).getDistance() }) assertTrue("dots overlap: $g", g >= dot)
+      val hub = Offset(c.hubX, c.hubY)
+      for (p in pts) assertTrue("dot reaches the tool ring", (p - hub).getDistance() + dot / 2f < tool.radius - cell / 2f)
     }
   }
 
   @Test
-  fun aPressIsOnTheInnerRingNearTheHubAndTheOuterRingBeyondTheGap() {
-    val (_, inner) = ringFor(true, false)
-    val outer = outerOf(inner)
-    val split = WheelGeometry.ringSplitRadius(inner, outer)
-    assertTrue(inner.radius < split && split < outer.radius)
+  fun aPressIsOnTheColourArcNearTheHubAndOnTheToolRingBeyondTheGap() {
+    val (_, tool) = ringFor(true, false)
+    val colors = colorsOf(tool)
+    val split = WheelGeometry.ringSplitRadius(colors, tool)
+    assertTrue(colors.radius < split && split < tool.radius)
   }
 
   @Test
@@ -382,7 +384,7 @@ class WheelGeometryTest {
   )
 
   @Test
-  fun penToolsGoOnTheInnerRingAndEveryOtherToolAndActionOnTheOuterOne() {
+  fun penToolsGoOnTheColourArcAndEveryOtherToolAndActionOnTheToolRing() {
     val items = listOf(
       DockItem.Tool(0), DockItem.Tool(1), DockItem.Tool(2), DockItem.Tool(3), DockItem.Tool(4), DockItem.Tool(5), DockItem.Tool(6),
       DockItem.Instruments, DockItem.Paper, DockItem.Layers, DockItem.Clear, DockItem.More, DockItem.Undo, DockItem.Redo,

@@ -1043,7 +1043,7 @@ class MainActivity : ComponentActivity() {
           val staged = PluginItemMaterialiser.stage(outcome.items, pictures)
           main.post {
             exportMessage = null // takes "Running…" down
-            if (open === notebook) notebook.canvas.placePluginItems(staged, selectionWasEmpty)
+            if (open === notebook) notebook.canvas.placePluginItems(staged, outcome.strokes, selectionWasEmpty)
           }
         }
       }

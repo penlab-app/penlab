@@ -9,6 +9,7 @@ import dev.penlab.plugin.PageAction
 import dev.penlab.plugin.PageRef
 import dev.penlab.plugin.Plugin
 import dev.penlab.plugin.PluginItem
+import dev.penlab.plugin.PluginStroke
 import dev.penlab.plugin.Selection
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -45,8 +46,8 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
 
   /** What running a [PageAction] came to. */
   sealed interface ActionOutcome {
-    /** Items to place on the page. */
-    class Place(val items: List<PluginItem>) : ActionOutcome
+    /** Items and strokes (real ink, in millimetres) to place on the page. */
+    class Place(val items: List<PluginItem>, val strokes: List<PluginStroke> = emptyList()) : ActionOutcome
 
     class ShowText(val text: String) : ActionOutcome
 
@@ -226,7 +227,7 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
         is Call.Failed -> ActionOutcome.Failed(call.pluginDisabled)
         is Call.Ok ->
           when (val result = call.value) {
-            is PluginResult.Items -> if (result.items.isEmpty()) ActionOutcome.Nothing else ActionOutcome.Place(result.items)
+            is PluginResult.Items -> if (result.items.isEmpty() && result.strokes.isEmpty()) ActionOutcome.Nothing else ActionOutcome.Place(result.items, result.strokes)
             is PluginResult.Text -> ActionOutcome.ShowText(result.text)
             is PluginResult.Message -> ActionOutcome.ShowMessage(result.message)
             PluginResult.None -> ActionOutcome.Nothing

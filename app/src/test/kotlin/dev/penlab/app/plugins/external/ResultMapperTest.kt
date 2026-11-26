@@ -5,6 +5,9 @@ import dev.penlab.sdk.NotebookResult
 import dev.penlab.sdk.PenLabBridge
 import dev.penlab.sdk.PluginResult as Wire
 import dev.penlab.sdk.ResultItem
+import dev.penlab.sdk.SdkStroke
+import dev.penlab.sdk.StrokeFamily
+import dev.penlab.sdk.StrokesBinary
 import dev.penlab.sdk.WireFormatException
 import java.io.File
 import java.io.IOException
@@ -136,6 +139,70 @@ class ResultMapperTest {
       } catch (e: WireFormatException) {
         // expected
       }
+    }
+  }
+
+  private fun ink(family: StrokeFamily, layer: Int = -1) =
+    SdkStroke(floatArrayOf(1f, 2f), floatArrayOf(3f, 4f), floatArrayOf(0.5f, 0.6f), longArrayOf(0, 8), if (family == StrokeFamily.HIGHLIGHTER) "HIGHLIGHTER" else "PEN", 0xFF102030.toInt(), 0.4f, family, layer)
+
+  @Test
+  fun anItemsResultCarriesItsStrokes() {
+    val file = StrokesBinary.encode(listOf(ink(StrokeFamily.FOUNTAIN, 1), ink(StrokeFamily.HIGHLIGHTER)))
+    val result = ResultMapper.toResult(Wire.Items(emptyList(), strokesName = "strokes.bin"), Files(mapOf("strokes.bin" to file)), "P") as V1.Items
+    assertEquals(listOf("fountain", "highlighter"), result.strokes.map { it.family })
+    assertEquals(listOf(dev.penlab.plugin.Tool.PEN, dev.penlab.plugin.Tool.HIGHLIGHTER), result.strokes.map { it.tool })
+    assertEquals(listOf(1, -1), result.strokes.map { it.layer })
+    assertEquals(0xFF102030.toInt(), result.strokes[0].argb)
+    assertEquals(0.4f, result.strokes[0].widthMm, 0f)
+  }
+
+  @Test
+  fun notebookStrokesLandOnTheirPages() {
+    val file = StrokesBinary.encodeSections(listOf(listOf(ink(StrokeFamily.PRESSURE)), emptyList(), listOf(ink(StrokeFamily.BALLPOINT), ink(StrokeFamily.BALLPOINT))))
+    val wire = Wire.Notebook(NotebookResult("n", 210f, 297f, listOf(NotebookPage(), NotebookPage(), NotebookPage()), strokesName = "strokes.bin"))
+    val nb = ResultMapper.toNotebook(wire, Files(mapOf("strokes.bin" to file)), tmp.newFolder())!!
+    assertEquals(listOf(1, 0, 2), nb.pages.map { it.strokes.size })
+    assertEquals("ballpoint", nb.pages[2].strokes[0].family)
+  }
+
+  @Test
+  fun fewerStrokeSectionsThanPagesIsFine() {
+    val file = StrokesBinary.encodeSections(listOf(listOf(ink(StrokeFamily.PRESSURE))))
+    val nb = ResultMapper.toNotebook(Wire.Notebook(NotebookResult("n", 1f, 1f, listOf(NotebookPage(), NotebookPage()), strokesName = "s")), Files(mapOf("s" to file)), tmp.newFolder())!!
+    assertEquals(listOf(1, 0), nb.pages.map { it.strokes.size })
+  }
+
+  @Test
+  fun missingMalformedOrTooManyStrokeSectionsAreWireErrors() {
+    val twoSections = StrokesBinary.encodeSections(listOf(emptyList(), emptyList()))
+    val cases =
+      listOf<() -> Any?>(
+        { ResultMapper.toResult(Wire.Items(emptyList(), strokesName = "s"), Files(), "P") }, // named, not sent
+        { ResultMapper.toResult(Wire.Items(emptyList(), strokesName = "s"), Files(mapOf("s" to byteArrayOf(1, 2, 3))), "P") }, // not a strokes file
+        { ResultMapper.toNotebook(Wire.Notebook(NotebookResult("n", 1f, 1f, listOf(NotebookPage()), strokesName = "s")), Files(mapOf("s" to twoSections)), tmp.newFolder()) }, // 2 pages of ink for 1 page
+      )
+    for (case in cases) {
+      try {
+        case()
+        fail()
+      } catch (e: WireFormatException) {
+        // expected
+      }
+    }
+  }
+
+  @Test
+  fun anOversizedStrokesFileIsAWireError() {
+    val big = object : ResultFiles {
+      override fun readBytes(name: String, maxBytes: Long): ByteArray? = throw IOException("too big")
+      override fun copyTo(name: String, target: File) = false
+      override fun close() {}
+    }
+    try {
+      ResultMapper.toResult(Wire.Items(emptyList(), strokesName = "s"), big, "P")
+      fail()
+    } catch (e: WireFormatException) {
+      // expected
     }
   }
 }

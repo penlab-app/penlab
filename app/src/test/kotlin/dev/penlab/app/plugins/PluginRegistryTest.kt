@@ -135,6 +135,10 @@ class PluginRegistryTest {
     assertEquals("done", (outcome(PluginResult.Message("done")) as PluginRegistry.ActionOutcome.ShowMessage).message)
     assertEquals(PluginRegistry.ActionOutcome.Nothing, outcome(PluginResult.None))
     assertEquals(PluginRegistry.ActionOutcome.Nothing, outcome(PluginResult.Items(emptyList()))) // nothing to place
+    // ink alone is something to place
+    val ink = dev.penlab.plugin.PluginStroke(floatArrayOf(0f), floatArrayOf(0f), floatArrayOf(0.5f), longArrayOf(0), dev.penlab.plugin.Tool.PEN, 0, 0.4f)
+    val place = outcome(PluginResult.Items(emptyList(), listOf(ink))) as PluginRegistry.ActionOutcome.Place
+    assertEquals(1, place.strokes.size)
   }
 
   @Test fun theActionReceivesTheSelectionAndPageItWasGiven() = runTest {

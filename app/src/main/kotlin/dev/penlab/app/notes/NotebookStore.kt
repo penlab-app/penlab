@@ -247,12 +247,14 @@ class NotebookStore(private val location: LibraryLocation) {
     val pageCount = imported.pages.size
     val now = System.currentTimeMillis()
     val pdfPages = if (pdf != null) imported.pages.map { it.backgroundPdfPage } else emptyList()
+    // Imported strokes may name layers beyond the first; the notebook gets one layer for each (capped).
+    val layerCount = (imported.pages.maxOf { page -> page.strokes.maxOfOrNull { it.layer } ?: 0 } + 1).coerceIn(1, MAX_IMPORT_LAYERS)
     val info = NotebookInfo(
       id, imported.title.ifBlank { "Imported PDF" }, cleanFolder(folder), NotebookKind.A4, PageStyle.BLANK, pageCount, emptyList(), now, now,
-      imported.pageWidthMm, imported.pageHeightMm, pdfPages,
+      imported.pageWidthMm, imported.pageHeightMm, pdfPages, layerNames = List(layerCount) { "Layer ${it + 1}" },
     )
     write(info)
-    if (imported.pages.any { it.items.isNotEmpty() }) {
+    if (imported.pages.any { it.items.isNotEmpty() || it.strokes.isNotEmpty() }) {
       val layout = dev.penlab.app.ink.PageLayout.paged(info.pageWidthMm, info.pageHeightMm, pageCount, emptyList(), emptyList())
       // Pictures are saved into the notebook's images/ and text becomes real text boxes (not grey plugin boxes).
       val images = imagesDir(info)
@@ -261,8 +263,14 @@ class NotebookStore(private val location: LibraryLocation) {
           dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, dev.penlab.app.ink.PageLayout.UNITS_PER_MM, 0f, layout.top(index))
         }
       }
+      // Strokes become ordinary ink (same objects as pen strokes), page by page, in the saved draw order; this all runs on the importer's worker thread.
+      val strokes = dev.penlab.app.plugins.PluginStrokes.inDrawOrder(
+        imported.pages.flatMapIndexed { index, page ->
+          page.strokes.mapNotNull { dev.penlab.app.plugins.PluginStrokes.toInk(it, dev.penlab.app.ink.PageLayout.UNITS_PER_MM, 0f, layout.top(index), 0, layerCount) }
+        }
+      )
       val identity = FloatArray(9).also { android.graphics.Matrix().getValues(it) }
-      pageStore(info).saveNow(dev.penlab.app.ink.PageSnapshot(emptyList(), PageStyle.BLANK, identity, items))
+      pageStore(info).saveNow(dev.penlab.app.ink.PageSnapshot(strokes, PageStyle.BLANK, identity, items))
     }
     return info
   }
@@ -313,6 +321,9 @@ class NotebookStore(private val location: LibraryLocation) {
     const val META = "notebook.properties"
     const val STROKES = "notebook.graphite"
     const val PDF = "document.pdf"
+
+    /** Most layers an import creates (a plugin cannot make an unusable layer list). */
+    const val MAX_IMPORT_LAYERS = 16
   }
 }
 

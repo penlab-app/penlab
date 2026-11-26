@@ -39,10 +39,16 @@ class PluginRequest(
   val page: PageInfo? = null,
   val selection: SelectionInfo? = null,
   val source: SourceInfo? = null,
+  /**
+   * The newest [StrokesBinary] format the host reads (0 = it cannot read a strokes file: an older PenLab,
+   * which would ignore `strokesFile` and place no ink). A plugin that returns strokes checks this first.
+   */
+  val strokesFormat: Int = 0,
 ) {
   fun toJson(): String =
     JSONObject().apply {
       put("apiVersion", PenLabBridge.API_VERSION)
+      put("strokesFormat", strokesFormat)
       put("capabilityId", capabilityId)
       page?.let {
         put("page", JSONObject().put("notebookId", it.notebookId).put("pageIndex", it.pageIndex).put("widthMm", it.widthMm.toDouble()).put("heightMm", it.heightMm.toDouble()).put("darkPage", it.darkPage))
@@ -67,15 +73,21 @@ class PluginRequest(
             SelectionInfo(readFloats(it.getJSONArray("boundsMm"), 4), it.getInt("strokeCount"), it.getInt("itemCount"), it.optString("imageFile").ifEmpty { null }, it.optString("strokesFile").ifEmpty { null })
           },
           o.optJSONObject("source")?.let { SourceInfo(it.getString("displayName"), it.getString("mimeType"), it.getString("suggestedTitle"), it.getString("file")) },
+          o.optInt("strokesFormat", 0),
         )
       }
   }
 }
 
 /**
- * One finished stroke, as a plugin sees it. [xs], [ys], [pressures] have one entry per point
- * (pressure 0..1, or -1 when the pen gave none); [times] is milliseconds since the stroke began.
- * [tool] is `PEN` or `HIGHLIGHTER`; [argb] the colour as stored (paper colours: dark ink for a white page).
+ * One finished stroke. [xs], [ys], [pressures] have one entry per point (pressure 0..1, or -1 when the
+ * pen gave none); [times] is milliseconds since the stroke began (empty when unknown: PenLab then
+ * invents an even pace). [tool] is `PEN` or `HIGHLIGHTER`; [argb] the colour as stored (paper colours:
+ * dark ink for a white page). [family] says which pen (see [StrokeFamily]; it defaults from [tool]) and
+ * [layer] the 0-based layer, or -1 for the notebook's current layer.
+ *
+ * A plugin returns these in [PluginResult.Items.strokes] / [NotebookPage.strokes] (sent as the strokes
+ * file, see [StrokesBinary]); PenLab also sends the selection's strokes this way in `strokes.json`.
  */
 class SdkStroke(
   val xs: FloatArray,
@@ -85,17 +97,19 @@ class SdkStroke(
   val tool: String,
   val argb: Int,
   val widthMm: Float,
+  val family: StrokeFamily = if (tool == "HIGHLIGHTER") StrokeFamily.HIGHLIGHTER else StrokeFamily.PRESSURE,
+  val layer: Int = -1,
 ) {
   val pointCount: Int get() = xs.size
 }
 
-/** The strokes request file: `{"strokes":[{"tool","argb","widthMm","xs","ys","pressures","times"}, ...]}`. */
+/** The strokes request file: `{"strokes":[{"tool","family","layer","argb","widthMm","xs","ys","pressures","times"}, ...]}` (`family` and `layer` are optional when reading). */
 object StrokesJson {
   fun encode(strokes: List<SdkStroke>): String {
     val sb = StringBuilder("{\"strokes\":[")
     strokes.forEachIndexed { i, s ->
       if (i > 0) sb.append(',')
-      sb.append("{\"tool\":").append(JSONObject.quote(s.tool)).append(",\"argb\":").append(s.argb).append(",\"widthMm\":").append(num(s.widthMm))
+      sb.append("{\"tool\":").append(JSONObject.quote(s.tool)).append(",\"family\":").append(JSONObject.quote(s.family.id)).append(",\"layer\":").append(s.layer).append(",\"argb\":").append(s.argb).append(",\"widthMm\":").append(num(s.widthMm))
       sb.append(",\"xs\":"); floatsInto(sb, s.xs)
       sb.append(",\"ys\":"); floatsInto(sb, s.ys)
       sb.append(",\"pressures\":"); floatsInto(sb, s.pressures)
@@ -112,7 +126,7 @@ object StrokesJson {
       List(array.length()) { i ->
         val o = array.getJSONObject(i)
         val times = o.getJSONArray("times")
-        SdkStroke(readFloats(o.getJSONArray("xs")), readFloats(o.getJSONArray("ys")), readFloats(o.getJSONArray("pressures")), LongArray(times.length()) { times.getLong(it) }, o.getString("tool"), o.getInt("argb"), o.getDouble("widthMm").toFloat())
+        SdkStroke(readFloats(o.getJSONArray("xs")), readFloats(o.getJSONArray("ys")), readFloats(o.getJSONArray("pressures")), LongArray(times.length()) { times.getLong(it) }, o.getString("tool"), o.getInt("argb"), o.getDouble("widthMm").toFloat(), if (o.has("family")) StrokeFamily.fromId(o.getString("family")) else if (o.getString("tool") == "HIGHLIGHTER") StrokeFamily.HIGHLIGHTER else StrokeFamily.PRESSURE, o.optInt("layer", -1))
       }
     }
 
@@ -153,8 +167,11 @@ class ResultItem(
   }
 }
 
-/** One page of an imported notebook: the PDF page shown under it (-1 for plain paper) and its items (millimetres from this page's top-left). */
-class NotebookPage(val backgroundPdfPage: Int = -1, val items: List<ResultItem> = emptyList())
+/**
+ * One page of an imported notebook: the PDF page shown under it (-1 for plain paper), its items and its
+ * [strokes] (real ink), all in millimetres from this page's top-left.
+ */
+class NotebookPage(val backgroundPdfPage: Int = -1, val items: List<ResultItem> = emptyList(), val strokes: List<SdkStroke> = emptyList())
 
 /**
  * An importer's notebook. [backgroundPdf] (a file of the plugin's) is sent to PenLab, which moves
@@ -167,12 +184,18 @@ class NotebookResult(
   val pages: List<NotebookPage>,
   val backgroundPdf: File? = null,
   val backgroundPdfName: String? = null,
+  /** When PenLab reads a result: the result file holding the pages' strokes (section i = page i, see [StrokesBinary]); the pages' [NotebookPage.strokes] are then empty until it is read. */
+  val strokesName: String? = null,
 )
 
 /** What a capability hands back. */
 sealed interface PluginResult {
-  /** Things to place on the page (one undo step). */
-  class Items(val items: List<ResultItem>) : PluginResult
+  /**
+   * Things to place on the page (one undo step): [items] (text, pictures) and [strokes] (real ink, in
+   * notebook millimetres like the items). When PenLab reads a result, [strokesName] names the result
+   * file that holds the strokes and [strokes] is empty.
+   */
+  class Items(val items: List<ResultItem>, val strokes: List<SdkStroke> = emptyList(), val strokesName: String? = null) : PluginResult
 
   /** Text to show the user. */
   class Text(val text: String) : PluginResult
@@ -206,7 +229,13 @@ object ResultCodec {
     val files = LinkedHashMap<String, ResultFile>()
     val o = JSONObject()
     when (result) {
-      is PluginResult.Items -> o.put("type", "items").put("items", itemsJson(result.items, "item-", files))
+      is PluginResult.Items -> {
+        o.put("type", "items").put("items", itemsJson(result.items, "item-", files))
+        if (result.strokes.isNotEmpty()) {
+          files[PenLabBridge.FILE_RESULT_STROKES] = ResultFile.Bytes(StrokesBinary.encode(result.strokes))
+          o.put("strokesFile", PenLabBridge.FILE_RESULT_STROKES)
+        }
+      }
       is PluginResult.Text -> o.put("type", "text").put("text", result.text)
       is PluginResult.Message -> o.put("type", "message").put("message", result.message)
       PluginResult.None -> o.put("type", "none")
@@ -217,6 +246,10 @@ object ResultCodec {
         n.backgroundPdf?.let {
           files[PenLabBridge.FILE_PDF] = ResultFile.OnDisk(it)
           o.put("pdfFile", PenLabBridge.FILE_PDF)
+        }
+        if (n.pages.any { it.strokes.isNotEmpty() }) {
+          files[PenLabBridge.FILE_RESULT_STROKES] = ResultFile.Bytes(StrokesBinary.encodeSections(n.pages.map { it.strokes }))
+          o.put("strokesFile", PenLabBridge.FILE_RESULT_STROKES)
         }
         val pages = JSONArray()
         n.pages.forEachIndexed { i, page ->
@@ -233,7 +266,7 @@ object ResultCodec {
     wire {
       val o = JSONObject(json)
       when (val type = o.getString("type")) {
-        "items" -> PluginResult.Items(readItems(o.getJSONArray("items")))
+        "items" -> PluginResult.Items(readItems(o.getJSONArray("items")), strokesName = o.optString("strokesFile").ifEmpty { null })
         "text" -> PluginResult.Text(o.getString("text"))
         "message" -> PluginResult.Message(o.getString("message"))
         "none" -> PluginResult.None
@@ -250,6 +283,7 @@ object ResultCodec {
                 NotebookPage(p.optInt("backgroundPdfPage", -1), readItems(p.optJSONArray("items") ?: JSONArray()))
               },
               backgroundPdfName = o.optString("pdfFile").ifEmpty { null },
+              strokesName = o.optString("strokesFile").ifEmpty { null },
             )
           )
         }

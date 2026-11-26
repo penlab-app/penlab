@@ -32,6 +32,9 @@ object PenLabBridge {
   /** Request file: the selected strokes as [StrokesJson]. */
   const val FILE_STROKES = "strokes.json"
 
+  /** Result file holding real strokes ([StrokesBinary]); the result JSON names it in `strokesFile`. */
+  const val FILE_RESULT_STROKES = "strokes.bin"
+
   /** Request file of an importer: the file the user picked. */
   const val FILE_SOURCE = "source"
 

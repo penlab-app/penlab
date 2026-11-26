@@ -23,6 +23,8 @@ import dev.penlab.sdk.PluginRequest
 import dev.penlab.sdk.ResultCodec
 import dev.penlab.sdk.SdkStroke
 import dev.penlab.sdk.SelectionInfo
+import dev.penlab.sdk.StrokeFamily
+import dev.penlab.sdk.StrokesBinary
 import dev.penlab.sdk.SourceInfo
 import dev.penlab.sdk.StrokesJson
 import java.io.File
@@ -51,7 +53,7 @@ class IoSession private constructor(val dir: File) {
 
 /** Writing a selection as request files, and opening files for the transport. */
 object RequestFiles {
-  fun sdkStroke(s: PluginStroke) = SdkStroke(s.xs, s.ys, s.pressures, s.times, s.tool.name, s.argb, s.widthMm)
+  fun sdkStroke(s: PluginStroke) = SdkStroke(s.xs, s.ys, s.pressures, s.times, s.tool.name, s.argb, s.widthMm, StrokeFamily.fromId(s.family), s.layer)
 
   /** Writes `selection.png` and `strokes.json` for [selection] into [dir]; null for an empty selection. */
   fun writeSelection(dir: File, selection: Selection): SelectionInfo? {
@@ -151,7 +153,7 @@ class ExternalPageAction(
         val info = RequestFiles.writeSelection(session.dir, selection)
         files = RequestFiles.open(session.dir, listOfNotNull(info?.imageFile, info?.strokesFile))
         // darkPage is only known to screens (the v1 PageRef does not carry it).
-        val request = PluginRequest(decl.id, PageInfo(page.notebookId, page.pageIndex, page.widthMm, page.heightMm, darkPage = false), info)
+        val request = PluginRequest(decl.id, PageInfo(page.notebookId, page.pageIndex, page.widthMm, page.heightMm, darkPage = false), info, strokesFormat = StrokesBinary.VERSION)
         transport.call(decl.id, request.toJson(), files.bundle, PluginTimeouts.ACTION_MS).orThrow(pluginName).use {
           ResultMapper.toResult(ResultCodec.decode(it.resultJson), it.files, pluginName)
         }
@@ -186,7 +188,7 @@ class ExternalImporter(
           return@withContext null
         }
         files = RequestFiles.open(session.dir, listOf(PenLabBridge.FILE_SOURCE))
-        val request = PluginRequest(decl.id, source = SourceInfo(source.displayName, source.mimeType, source.suggestedTitle, PenLabBridge.FILE_SOURCE))
+        val request = PluginRequest(decl.id, source = SourceInfo(source.displayName, source.mimeType, source.suggestedTitle, PenLabBridge.FILE_SOURCE), strokesFormat = StrokesBinary.VERSION)
         transport.call(decl.id, request.toJson(), files.bundle, PluginTimeouts.IMPORT_MS).orThrow(pluginName).use {
           ResultMapper.toNotebook(ResultCodec.decode(it.resultJson), it.files, source.workDir)
         }

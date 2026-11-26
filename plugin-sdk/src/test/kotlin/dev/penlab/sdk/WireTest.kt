@@ -96,6 +96,55 @@ class WireTest {
     assertEquals("x", back.pages[1].items.single().text)
   }
 
+  private fun ink(layer: Int = -1) = SdkStroke(floatArrayOf(1f, 2f), floatArrayOf(3f, 4f), floatArrayOf(0.5f, 0.6f), longArrayOf(0, 8), "PEN", 0xFF000000.toInt(), 0.4f, StrokeFamily.BALLPOINT, layer)
+
+  @Test
+  fun itemsResultCarriesStrokesAsOneFile() {
+    val encoded = ResultCodec.encode(PluginResult.Items(listOf(ResultItem.text("t", 0f, 0f, 1f, 1f)), listOf(ink(), ink(1))))
+    assertTrue(PenLabBridge.FILE_RESULT_STROKES in encoded.files)
+    val decoded = ResultCodec.decode(encoded.json) as PluginResult.Items
+    assertEquals(PenLabBridge.FILE_RESULT_STROKES, decoded.strokesName)
+    val strokes = StrokesBinary.decode((encoded.files.getValue(decoded.strokesName!!) as ResultFile.Bytes).bytes)
+    assertEquals(listOf(StrokeFamily.BALLPOINT, StrokeFamily.BALLPOINT), strokes.map { it.family })
+    assertEquals(listOf(-1, 1), strokes.map { it.layer })
+  }
+
+  @Test
+  fun strokesOnlyResultHasNoOtherFiles() {
+    val encoded = ResultCodec.encode(PluginResult.Items(emptyList(), listOf(ink())))
+    assertEquals(setOf(PenLabBridge.FILE_RESULT_STROKES), encoded.files.keys)
+    assertNull((ResultCodec.decode(ResultCodec.encode(PluginResult.Items(listOf(ResultItem.text("t", 0f, 0f, 1f, 1f)))).json) as PluginResult.Items).strokesName)
+  }
+
+  @Test
+  fun notebookStrokesTravelAsPerPageSectionsInOneFile() {
+    val nb = NotebookResult("N", 210f, 297f, listOf(NotebookPage(-1, emptyList(), listOf(ink(), ink())), NotebookPage(-1), NotebookPage(-1, emptyList(), listOf(ink(3)))))
+    val encoded = ResultCodec.encode(PluginResult.Notebook(nb))
+    assertEquals(1, encoded.files.size)
+    val back = (ResultCodec.decode(encoded.json) as PluginResult.Notebook).notebook
+    assertEquals(PenLabBridge.FILE_RESULT_STROKES, back.strokesName)
+    val sections = StrokesBinary.decodeSections((encoded.files.getValue(back.strokesName!!) as ResultFile.Bytes).bytes)
+    assertEquals(listOf(2, 0, 1), sections.map { it.size })
+    assertEquals(3, sections[2][0].layer)
+  }
+
+  @Test
+  fun requestAdvertisesTheStrokesFormat() {
+    assertEquals(StrokesBinary.VERSION, PluginRequest.fromJson(PluginRequest("x", strokesFormat = StrokesBinary.VERSION).toJson()).strokesFormat)
+    assertEquals(0, PluginRequest.fromJson("{\"capabilityId\":\"x\"}").strokesFormat) // an older PenLab says nothing
+  }
+
+  @Test
+  fun selectionStrokesJsonKeepsFamilyAndLayer() {
+    val back = StrokesJson.decode(StrokesJson.encode(listOf(ink(2))))[0]
+    assertEquals(StrokeFamily.BALLPOINT, back.family)
+    assertEquals(2, back.layer)
+    // an older PenLab's strokes.json has neither: the family comes from the tool
+    val old = StrokesJson.decode("{\"strokes\":[{\"tool\":\"HIGHLIGHTER\",\"argb\":1,\"widthMm\":2,\"xs\":[0],\"ys\":[0],\"pressures\":[0],\"times\":[0]}]}")[0]
+    assertEquals(StrokeFamily.HIGHLIGHTER, old.family)
+    assertEquals(-1, old.layer)
+  }
+
   @Test
   fun unknownResultTypeAndBadBoundsAreRejected() {
     for (json in listOf("{\"type\":\"banana\"}", "{\"type\":\"items\",\"items\":[{\"typeId\":\"a\",\"boundsMm\":[1,2,3]}]}", "not json")) {

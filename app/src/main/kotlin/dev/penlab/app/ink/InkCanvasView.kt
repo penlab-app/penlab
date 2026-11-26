@@ -293,24 +293,40 @@ class InkCanvasView(
   }
 
   /**
-   * Puts items a plugin returned on the page, as one undo step. [items] come from
-   * `PluginItemMaterialiser.stage` (pictures already saved in the notebook's `images/`). With
-   * nothing selected when the action ran ([wasEmpty]) they are centred on the visible page; otherwise
-   * they go where their bounds say.
+   * Puts what a plugin returned on the page, as one undo step: [items] come from
+   * `PluginItemMaterialiser.stage` (pictures already saved in the notebook's `images/`), [strokes] are
+   * real ink in millimetres (they become ordinary strokes, on their own layer or the current one). With
+   * nothing selected when the action ran ([wasEmpty]) everything is centred as one group on the visible
+   * page; otherwise it goes where its bounds say.
    */
-  fun placePluginItems(items: List<dev.penlab.app.plugins.StagedItem>, wasEmpty: Boolean) {
-    if (items.isEmpty()) return
+  fun placePluginItems(items: List<dev.penlab.app.plugins.StagedItem>, strokes: List<dev.penlab.plugin.PluginStroke>, wasEmpty: Boolean) {
+    if (items.isEmpty() && strokes.isEmpty()) return
     val k = itemMm
     var dx = 0f
     var dy = 0f
     if (wasEmpty) {
-      val union = RectF(items[0].item.boundsMm).apply { items.forEach { union(it.item.boundsMm) } }
+      val union = RectF()
+      var any = false
+      for (item in items) {
+        if (any) union.union(item.item.boundsMm) else union.set(item.item.boundsMm)
+        any = true
+      }
+      dev.penlab.app.plugins.PluginStrokes.boundsMm(strokes)?.let { b ->
+        if (any) union.union(b[0], b[1], b[2], b[3]) else union.set(b[0], b[1], b[2], b[3])
+        any = true
+      }
       val visible = RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
       dx = visible.centerX() - (union.centerX() * k)
       dy = visible.centerY() - (union.centerY() * k)
     }
     val made = items.map { dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, k, dx, dy) }
-    changeItems { it += made }
+    val ink = dev.penlab.app.plugins.PluginStrokes.inDrawOrder(strokes.mapNotNull { dev.penlab.app.plugins.PluginStrokes.toInk(it, k, dx, dy, layers.current, layers.names.size) })
+    if (made.isEmpty() && ink.isEmpty()) return
+    history.grouped {
+      if (made.isNotEmpty()) changeItems { it += made }
+      for (stroke in ink) history.add(stroke, insertIndexFor(stroke))
+    }
+    if (ink.isNotEmpty()) pageChanged()
   }
 
   /** The folder the notebook's pictures live in (null for a stress test, which must not write). */

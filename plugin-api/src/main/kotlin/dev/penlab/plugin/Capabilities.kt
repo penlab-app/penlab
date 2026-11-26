@@ -100,6 +100,8 @@ class ImportedPage(
   val backgroundPdfPage: Int = -1,
   /** Objects for this page; positions in millimetres from the top-left of THIS page. */
   val items: List<PluginItem> = emptyList(),
+  /** Real ink for this page; positions in millimetres from the top-left of THIS page. */
+  val strokes: List<PluginStroke> = emptyList(),
 )
 
 /**

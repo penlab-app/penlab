@@ -16,7 +16,10 @@ enum class Tool { PEN, HIGHLIGHTER }
 /**
  * One finished stroke. [xs], [ys] and [pressures] have one entry per point (pressure 0..1, or -1
  * when the pen gave none); [times] is milliseconds since the stroke began. [argb] is the colour as
- * stored (paper colours, i.e. dark ink for a white page) and [widthMm] the pen width.
+ * stored (paper colours, i.e. dark ink for a white page) and [widthMm] the pen width. [family] is
+ * the pen as PenLab names it in its page files (`pressure`, `ballpoint`, `fountain`, `highlighter`; it
+ * defaults from [tool]) and [layer] the 0-based layer, or -1 for "the notebook's current layer".
+ * [times] may be empty when a plugin did not know them (PenLab then invents an even pace).
  */
 class PluginStroke(
   val xs: FloatArray,
@@ -26,6 +29,8 @@ class PluginStroke(
   val tool: Tool,
   val argb: Int,
   val widthMm: Float,
+  val family: String = if (tool == Tool.HIGHLIGHTER) "highlighter" else "pressure",
+  val layer: Int = -1,
 ) {
   val pointCount: Int get() = xs.size
 }
@@ -67,8 +72,11 @@ class Selection(
 
 /** What a [PageAction] hands back. */
 sealed interface Result {
-  /** Items for PenLab to put on the page (one undo step). With an empty selection they are centred on the visible page; with a selection, [PluginItem.boundsMm] is used as given. */
-  class Items(val items: List<PluginItem>) : Result
+  /**
+   * Items and strokes for PenLab to put on the page (one undo step). With an empty selection they are centred
+   * on the visible page (as one group); with a selection, [PluginItem.boundsMm] and the strokes' millimetres are used as given.
+   */
+  class Items(val items: List<PluginItem>, val strokes: List<PluginStroke> = emptyList()) : Result
 
   /** Text to show the user (a result, an explanation). */
   class Text(val text: String) : Result

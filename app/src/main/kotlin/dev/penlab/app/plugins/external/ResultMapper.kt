@@ -4,9 +4,14 @@ import android.graphics.RectF
 import dev.penlab.plugin.ImportedNotebook
 import dev.penlab.plugin.ImportedPage
 import dev.penlab.plugin.PluginItem
+import dev.penlab.plugin.PluginStroke
+import dev.penlab.plugin.Tool
 import dev.penlab.sdk.PenLabBridge
 import dev.penlab.sdk.PluginResult as WireResult
 import dev.penlab.sdk.ResultItem
+import dev.penlab.sdk.SdkStroke
+import dev.penlab.sdk.StrokeFamily
+import dev.penlab.sdk.StrokesBinary
 import dev.penlab.sdk.WireFormatException
 import java.io.File
 import java.io.IOException
@@ -22,6 +27,9 @@ import dev.penlab.plugin.Result as PluginResult
  * ImageItems (saved in the notebook's images/) and TextItems, never grey plugin boxes, so they draw and
  * export after the plugin is uninstalled (see PluginItemMaterialiser). A plugin's own type ids pass through untouched.
  *
+ * Strokes (the result's strokes file, [StrokesBinary]) become [PluginStroke]s, still in millimetres; the
+ * app turns them into real ink (see PluginStrokes).
+ *
  * A malformed answer (missing file, a notebook where an action was asked) throws
  * [WireFormatException]: the plugin's fault, which the registry's crash isolation handles.
  */
@@ -29,10 +37,13 @@ object ResultMapper {
   /** Largest picture accepted from a plugin. */
   const val MAX_PICTURE_BYTES = 8L * 1024 * 1024
 
+  /** Largest strokes file accepted from a plugin (about 4 million points). */
+  const val MAX_STROKES_BYTES = 64L * 1024 * 1024
+
   /** A page action's or screen's answer. [pluginName] is for the message when the plugin reports an error. */
   fun toResult(wire: WireResult, files: ResultFiles, pluginName: String): PluginResult =
     when (wire) {
-      is WireResult.Items -> PluginResult.Items(wire.items.map { item(it, files) })
+      is WireResult.Items -> PluginResult.Items(wire.items.map { item(it, files) }, strokeSections(wire.strokesName, files).flatten())
       is WireResult.Text -> PluginResult.Text(wire.text)
       is WireResult.Message -> PluginResult.Message(wire.message)
       WireResult.None -> PluginResult.None
@@ -55,10 +66,31 @@ object ResultMapper {
             if (!files.copyTo(name, target)) throw WireFormatException("the notebook's PDF \"$name\" is missing")
             target
           }
-        ImportedNotebook(n.title, n.pageWidthMm, n.pageHeightMm, n.pages.map { page -> ImportedPage(if (pdf != null) page.backgroundPdfPage else -1, page.items.map { item(it, files) }) }, pdf)
+        val sections = strokeSections(n.strokesName, files)
+        if (sections.size > n.pages.size) throw WireFormatException("the strokes file has ${sections.size} pages of ink for ${n.pages.size} pages")
+        ImportedNotebook(
+          n.title, n.pageWidthMm, n.pageHeightMm,
+          n.pages.mapIndexed { i, page -> ImportedPage(if (pdf != null) page.backgroundPdfPage else -1, page.items.map { item(it, files) }, sections.getOrElse(i) { emptyList() }) },
+          pdf,
+        )
       }
       else -> throw WireFormatException("an importer answered with something other than a notebook")
     }
+
+  /** The strokes file [name] as one list of strokes per section (page); empty if the result has none. */
+  private fun strokeSections(name: String?, files: ResultFiles): List<List<PluginStroke>> {
+    if (name == null) return emptyList()
+    val bytes =
+      try {
+        files.readBytes(name, MAX_STROKES_BYTES)
+      } catch (e: IOException) {
+        throw WireFormatException("strokes file \"$name\" is too large")
+      } ?: throw WireFormatException("strokes file \"$name\" is missing")
+    return StrokesBinary.decodeSections(bytes).map { section -> section.map(::stroke) }
+  }
+
+  private fun stroke(s: SdkStroke) =
+    PluginStroke(s.xs, s.ys, s.pressures, s.times, if (s.family == StrokeFamily.HIGHLIGHTER) Tool.HIGHLIGHTER else Tool.PEN, s.argb, s.widthMm, s.family.id, s.layer)
 
   private fun item(item: ResultItem, files: ResultFiles): PluginItem {
     val payload =

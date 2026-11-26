@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -60,9 +61,6 @@ internal fun NewNotebookDialog(
   var format by remember { mutableStateOf(NotebookFormat.of(remembered.kind, remembered.landscape)) }
   var style by remember { mutableStateOf(remembered.style) }
   val where = folder.substringAfterLast("/")
-  // Choosing a format or paper puts the keyboard away, so the whole grid is on screen to look at.
-  val focus = LocalFocusManager.current
-
   PenLabDialog(
     title = if (folder.isEmpty()) "New notebook" else "New notebook in $where",
     onDismiss = onDismiss,
@@ -73,19 +71,25 @@ internal fun NewNotebookDialog(
     },
     maxWidth = PenLabLayout.wideDialogMaxWidth,
   ) {
+    // Choosing a format or paper puts the keyboard away, so the whole grid is on screen to look at.
+    // Read here, inside the dialog: the dialog is its own window, and the screen's focus manager
+    // (read outside) can't clear focus in it, so the keyboard stayed up (QA 26 Nov).
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val putKeyboardAway = { focus.clearFocus(force = true); keyboard?.hide() }
     PenLabTextField(title, { title = it }, "Title")
     DialogLabel("Format")
     PenLabSegmentedControl(
       options = NotebookFormat.entries,
       selected = format,
-      onSelect = { format = it; focus.clearFocus() },
+      onSelect = { format = it; putKeyboardAway() },
       label = { it.label },
     )
     DialogLabel(if (folder.isEmpty()) "Paper" else "Paper (remembered for $where)")
     Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
       for (row in PageStyle.entries.chunked(PAPER_COLUMNS)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
-          for (option in row) PaperTile(option, selected = option == style, onClick = { style = option; focus.clearFocus() }, modifier = Modifier.weight(1f))
+          for (option in row) PaperTile(option, selected = option == style, onClick = { style = option; putKeyboardAway() }, modifier = Modifier.weight(1f))
           // Keep the last row's tiles the same width as the rest.
           repeat(PAPER_COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
         }

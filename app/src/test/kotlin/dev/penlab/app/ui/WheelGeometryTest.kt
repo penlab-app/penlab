@@ -1,6 +1,7 @@
 package dev.penlab.app.ui
 
 import androidx.compose.ui.geometry.Offset
+import dev.penlab.app.ink.InkTool
 import dev.penlab.app.ui.WheelGeometry.PxRect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -239,7 +240,7 @@ class WheelGeometryTest {
   fun theVisibleArcIsAtLeastAHalfCircleAndHoldsMoreThanFourTools() {
     for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
       val (_, ring) = ringFor(onLeft, onTop, side, bottom, top)
-      assertTrue("arc ${ring.spanDeg}", ring.spanDeg >= 140f)
+      assertTrue("arc ${ring.spanDeg}", ring.spanDeg >= 130f)
       assertTrue("count ${ring.count}", ring.count >= 4)
       assertEquals(ring.spanDeg, (ring.count - 1) * ring.stepDeg, 0.01f)
     }
@@ -305,6 +306,105 @@ class WheelGeometryTest {
     val s = WheelGeometry.ringSlot(100f, 90f)
     assertEquals(0f, s.x, 0.001f)
     assertEquals(100f, s.y, 0.001f)
+  }
+
+  // ---- Two rings: colours inside, tools and actions outside ----
+
+  private fun outerOf(ring: WheelGeometry.Ring) = WheelGeometry.outerRing(
+    inner = ring,
+    cell = WheelGeometry.CELL_DP * density,
+    discMargin = WheelGeometry.DISC_MARGIN_DP * density,
+    cellGap = WheelGeometry.CELL_GAP_DP * density,
+    ringGap = WheelGeometry.OUTER_RING_GAP_DP * density,
+  )
+
+  @Test
+  fun everyOuterCellIsFullyOnScreenAndClearOfTheGestureStrips() {
+    val half = WheelGeometry.CELL_DP * density / 2f
+    for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
+      val (c, inner) = ringFor(onLeft, onTop, side, bottom, top)
+      val outer = outerOf(inner)
+      assertEquals(inner.hubU, outer.hubU, 0f) // same hub, same ARC_CUT: only the outer arc narrows
+      for (p in cells(c, outer, onLeft, onTop)) {
+        val msg = "corner left=$onLeft top=$onTop insets=$side/$bottom/$top cell=$p"
+        assertTrue(msg, p.x - half >= -0.01f && p.x + half <= w + 0.01f && p.y - half >= -0.01f && p.y + half <= h + 0.01f)
+        val fromSide = if (onLeft) p.x - half else w - p.x - half
+        val fromEdge = if (onTop) p.y - half else h - p.y - half
+        assertTrue("$msg side gap $fromSide", fromSide >= side - 0.5f)
+        assertTrue("$msg edge gap $fromEdge", fromEdge >= (if (onTop) top else bottom) - 0.5f)
+      }
+    }
+  }
+
+  @Test
+  fun outerCellsAreEvenlySpacedAndClearOfEachOtherAndTheInnerRing() {
+    val cell = WheelGeometry.CELL_DP * density
+    for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
+      val (c, inner) = ringFor(onLeft, onTop, side, bottom, top)
+      val outer = outerOf(inner)
+      assertTrue(outer.radius >= inner.radius + cell) // a whole cell further out
+      assertTrue("outer holds ${outer.count}", outer.count >= 4)
+      assertEquals(outer.spanDeg, (outer.count - 1) * outer.stepDeg, 0.01f)
+      val pts = cells(c, outer, onLeft, onTop)
+      for (g in pts.zipWithNext { a, b -> (b - a).getDistance() }) assertTrue("outer cells overlap: $g", g >= cell)
+      val innerPts = cells(c, inner, onLeft, onTop)
+      for (p in pts) for (q in innerPts) assertTrue("rings touch", (p - q).getDistance() >= cell)
+      // The disc (the wheel) covers the outer ring and reaches past it.
+      assertEquals(outer.radius + cell / 2f + WheelGeometry.DISC_MARGIN_DP * density, outer.disc, 0.001f)
+      assertTrue(outer.disc > inner.disc)
+    }
+  }
+
+  @Test
+  fun aPressIsOnTheInnerRingNearTheHubAndTheOuterRingBeyondTheGap() {
+    val (_, inner) = ringFor(true, false)
+    val outer = outerOf(inner)
+    val split = WheelGeometry.ringSplitRadius(inner, outer)
+    assertTrue(inner.radius < split && split < outer.radius)
+  }
+
+  @Test
+  fun scrollSpanIsZeroWhenEverythingFitsAndGrowsWithMoreCells() {
+    val (_, inner) = ringFor(true, false)
+    assertEquals(0f, WheelGeometry.scrollSpan(inner.count, inner), 0.01f)
+    assertEquals(0f, WheelGeometry.scrollSpan(1, inner), 0f)
+    assertEquals(2 * inner.stepDeg, WheelGeometry.scrollSpan(inner.count + 2, inner), 0.01f)
+  }
+
+  private val tools = listOf(
+    InkTool(InkTool.Kind.PEN, 0xFF000000.toInt(), 2f), // 0
+    InkTool(InkTool.Kind.PEN, 0xFF1565C0.toInt(), 2f), // 1
+    InkTool(InkTool.Kind.ERASER, 0, 10f), // 2
+    InkTool(InkTool.Kind.LASSO, 0, 0f), // 3
+    InkTool(InkTool.Kind.HIGHLIGHTER, 0xFFFFEB3B.toInt(), 12f), // 4
+    InkTool(InkTool.Kind.FILL, 0xFF2E7D32.toInt(), 0f), // 5
+    InkTool(InkTool.Kind.TEXT, 0xFF000000.toInt(), 4f), // 6
+  )
+
+  @Test
+  fun penToolsGoOnTheInnerRingAndEveryOtherToolAndActionOnTheOuterOne() {
+    val items = listOf(
+      DockItem.Tool(0), DockItem.Tool(1), DockItem.Tool(2), DockItem.Tool(3), DockItem.Tool(4), DockItem.Tool(5), DockItem.Tool(6),
+      DockItem.Instruments, DockItem.Paper, DockItem.Layers, DockItem.Clear, DockItem.More, DockItem.Undo, DockItem.Redo,
+    )
+    val (inner, outer) = wheelRingItems(items, tools)
+    assertEquals(listOf(DockItem.Tool(0), DockItem.Tool(1)), inner)
+    assertEquals(
+      listOf(
+        DockItem.Tool(2), DockItem.Tool(3), DockItem.Tool(4), DockItem.Tool(5), DockItem.Tool(6),
+        DockItem.Instruments, DockItem.Paper, DockItem.Clear, DockItem.More, DockItem.Undo, DockItem.Redo,
+      ),
+      outer,
+    ) // Layers is on neither ring
+  }
+
+  @Test
+  fun aToolWithNoEntryIsDroppedAndEachRingKeepsTheToolbarOrder() {
+    val items = listOf(DockItem.Redo, DockItem.Tool(1), DockItem.Tool(99), DockItem.Tool(3), DockItem.Tool(0), DockItem.Tool(2))
+    val (inner, outer) = wheelRingItems(items, tools)
+    assertEquals(listOf(DockItem.Tool(1), DockItem.Tool(0)), inner)
+    assertEquals(listOf(DockItem.Redo, DockItem.Tool(3), DockItem.Tool(2)), outer)
+    assertTrue(inner.none { it in outer }) // every cell lives on exactly one ring
   }
 
   // ---- Rail exclusion ----

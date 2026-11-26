@@ -193,6 +193,9 @@ class ToolDock(context: Context) {
 
   /** How the tools sit on the arc for the current corner and screen (see [WheelGeometry.ring]). */
   internal var wheelRing = WheelGeometry.Ring(0f, 0f, 0f, 1f, 0f)
+
+  /** The outer ring (the non-colour tools and the actions), one cell further out; see [WheelGeometry.outerRing]. */
+  internal var wheelOuterRing = WheelGeometry.Ring(0f, 0f, 0f, 1f, 0f)
   internal var pull by mutableStateOf(Offset.Zero)
 
   /** Page actions shown in the top bar (with the corner wheel): their centres, by key. */
@@ -247,7 +250,14 @@ class ToolDock(context: Context) {
         cellGap = WheelGeometry.CELL_GAP_DP.dp.toPx(),
         hubClearance = WheelGeometry.HUB_CLEARANCE_DP.dp.toPx(),
       )
-      wheelRadiusPx = wheelRing.disc
+      wheelOuterRing = WheelGeometry.outerRing(
+        inner = wheelRing,
+        cell = WheelGeometry.CELL_DP.dp.toPx(),
+        discMargin = WheelGeometry.DISC_MARGIN_DP.dp.toPx(),
+        cellGap = WheelGeometry.CELL_GAP_DP.dp.toPx(),
+        ringGap = WheelGeometry.OUTER_RING_GAP_DP.dp.toPx(),
+      )
+      wheelRadiusPx = wheelOuterRing.disc // the disc reaches past the outer ring
     }
   }
 
@@ -774,10 +784,35 @@ internal fun inlineToolbarX(desiredCentre: Float, barWidth: Int, gapLeft: Int, g
 }
 
 /**
+ * Which cells go on which wheel ring. Inner: the colours, i.e. the pen tools (their cell is a
+ * colour dot). Outer: every tool whose cell is an icon (eraser, lasso, highlighter, fill, text)
+ * and the actions Instruments (ruler), Paper, Clear, More, Undo and Redo. Layers stays off the
+ * wheel. Each ring keeps the order of [items]; a tool with no entry in [tools] is dropped.
+ */
+internal fun wheelRingItems(items: List<DockItem>, tools: List<InkTool>): Pair<List<DockItem>, List<DockItem>> {
+  val inner = ArrayList<DockItem>()
+  val outer = ArrayList<DockItem>()
+  for (item in items) {
+    when (item) {
+      is DockItem.Tool -> when (tools.getOrNull(item.index)?.kind) {
+        null -> {}
+        InkTool.Kind.PEN -> inner.add(item)
+        else -> outer.add(item)
+      }
+      DockItem.Instruments, DockItem.Paper, DockItem.Clear, DockItem.More, DockItem.Undo, DockItem.Redo -> outer.add(item)
+      DockItem.Layers -> {}
+    }
+  }
+  return inner to outer
+}
+
+/**
  * A corner: a round button showing the current tool, and beside it, when open, the wheel: a
  * quarter circle with rounded corners. Its corner holds the current tool;
- * the inner ring holds every tool and scrolls along the arc with a swipe (it keeps gliding, and
- * springs back at the ends); the outer ring holds paper, ruler and clear. Nothing ever shows
+ * the inner ring holds the colours (the pens, drawn as colour dots), the outer ring the tools drawn
+ * as icons (eraser, lasso, highlighter, fill, text) and the actions (ruler, paper, clear, more,
+ * undo, redo; see [wheelRingItems]). Each ring scrolls along its arc with a swipe (it keeps gliding, and
+ * springs back at the ends). Nothing ever shows
  * outside the quarter. It opens out along its two edges with a little overshoot, and folds back
  * the same way.
  *
@@ -811,19 +846,26 @@ private fun Wheel(
   val wheelGroove = scheme.surfaceContainerLow
   val wheelInnerRim = scheme.outlineVariant
   val hubWell = hubWellColor(tools.getOrNull(selectedIndex), darkPage, scheme, isDarkTheme)
-  val ringItems = items.filter { it is DockItem.Tool || it == DockItem.Instruments || it == DockItem.More || it == DockItem.Undo || it == DockItem.Redo }
+  val (innerItems, outerItems) = wheelRingItems(items, tools)
+  val ringItems = innerItems + outerItems // content order: inner ring first, then the outer one
   // Opening and closing carry momentum: a spring that overshoots a little and settles.
   val open = remember { Animatable(0f) }
   androidx.compose.runtime.LaunchedEffect(dock.wheelOpen) {
     open.animateTo(if (dock.wheelOpen) 1f else 0f, Motion.spring(dampingRatio = 0.62f, stiffness = 420f))
   }
-  // How far the tool ring is scrolled along the arc, in degrees.
-  val scroll = remember { Animatable(0f) }
-  // How far it can scroll: until the last tool reaches the last fully visible spot.
-  // (the ring's step comes from dock.wheelRing, which depends on the screen and its gesture zones;
-  // it is read where it is used, never captured, so a rotation or inset change is picked up)
-  val ringCount = androidx.compose.runtime.rememberUpdatedState(ringItems.size)
-  fun spanNow() = ((ringCount.value - 1) * dock.wheelRing.stepDeg - (dock.wheelRing.endDeg - dock.wheelRing.startDeg)).coerceAtLeast(0f)
+  // How far each ring is scrolled along its arc, in degrees (inner = colours, outer = tools and actions).
+  val scrollIn = remember { Animatable(0f) }
+  val scrollOut = remember { Animatable(0f) }
+  fun scrollOf(outer: Boolean) = if (outer) scrollOut else scrollIn
+  // How far a ring can scroll: until its last cell reaches the last fully visible spot.
+  // (the ring's step comes from dock.wheelRing / wheelOuterRing, which depend on the screen and its gesture zones;
+  // they are read where used, never captured, so a rotation or inset change is picked up)
+  val innerCount = androidx.compose.runtime.rememberUpdatedState(innerItems.size)
+  val outerCount = androidx.compose.runtime.rememberUpdatedState(outerItems.size)
+  fun spanNow(outer: Boolean): Float {
+    val ring = if (outer) dock.wheelOuterRing else dock.wheelRing
+    return WheelGeometry.scrollSpan(if (outer) outerCount.value else innerCount.value, ring)
+  }
   val highlighted = dock.wheelHighlight
   val lifted = remember { Animatable(1f) }
   val onLeft = side == DockSide.TOP_LEFT || side == DockSide.BOTTOM_LEFT
@@ -837,7 +879,10 @@ private fun Wheel(
   val currentOnDragStart by androidx.compose.runtime.rememberUpdatedState(onDragStart)
   // A dial, not a list: a light tick each time a tool passes a slot (15 Nov wheel redesign).
   androidx.compose.runtime.LaunchedEffect(Unit) {
-    androidx.compose.runtime.snapshotFlow { kotlin.math.round(scroll.value / dock.wheelRing.stepDeg.coerceAtLeast(1f)).toInt() }
+    androidx.compose.runtime.snapshotFlow {
+      kotlin.math.round(scrollIn.value / dock.wheelRing.stepDeg.coerceAtLeast(1f)).toInt() to
+        kotlin.math.round(scrollOut.value / dock.wheelOuterRing.stepDeg.coerceAtLeast(1f)).toInt()
+    }
       .collect { if (dock.wheelOpen) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
   }
   // While the wheel is open its area (folded: its button) is kept out of the system Back gesture, so
@@ -856,7 +901,7 @@ private fun Wheel(
       // layout (dock.wheelRing), worked out in the outer layout just before this is measured.
       Box(
         Modifier.layout { m, _ ->
-          val d = (dock.wheelRing.disc * 2f).roundToInt().coerceAtLeast(1)
+          val d = (dock.wheelRadiusPx * 2f).roundToInt().coerceAtLeast(1)
           val p = m.measure(androidx.compose.ui.unit.Constraints.fixed(d, d))
           layout(p.width, p.height) { p.place(0, 0) }
         }
@@ -875,6 +920,10 @@ private fun Wheel(
             awaitEachGesture {
               val down = awaitFirstDown(requireUnconsumed = false)
               val slop = viewConfiguration.touchSlop
+              // The ring under the finger is the one that turns: outside the gap between the two rings.
+              val centre = size.width / 2f
+              val outerRing = (down.position - Offset(centre, centre)).getDistance() > WheelGeometry.ringSplitRadius(dock.wheelRing, dock.wheelOuterRing)
+              val scroll = scrollOf(outerRing)
               val tracker = androidx.compose.ui.input.pointer.util.VelocityTracker()
               var dragging = false
               var last = angleOf(down.position)
@@ -896,7 +945,7 @@ private fun Wheel(
                 turned += d
                 tracker.addPosition(change.uptimeMillis, Offset(0f, turned))
                 // Past the ends it follows only part way, then springs back on release.
-                val max = spanNow()
+                val max = spanNow(outerRing)
                 val next = scroll.value + d
                 val resisted = if (next > 0f || next < -max) scroll.value + d * 0.35f else next
                 scope.launch { scroll.snapTo(resisted) }
@@ -905,9 +954,10 @@ private fun Wheel(
                 val velocity = tracker.calculateVelocity().y
                 scope.launch {
                   // Lands with a tool exactly in a slot (or at the end), like a dial's detent.
-                  val free = (scroll.value + velocity * 0.25f).coerceIn(-spanNow(), 0f)
-                  val step = dock.wheelRing.stepDeg.coerceAtLeast(1f)
-                  val target = (kotlin.math.round(free / step) * step).coerceIn(-spanNow(), 0f)
+                  val span = spanNow(outerRing)
+                  val free = (scroll.value + velocity * 0.25f).coerceIn(-span, 0f)
+                  val step = (if (outerRing) dock.wheelOuterRing else dock.wheelRing).stepDeg.coerceAtLeast(1f)
+                  val target = (kotlin.math.round(free / step) * step).coerceIn(-span, 0f)
                   scroll.animateTo(target, Motion.spring(dampingRatio = 0.8f, stiffness = 200f), initialVelocity = velocity)
                 }
               }
@@ -932,11 +982,12 @@ private fun Wheel(
                 0f to wheelCore, 1f to PenLabColors.toolbar, center = c, radius = size.width / 2f,
               ),
             )
-            val ring = dock.wheelRing.radius
             val band = WheelCell.toPx() + 10.dp.toPx()
-            drawCircle(wheelGroove, radius = ring, center = c, style = Stroke(band))
-            drawCircle(PenLabColors.hairline, radius = ring + band / 2f, center = c, style = Stroke(1.dp.toPx()))
-            drawCircle(wheelInnerRim, radius = ring - band / 2f, center = c, style = Stroke(1.dp.toPx()))
+            for (ring in listOfNotNull(dock.wheelRing.radius.takeIf { innerItems.isNotEmpty() }, dock.wheelOuterRing.radius.takeIf { outerItems.isNotEmpty() })) {
+              drawCircle(wheelGroove, radius = ring, center = c, style = Stroke(band))
+              drawCircle(PenLabColors.hairline, radius = ring + band / 2f, center = c, style = Stroke(1.dp.toPx()))
+              drawCircle(wheelInnerRim, radius = ring - band / 2f, center = c, style = Stroke(1.dp.toPx()))
+            }
           }
           .border(1.dp, PenLabColors.hairline, shape)
           .ignorePalm(isPalm)
@@ -955,8 +1006,7 @@ private fun Wheel(
         }) { measurables, constraints ->
           val loose = constraints.copy(minWidth = 0, minHeight = 0)
           val placeables = measurables.map { it.measure(loose) }
-          val ringLayout = dock.wheelRing
-          val r = ringLayout.disc
+          val r = dock.wheelRadiusPx
           layout((2 * r).roundToInt(), (2 * r).roundToInt()) {
             // (u, v): from the circle's centre (the hub) along the bottom/top edge and
             // along the side edge, into the screen (negative: back towards the edge).
@@ -969,20 +1019,22 @@ private fun Wheel(
               p.placeWithLayer((x - p.width / 2f).roundToInt(), (y - p.height / 2f).roundToInt()) { this.alpha = alpha }
             }
             val targets = HashMap<Int, Offset>()
-            fun polar(index: Int, item: DockItem, radius: Float, angleDeg: Float) {
-              val (u, v) = WheelGeometry.ringSlot(radius, angleDeg)
+            fun polar(index: Int, item: DockItem, ringLayout: WheelGeometry.Ring, slot: Int, scrollDeg: Float) {
+              val angleDeg = ringLayout.startDeg + slot * ringLayout.stepDeg + scrollDeg // cells move with the finger
+              val (u, v) = WheelGeometry.ringSlot(ringLayout.radius, angleDeg)
               // Fan-out: each tool trails the one before it out along its spoke while opening.
               // Pull targets use the settled spot, so a quick pull during the animation still hits.
-              val k = (index - (-scroll.value / ringLayout.stepDeg.coerceAtLeast(1f))).coerceIn(0f, 3f) * FAN_LAG
+              val k = (slot - (-scrollDeg / ringLayout.stepDeg.coerceAtLeast(1f))).coerceIn(0f, 3f) * FAN_LAG
               val lag = ((open.value - k) / (1f - k)).coerceIn(0f, 1.06f) // 1 at rest; the spring's overshoot shows
               val f = 0.55f + 0.45f * lag
               place(index, u * f, v * f, WheelGeometry.ringAlpha(angleDeg, ringLayout))
               if (WheelGeometry.slotOnScreen(angleDeg, ringLayout)) targets[item.key] = Offset(u, v) // visible on the arc
             }
-            // Tool ring: the first tool along the bottom edge, the rest climbing towards the side
-            // edge, shifted by the scroll.
-            // Tools past either end are round the circle, behind the screen edge, until spun in.
-            ringItems.forEachIndexed { i, item -> polar(i, item, ringLayout.radius, ringLayout.startDeg + i * ringLayout.stepDeg + scroll.value) } // tools move with the finger
+            // Two rings: the first cell along the bottom edge, the rest climbing towards the side
+            // edge, shifted by that ring's scroll. Cells past either end are round the circle,
+            // behind the screen edge, until spun in.
+            innerItems.forEachIndexed { i, item -> polar(i, item, dock.wheelRing, i, scrollIn.value) }
+            outerItems.forEachIndexed { j, item -> polar(innerItems.size + j, item, dock.wheelOuterRing, j, scrollOut.value) }
             // Pull targets in screen terms, refreshed whenever the ring moves.
             val o = dock.wheelOrigin
             dock.wheelTargets = targets.mapValues { (_, uv) -> Offset(o.x + if (onLeft) uv.x else -uv.x, o.y + if (onTop) uv.y else -uv.y) }
@@ -1061,10 +1113,6 @@ private fun Wheel(
               val hub = dock.wheelHub
               val dead = with(density) { PullDeadZone.toPx() }
               val reach = with(density) { PullReach.toPx() }
-              val ringPx = dock.wheelRing.radius
-              // Auto-scroll zone: beyond the outermost visible cell's angular extent, off either end of the arc.
-              val cellHalfDeg = Math.toDegrees(kotlin.math.asin((WheelGeometry.CELL_DP * density.density / 2f / ringPx).toDouble().coerceAtMost(1.0))).toFloat()
-              val zoneDeg = maxOf(dock.wheelRing.stepDeg * 0.8f, 8f)
               var at = hub
               var released = false
               while (!released) {
@@ -1083,8 +1131,15 @@ private fun Wheel(
                   val o = dock.wheelOrigin
                   val u = if (onLeft) at.x - o.x else o.x - at.x
                   val v = if (onTop) at.y - o.y else o.y - at.y
-                  if (kotlin.math.hypot(u, v) > ringPx * 0.6f) {
-                    val ring = dock.wheelRing
+                  val dist = kotlin.math.hypot(u, v)
+                  // The ring that rolls is the one the finger is nearer to (inner or outer).
+                  val useOuter = dist > WheelGeometry.ringSplitRadius(dock.wheelRing, dock.wheelOuterRing)
+                  val ring = if (useOuter) dock.wheelOuterRing else dock.wheelRing
+                  val scroll = scrollOf(useOuter)
+                  if (dist > dock.wheelRing.radius * 0.6f) {
+                    // Auto-scroll zone: beyond the outermost visible cell's angular extent, off either end of the arc.
+                    val cellHalfDeg = Math.toDegrees(kotlin.math.asin((WheelGeometry.CELL_DP * density.density / 2f / ring.radius).toDouble().coerceAtMost(1.0))).toFloat()
+                    val zoneDeg = maxOf(ring.stepDeg * 0.8f, 8f)
                     val mid = (ring.startDeg + ring.endDeg) / 2f
                     val raw = Math.toDegrees(kotlin.math.atan2(v.toDouble(), u.toDouble())).toFloat()
                     // The angle on the same turn as the arc's middle, so the gap behind the hub is one stretch.
@@ -1097,7 +1152,7 @@ private fun Wheel(
                       else -> 0f
                     } * AUTO_SCROLL_DEG_PER_FRAME
                     if (step != 0f) {
-                      val next = (scroll.value + step).coerceIn(-spanNow(), 0f)
+                      val next = (scroll.value + step).coerceIn(-spanNow(useOuter), 0f)
                       if (next != scroll.value) scope.launch { scroll.snapTo(next) }
                     }
                   }

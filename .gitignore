@@ -15,3 +15,8 @@
 local.properties
 .kotlin/
 build/
+
+# Signing keys never go in git
+*.jks
+*.keystore
+keystore.properties

@@ -3,6 +3,15 @@ plugins {
   alias(libs.plugins.compose.compiler)
 }
 
+// The shared PenLab signing key lives OUTSIDE the repo, so every maintainer's build installs over
+// every other's (Android refuses an update signed with a different key). Point PENLAB_KEYSTORE at
+// a keystore.properties file (storeFile, storePassword, keyAlias, keyPassword), or keep it at
+// ~/.config/penlab/keystore.properties. Without it, builds fall back to the local debug key.
+val penlabKeyProps = java.util.Properties().apply {
+  val f = file(System.getenv("PENLAB_KEYSTORE") ?: "${System.getProperty("user.home")}/.config/penlab/keystore.properties")
+  if (f.exists()) f.inputStream().use { load(it) }
+}
+
 android {
   namespace = "dev.penlab.app"
   compileSdk = 36
@@ -14,15 +23,29 @@ android {
     versionName = "1.0"
   }
 
+  signingConfigs {
+    if (penlabKeyProps.getProperty("storeFile") != null) {
+      create("penlab") {
+        storeFile = file(penlabKeyProps.getProperty("storeFile"))
+        storePassword = penlabKeyProps.getProperty("storePassword")
+        keyAlias = penlabKeyProps.getProperty("keyAlias")
+        keyPassword = penlabKeyProps.getProperty("keyPassword")
+      }
+    }
+  }
+  val shared = signingConfigs.findByName("penlab")
+
   buildTypes {
+    // Debug and release both use the shared key when it's present, so they install over each other.
+    debug {
+      if (shared != null) signingConfig = shared
+    }
     // The build for daily use: optimised by R8 and not debuggable, which makes Compose and
-    // the ink code noticeably faster than a debug build. Signed with the laptop's debug key
-    // so it installs over the debug build without a keystore to look after; that is fine for
-    // a private app, and must change before the app is ever published.
+    // the ink code noticeably faster than a debug build.
     release {
       isMinifyEnabled = true
       isShrinkResources = true
-      signingConfig = signingConfigs.getByName("debug")
+      signingConfig = shared ?: signingConfigs.getByName("debug")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }

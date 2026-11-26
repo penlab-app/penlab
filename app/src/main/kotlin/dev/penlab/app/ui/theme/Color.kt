@@ -522,6 +522,13 @@ object PenLabComponentTokens {
   val chipSelectedContent: Color
     @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.onPrimaryContainer
 
+  // Segmented controls: the chosen segment is solid primary (clear >= 3:1 against the track),
+  // not the pale container tint, which was too close to the track to read as "selected".
+  val segmentSelectedBg: Color
+    @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.primary
+  val segmentSelectedContent: Color
+    @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.onPrimary
+
   // Dialogs
   val dialogBg: Color
     @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surfaceContainerHigh

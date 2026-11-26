@@ -66,6 +66,9 @@ object PenLabLayout {
   /** Cover aspect of an endless canvas. */
   const val canvasAspect = 4f / 3f
 
+  /** Round colour swatch inside its 48dp touch target (room left for the selection ring). */
+  val swatchSize = 40.dp
+
   /** Selected-tile ring and hairline thickness. */
   val ringSelected = 2.dp
   val hairline = 1.dp

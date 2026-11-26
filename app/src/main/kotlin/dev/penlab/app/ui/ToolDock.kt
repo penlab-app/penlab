@@ -1130,7 +1130,7 @@ private fun dockLabel(item: DockItem, tools: List<InkTool>): String =
     DockItem.More -> "More tools"
   }
 
-private const val HOLD_TO_MOVE_MS = 450L
+private const val HOLD_TO_MOVE_MS = 650L // was 450: a slow hub pull turned into toolbar-move (QA 26 Nov)
 
 /** The toolbar squeezed into a ball while it is dragged, with a hint of where it will land. */
 @Composable

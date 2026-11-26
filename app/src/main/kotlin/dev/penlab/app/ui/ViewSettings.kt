@@ -131,6 +131,14 @@ fun resolveCanvasDarkPage(pageThemeMode: PageThemeMode, isPdfNotebook: Boolean):
   pageThemeMode.isDark && !isPdfNotebook
 
 /**
+ * Whether the system bars should draw light icons (they sit over a dark surface). In the library
+ * that surface is the app theme; with a notebook open the page runs under the bars, so it is the
+ * paper: Light UI on Dark paper needs light icons, Dark UI on Light paper (or any PDF) dark ones.
+ */
+fun systemBarsOverDarkSurface(appIsDark: Boolean, notebookOpen: Boolean, paperIsDark: Boolean): Boolean =
+  if (notebookOpen) paperIsDark else appIsDark
+
+/**
  * The "Draw with finger" rule. An explicit [userChoice] always wins. Without one it is on for a
  * device where no stylus has ever been seen (a tablet without a pen) and off once one has.
  */

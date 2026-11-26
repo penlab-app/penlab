@@ -6,13 +6,14 @@ import dev.penlab.app.notes.NotebookKind
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LibraryLogicTest {
-  private fun nb(id: String, modified: Long, folder: String = "") =
-    NotebookInfo(id, id, folder, NotebookKind.A4, PageStyle.DOTTED, 1, emptyList(), 0L, modified)
+  private fun nb(id: String, modified: Long, folder: String = "", title: String = id) =
+    NotebookInfo(id, title, folder, NotebookKind.A4, PageStyle.DOTTED, 1, emptyList(), 0L, modified)
 
   // ---- breadcrumbs
   @Test
@@ -57,10 +58,60 @@ class LibraryLogicTest {
   }
 
   @Test
-  fun continueNeedsTopLevelAndTwoNotebooks() {
-    assertTrue(continueNotebooks(listOf(nb("a", 1)), "").isEmpty())
-    assertTrue(continueNotebooks(listOf(nb("a", 1), nb("b", 2)), "Some folder").isEmpty())
-    assertEquals(2, continueNotebooks(listOf(nb("a", 1), nb("b", 2)), "").size)
+  fun continueNeedsTopLevelAndMoreThanFourNotebooks() {
+    // Four or fewer are all on screen below anyway: no strip.
+    assertTrue(continueNotebooks((1..4).map { nb("n$it", it.toLong()) }, "").isEmpty())
+    assertTrue(continueNotebooks(listOf(nb("a", 1), nb("b", 2)), "").isEmpty())
+    val five = (1..5).map { nb("n$it", it.toLong()) }
+    assertEquals(4, continueNotebooks(five, "").size)
+    assertTrue(continueNotebooks(five, "Some folder").isEmpty())
+  }
+
+  // ---- section headings
+  @Test
+  fun headingNeverRepeatsThePageTitle() {
+    // Top level: the page is titled "Notebooks", so the loose-notebooks heading would say it twice.
+    val top = sectionHeadings(hasContinue = true, hasFolders = true, hasNotebooks = true, current = "")
+    assertEquals(SectionHeadings(continueStrip = true, folders = true, notebooks = false), top)
+    // Inside a folder the page is titled with the folder, so "Notebooks" tells the sections apart.
+    val inside = sectionHeadings(hasContinue = false, hasFolders = true, hasNotebooks = true, current = "Fall/Mechanics")
+    assertEquals(SectionHeadings(continueStrip = false, folders = true, notebooks = true), inside)
+    // A folder that happens to be called "Notebooks" hides that heading too.
+    assertFalse(sectionHeadings(false, true, true, "Notebooks").notebooks)
+  }
+
+  @Test
+  fun headingsNeedMoreThanOneSection() {
+    assertEquals(SectionHeadings(false, false, false), sectionHeadings(false, false, true, "Fall"))
+    assertEquals(SectionHeadings(false, false, false), sectionHeadings(false, true, false, ""))
+  }
+
+  // ---- title search
+  @Test
+  fun titleMatchesIgnoreCasePunctuationAndSpaces() {
+    val list = listOf(nb("a", 1, title = "Diff. Eq midterm"), nb("b", 2, title = "Circuits"))
+    assertEquals(listOf("a"), titleMatches("diffeq", list).map { it.id })
+    assertEquals(listOf("b"), titleMatches("  CIRC ", list).map { it.id })
+    assertTrue(titleMatches("", list).isEmpty())
+    assertTrue(titleMatches("???", list).isEmpty())
+  }
+
+  @Test
+  fun titlesStartingWithTheQueryComeFirstThenNewest() {
+    val list = listOf(
+      nb("old-start", 1, title = "Calculus 1"),
+      nb("new-inside", 9, title = "Notes on calculus"),
+      nb("new-start", 5, title = "Calculus 2"),
+    )
+    assertEquals(listOf("new-start", "old-start", "new-inside"), titleMatches("calc", list).map { it.id })
+  }
+
+  @Test
+  fun searchSummaryCountsTitlesAndLines() {
+    assertEquals("No matches for “x”", searchSummary("x", 0, 0, 0))
+    assertEquals("1 notebook title", searchSummary("x", 1, 0, 0))
+    assertEquals("2 notebook titles · 1 line of handwriting in 1 notebook", searchSummary("x", 2, 1, 1))
+    assertEquals("3 lines of handwriting in 2 notebooks", searchSummary("x", 0, 3, 2))
   }
 
   // ---- dates and counts
@@ -81,6 +132,27 @@ class LibraryLogicTest {
     val now = ms(2026, 11, 26, 12, 0)
     assertNull(relativeDayLabel(now, ms(2026, 11, 19, 12, 0), cairo)) // a week ago
     assertNull(relativeDayLabel(now, ms(2026, 11, 27, 12, 0), cairo)) // clock skew
+  }
+
+  @Test
+  fun cardDatesAreRelativeForAWeekThenShort() {
+    val now = ms(2026, 11, 26, 12, 0)
+    val nb = '\u00A0'
+    assertEquals("Today", cardDateLabel(now, ms(2026, 11, 26, 8, 0), cairo, java.util.Locale.ENGLISH))
+    assertEquals("3${nb}days${nb}ago", cardDateLabel(now, ms(2026, 11, 23, 8, 0), cairo, java.util.Locale.ENGLISH))
+    // Older: day and month only, so "1 page · 26 Nov" fits a 150dp card; the year only for another year.
+    assertEquals("12${nb}Nov", cardDateLabel(now, ms(2026, 11, 12, 8, 0), cairo, java.util.Locale.ENGLISH))
+    assertEquals("26${nb}Nov${nb}2025", cardDateLabel(now, ms(2025, 11, 26, 8, 0), cairo, java.util.Locale.ENGLISH))
+  }
+
+  @Test
+  fun cardMetaWrapsBetweenPartsNeverInsideOne() {
+    val nb = '\u00A0'
+    assertEquals("12${nb}pages$nb· 26${nb}Nov", cardMeta(null, false, 12, "26${nb}Nov"))
+    assertEquals("Canvas$nb· Today", cardMeta(null, true, 3, "Today"))
+    assertEquals("Mechanics of Materials$nb· 1${nb}page$nb· Today", cardMeta("Mechanics of Materials", false, 1, "Today"))
+    // The only breakable space is the one after the dot.
+    assertEquals(1, cardMeta(null, false, 12, "26${nb}Nov").count { it == ' ' })
   }
 
   @Test

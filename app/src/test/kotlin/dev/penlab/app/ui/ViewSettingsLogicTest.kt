@@ -30,4 +30,23 @@ class ViewSettingsLogicTest {
     assertFalse(resolveCanvasDarkPage(PageThemeMode.LIGHT, isPdfNotebook = true))
     assertFalse(resolveCanvasDarkPage(PageThemeMode.DARK, isPdfNotebook = true))
   }
+
+  @Test
+  fun libraryStatusBarFollowsTheAppTheme() {
+    assertTrue(systemBarsOverDarkSurface(appIsDark = true, notebookOpen = false, paperIsDark = false))
+    assertFalse(systemBarsOverDarkSurface(appIsDark = false, notebookOpen = false, paperIsDark = true))
+  }
+
+  @Test
+  fun openNotebookStatusBarFollowsThePaperNotTheTheme() {
+    // Light UI on Dark paper used to give dark icons on a dark page: invisible.
+    assertTrue(systemBarsOverDarkSurface(appIsDark = false, notebookOpen = true, paperIsDark = true))
+    assertFalse(systemBarsOverDarkSurface(appIsDark = true, notebookOpen = true, paperIsDark = false))
+  }
+
+  @Test
+  fun aPdfNotebookOnDarkPaperIsStillWhiteSoIconsAreDark() {
+    val paperDark = resolveCanvasDarkPage(PageThemeMode.DARK, isPdfNotebook = true)
+    assertFalse(systemBarsOverDarkSurface(appIsDark = true, notebookOpen = true, paperIsDark = paperDark))
+  }
 }

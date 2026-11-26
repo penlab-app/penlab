@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.penlab.app.ink.InkCanvasView
+import dev.penlab.app.ink.ViewMemory
 import dev.penlab.app.ink.InkStroke
 import dev.penlab.app.ink.InkTool
 import dev.penlab.app.ink.PageLayout
@@ -120,6 +121,7 @@ import dev.penlab.app.ui.LOOK_PREFS
 import dev.penlab.app.ui.SettingsSheet
 import dev.penlab.app.ui.firstLaunchAction
 import dev.penlab.app.ui.resolveCanvasDarkPage
+import dev.penlab.app.ui.systemBarsOverDarkSurface
 import dev.penlab.app.search.HandwritingIndex
 import dev.penlab.app.ui.FULLSCREEN_EXIT_ALPHA
 import dev.penlab.app.ui.PRESENT_HINT_MESSAGE
@@ -347,9 +349,13 @@ class MainActivity : ComponentActivity() {
     setContent {
       PenLabTheme {
         val isDarkTheme = LocalPenLabColors.current.isDark
-        DisposableEffect(isDarkTheme) {
+        // The icon colour follows what is behind the bars: the app theme in the library, the paper
+        // (white for a PDF) while a notebook is open.
+        val notebookPaperDark = open?.let { resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = it.pdf != null) }
+        val barsOverDark = systemBarsOverDarkSurface(isDarkTheme, notebookOpen = notebookPaperDark != null, paperIsDark = notebookPaperDark == true)
+        DisposableEffect(barsOverDark) {
           val bars =
-            if (isDarkTheme) SystemBarStyle.dark(Color.TRANSPARENT)
+            if (barsOverDark) SystemBarStyle.dark(Color.TRANSPARENT)
             else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
           enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
           onDispose {}
@@ -508,10 +514,21 @@ class MainActivity : ComponentActivity() {
             folderColors = folderColors,
             onFolderColor = { path, color -> inBackground { notebooks.setFolderColor(path, color) } },
             onDeleteFolder = { path ->
+              // The folder's own colour (not an inherited one), read now: it is dropped with the folder.
+              val ownColor = folderColors[path]
+              val name = path.substringAfterLast("/")
               inBackground {
-                if (!notebooks.deleteFolder(path)) {
+                if (notebooks.deleteFolder(path)) {
                   main.post {
-                    scope.launch { messages.showSnackbar("“${path.substringAfterLast("/")}” isn't empty. Move or delete what's inside first.") }
+                    scope.launch {
+                      messages.currentSnackbarData?.dismiss()
+                      val result = messages.showSnackbar("Deleted folder “$name”", actionLabel = "Undo", duration = SnackbarDuration.Long)
+                      if (result == SnackbarResult.ActionPerformed) inBackground { notebooks.restoreFolder(path, ownColor) }
+                    }
+                  }
+                } else {
+                  main.post {
+                    scope.launch { messages.showSnackbar("“$name” isn't empty. Move or delete what's inside first.") }
                   }
                 }
               }
@@ -1628,13 +1645,18 @@ private fun NoteScreen(
   // The space the toolbar covers beside the page, as the dock last reported it. Present mode
   // hides the toolbar, so the page may use the whole screen; leaving restores these.
   val dockSides = remember { floatArrayOf(0f, 0f) }
+  // Where the page was panned and zoomed to just before Present: leaving puts it back.
+  val viewBeforePresent = remember { ViewMemory() }
   DisposableEffect(present) {
-    canvas.presenting = present // hides the selection box and handles, and stops new selections
+    // Order matters: every call below re-clamps the view with the rules in force at that moment.
+    canvas.presenting = present // hides the selection box and handles, stops new selections, lets the page start at the very top
     if (present) {
+      viewBeforePresent.keep(canvas.currentView())
       canvas.setSideInsets(0f, 0f)
-      canvas.fitToWidth() // fills the screen; leaving keeps this zoom
+      canvas.fitToWidth() // fills the screen
     } else {
       canvas.setSideInsets(dockSides[0], dockSides[1])
+      viewBeforePresent.take()?.let(canvas::restoreView)
     }
     onDispose { canvas.presenting = false }
   }

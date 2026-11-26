@@ -410,25 +410,28 @@ fun PenLabDialog(
       tonalElevation = 0.dp,
     ) {
       Column(modifier = Modifier.padding(PenLabSpacing.xl)) {
-        Text(
-          text = title,
-          color = scheme.onSurface,
-          style = MaterialTheme.typography.headlineSmall,
-        )
-        if (subtitle != null) {
-          Spacer(Modifier.height(PenLabSpacing.xs))
+        // Title and body scroll together; only the action row is pinned. With the keyboard open the
+        // window is short, and a fixed title would squeeze the body to a sliver.
+        Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
           Text(
-            text = subtitle,
-            color = scheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
+            text = title,
+            color = scheme.onSurface,
+            style = MaterialTheme.typography.headlineSmall,
+          )
+          if (subtitle != null) {
+            Spacer(Modifier.height(PenLabSpacing.xs))
+            Text(
+              text = subtitle,
+              color = scheme.onSurfaceVariant,
+              style = MaterialTheme.typography.bodyMedium,
+            )
+          }
+          Spacer(Modifier.height(PenLabSpacing.lg))
+          Column(
+            verticalArrangement = Arrangement.spacedBy(PenLabSpacing.md),
+            content = body,
           )
         }
-        Spacer(Modifier.height(PenLabSpacing.lg))
-        Column(
-          modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
-          verticalArrangement = Arrangement.spacedBy(PenLabSpacing.md),
-          content = body,
-        )
         Spacer(Modifier.height(PenLabSpacing.xl))
         Row(
           modifier = Modifier.fillMaxWidth(),

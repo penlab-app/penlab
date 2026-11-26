@@ -45,6 +45,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextOverflow
 import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.PageBackground
@@ -59,8 +61,6 @@ import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
 import dev.penlab.app.ui.theme.flatCardSurface
-import java.text.DateFormat
-import java.util.Date
 
 /*
  * The library's cards: NotebookCard, FolderCard and CourseShelf. One depth cue each (a 1dp
@@ -110,18 +110,13 @@ internal fun NotebookCard(
   place: String? = null,
   /** The folder's colour, as a small mark beside the place. */
   accent: Int? = null,
-  /** "Today" / "3 days ago" instead of the date (Continue strip). */
-  relativeDate: Boolean = false,
 ) {
   var menu by remember { mutableStateOf(false) }
   val scheme = MaterialTheme.colorScheme
-  val date =
-    remember(notebook.modified, relativeDate) {
-      val full = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(notebook.modified))
-      if (relativeDate) relativeDayLabel(System.currentTimeMillis(), notebook.modified) ?: full else full
-    }
+  val date = remember(notebook.modified) { cardDateLabel(System.currentTimeMillis(), notebook.modified) }
   val isPdf = notebook.pdfPages.isNotEmpty()
-  val detail = if (notebook.kind == NotebookKind.INFINITE) "Canvas · $date" else "${pagesLabel(notebook.pageCount)} · $date"
+  val endless = notebook.kind == NotebookKind.INFINITE
+  val detail = cardMeta(null, endless, notebook.pageCount, date)
   Column(
     modifier
       .clip(PenLabShapes.medium)
@@ -160,23 +155,18 @@ internal fun NotebookCard(
         )
       }
     }
+    // Title beside the menu button; the grey meta line below gets the card's whole width
+    // (beside the button a shelf card had room for only ~100dp and cut the date off).
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-      Column(Modifier.weight(1f).padding(top = PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs)) {
-        Text(notebook.title, color = scheme.onSurface, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          if (place != null) {
-            Box(Modifier.size(PenLabLayout.dot).background(accent?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
-            Spacer(Modifier.width(PenLabSpacing.sm))
-          }
-          Text(
-            if (place != null) "$place · $detail" else detail,
-            color = scheme.onSurfaceVariant,
-            style = PenLabTextStyles.tabularMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-        }
-      }
+      Text(
+        notebook.title,
+        color = scheme.onSurface,
+        // Heading line breaking prefers the word boundary; a word longer than the card still has to give.
+        style = MaterialTheme.typography.titleSmall.copy(lineBreak = LineBreak.Heading, hyphens = Hyphens.None),
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f).padding(top = PenLabSpacing.sm),
+      )
       CardMenuButton("Options for ${notebook.title}", menu, onOpen = { menu = true }, onDismiss = { menu = false }) {
         PenLabMenuItem("Rename", { menu = false; onRename() }, icon = PenLabIcons.Rename)
         PenLabMenuItem("Move to folder", { menu = false; onMove() }, icon = PenLabIcons.Move)
@@ -189,6 +179,19 @@ internal fun NotebookCard(
         }
         PenLabMenuItem("Delete", { menu = false; onDelete() }, icon = PenLabIcons.Delete, destructive = true)
       }
+    }
+    Row(verticalAlignment = Alignment.Top) {
+      if (place != null) {
+        Box(Modifier.padding(top = PenLabSpacing.xs).size(PenLabLayout.dot).background(accent?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
+        Spacer(Modifier.width(PenLabSpacing.sm))
+      }
+      Text(
+        cardMeta(place, endless, notebook.pageCount, date),
+        color = scheme.onSurfaceVariant,
+        style = PenLabTextStyles.tabularMedium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+      )
     }
   }
 }

@@ -61,6 +61,7 @@ import dev.penlab.app.ui.components.PenLabChromePill
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.components.PenLabChoiceChip
 import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabShapes
@@ -783,46 +784,19 @@ fun MoveNotebookDialog(
       horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
       verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
     ) {
-      FolderPickChip(
+      PenLabChoiceChip(
         label = "Top level",
         selected = folderInput.trim().isEmpty(),
         onClick = { folderInput = "" },
       )
       for (folder in folders) {
-        FolderPickChip(
+        PenLabChoiceChip(
           label = folder.replace("/", " › "),
           selected = folderInput.trim() == folder,
           onClick = { folderInput = folder },
         )
       }
     }
-  }
-}
-
-@Composable
-private fun FolderPickChip(
-  label: String,
-  selected: Boolean,
-  onClick: () -> Unit,
-) {
-  val scheme = MaterialTheme.colorScheme
-  Box(
-    modifier =
-      Modifier
-        .heightIn(min = 42.dp)
-        .clip(PenLabShapes.small)
-        .background(if (selected) PenLabComponentTokens.chipSelectedBg else PenLabComponentTokens.chipIdleBg)
-        .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-        .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
-    contentAlignment = Alignment.Center,
-  ) {
-    Text(
-      text = label,
-      color = if (selected) PenLabComponentTokens.chipSelectedContent else scheme.onSurface,
-      style = MaterialTheme.typography.labelLarge,
-      maxLines = 1,
-      overflow = TextOverflow.Ellipsis,
-    )
   }
 }
 

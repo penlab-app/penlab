@@ -1186,7 +1186,7 @@ class InkCanvasView(
     val layout = pageLayout ?: return
     val point = floatArrayOf(layout.pageWidth / 2f, layout.top(page.coerceIn(0, layout.count - 1)))
     pageToScreen.mapPoints(point)
-    pageToScreen.postTranslate(width / 2f - point[0], TOP_CLEARANCE_DP * density - point[1])
+    pageToScreen.postTranslate(width / 2f - point[0], topClearancePx(presenting, density) - point[1])
     viewMoved()
   }
 
@@ -1529,7 +1529,7 @@ class InkCanvasView(
     var tx = oldTx
     val free = width - leftInset - rightInset
     tx = if (pageWidth <= free) leftInset + (free - pageWidth) / 2f else tx.coerceIn(width - rightInset - pageWidth, leftInset)
-    val topLimit = TOP_CLEARANCE_DP * density
+    val topLimit = topClearancePx(presenting, density)
     val ty = matrixValues[Matrix.MTRANS_Y].coerceAtMost(topLimit)
     if (tx != matrixValues[Matrix.MTRANS_X] || ty != matrixValues[Matrix.MTRANS_Y]) {
       matrixValues[Matrix.MTRANS_X] = tx
@@ -1607,7 +1607,7 @@ class InkCanvasView(
     val zoom = ((width - 2 * margin) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
     pageToScreen.setScale(zoom, zoom)
     // Start below the back / page / zoom buttons along the top.
-    pageToScreen.postTranslate((width - layout.pageWidth * zoom) / 2f, TOP_CLEARANCE_DP * density)
+    pageToScreen.postTranslate((width - layout.pageWidth * zoom) / 2f, topClearancePx(presenting, density))
     viewMoved()
   }
 
@@ -3735,9 +3735,6 @@ class InkCanvasView(
 
     /** Margin round a page when fitting it to the screen width (dp). */
     const val FIT_MARGIN_DP = 24f
-
-    /** Room left above a page's top edge for the buttons along the top of the screen (dp). */
-    const val TOP_CLEARANCE_DP = 64f
 
     /** How long the pen must hold still at the end of a stroke to turn it into a shape. */
     const val HOLD_MS = 500L

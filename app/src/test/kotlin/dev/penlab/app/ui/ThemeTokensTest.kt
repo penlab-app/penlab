@@ -1,6 +1,7 @@
 package dev.penlab.app.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.ui.theme.AccentTheme
 import dev.penlab.app.ui.theme.PageThemeMode
@@ -74,6 +75,21 @@ class ThemeTokensTest {
       assertContrastAtLeast("$label onError on error", s.onError, s.error, 4.5)
       assertContrastAtLeast("$label onErrorContainer on errorContainer", s.onErrorContainer, s.errorContainer, 4.5)
       assertContrastAtLeast("$label inverseOnSurface on inverseSurface", s.inverseOnSurface, s.inverseSurface, 4.5)
+    }
+  }
+
+  @Test
+  fun chosenSegmentStandsOutFromTheTrackInAllFourThemes() {
+    for ((accent, isDark) in allCombos) {
+      val s = penLabColorScheme(accent, isDark)
+      val e = penLabExtendedColors(accent, isDark)
+      // The track is the translucent chip colour over the surface the control sits on (dialog / panel).
+      val track = e.chipIdle.compositeOver(s.surfaceContainerHigh)
+      val label = "${accent.name}/${if (isDark) "DARK" else "LIGHT"}"
+      // Segment tokens: selected = primary fill with onPrimary text (PenLabComponentTokens.segmentSelected*).
+      assertContrastAtLeast("$label chosen segment on track", s.primary, track, 3.0)
+      assertContrastAtLeast("$label chosen segment text", s.onPrimary, s.primary, 4.5)
+      assertContrastAtLeast("$label idle segment text on track", s.onSurface, track, 4.5)
     }
   }
 

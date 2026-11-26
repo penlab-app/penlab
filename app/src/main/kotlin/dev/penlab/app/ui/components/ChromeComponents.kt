@@ -3,6 +3,7 @@ package dev.penlab.app.ui.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -44,9 +45,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.ui.Motion
+import dev.penlab.app.ui.PenLabIcons
 import dev.penlab.app.ui.ignorePalm
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.floatingChromeSurface
@@ -171,7 +174,7 @@ fun PenLabIconButton(
 
 /**
  * Crisp segmented control with optional leading Phosphor Duotone icon per segment, tonal active
- * highlight, >=48dp touch height per option, and smooth transitions respecting [Motion.speed].
+ * highlight (solid primary, so the chosen option reads at a glance), >=48dp touch height per option, and smooth transitions respecting [Motion.speed].
  */
 @Composable
 fun <T> PenLabSegmentedControl(
@@ -207,7 +210,7 @@ fun <T> PenLabSegmentedControl(
         label = "segmentPress",
       )
       val bgColor by animateColorAsState(
-        targetValue = if (isSelected) PenLabComponentTokens.chipSelectedBg else Color.Transparent,
+        targetValue = if (isSelected) PenLabComponentTokens.segmentSelectedBg else Color.Transparent,
         animationSpec = Motion.tween(140),
         label = "segmentBg",
       )
@@ -215,8 +218,8 @@ fun <T> PenLabSegmentedControl(
         targetValue =
           when {
             !enabled -> PenLabComponentTokens.toolIconDisabled
-            isSelected -> PenLabComponentTokens.chipSelectedContent
-            else -> scheme.onSurfaceVariant
+            isSelected -> PenLabComponentTokens.segmentSelectedContent
+            else -> scheme.onSurface
           },
         animationSpec = Motion.tween(140),
         label = "segmentFg",
@@ -304,4 +307,47 @@ fun PenLabPopoverSurface(
     verticalArrangement = verticalArrangement,
     content = content,
   )
+}
+
+/**
+ * A choice chip for "pick one of these places" lists (Move to folder). The chosen one says so
+ * three ways, so it never rests on fill colour alone: tinted fill, a primary outline ring and a
+ * leading check. Meant to sit in a `selectableGroup`.
+ */
+@Composable
+fun PenLabChoiceChip(
+  label: String,
+  selected: Boolean,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val scheme = MaterialTheme.colorScheme
+  Row(
+    modifier =
+      modifier
+        .heightIn(min = PenLabSpacing.touchTarget)
+        .clip(PenLabShapes.small)
+        .background(if (selected) PenLabComponentTokens.chipSelectedBg else PenLabComponentTokens.chipIdleBg)
+        .then(if (selected) Modifier.border(PenLabLayout.ringSelected, scheme.primary, PenLabShapes.small) else Modifier)
+        .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+        .padding(horizontal = PenLabSpacing.lg, vertical = PenLabSpacing.sm),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    if (selected) {
+      Icon(
+        imageVector = PenLabIcons.CheckBare,
+        contentDescription = null,
+        tint = PenLabComponentTokens.chipSelectedContent,
+        modifier = Modifier.size(PenLabLayout.iconSmall),
+      )
+      Spacer(Modifier.width(PenLabSpacing.sm))
+    }
+    Text(
+      text = label,
+      color = if (selected) PenLabComponentTokens.chipSelectedContent else scheme.onSurface,
+      style = MaterialTheme.typography.labelLarge,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
+  }
 }

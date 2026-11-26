@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -50,20 +53,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import dev.penlab.app.notes.NotebookInfo
 import dev.penlab.app.notes.NotebookKind
 import dev.penlab.app.ink.PageStyle
+import dev.penlab.app.ui.components.PenLabChoiceChip
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.components.PenLabEmptyState
 import dev.penlab.app.ui.components.PenLabIconButton
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabSectionHeader
 import dev.penlab.app.ui.theme.FolderPalette
+import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
@@ -134,6 +141,8 @@ fun LibraryScreen(
     folders.filter { it.substringBeforeLast("/", "") == current && it != current }
   }
   val here = remember(notebooks, current) { notebooks.filter { it.folder == current } }
+  // Notebooks whose title matches come first, above the handwriting matches.
+  val titleHits = remember(searchQuery, notebooks) { titleMatches(searchQuery, notebooks) }
 
   Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     Column(Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -147,13 +156,16 @@ fun LibraryScreen(
         onNewFolder = { creatingFolder = true },
         onOpenSettings = onOpenSettings,
         onNewNotebook = { creating = true },
+        // An empty library or folder has its own "New notebook" button in the middle; that one is
+        // the screen's primary, so this one steps back to the tonal style of its neighbours.
+        newNotebookIsPrimary = !(searchQuery.isBlank() && subfolders.isEmpty() && here.isEmpty()),
       )
       FolderTrail(current, folderColors, onGo = onFolderChange)
 
       if (storageBanner) StorageBanner(onAllowStorage, onDismissStorageBanner)
 
       if (searchQuery.isNotBlank()) {
-        LibrarySearchResults(searchQuery, searchResults, searchReading, onOpenResult)
+        LibrarySearchResults(searchQuery, titleHits, searchResults, searchReading, onOpenResult, onOpenNotebook = onOpen)
       } else if (subfolders.isEmpty() && here.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
           if (current.isEmpty()) EmptyLibraryState(onNewNotebook = { creating = true }, onImportPdf = onImportPdf)
@@ -273,6 +285,7 @@ private fun LibraryHeader(
   onNewFolder: () -> Unit,
   onOpenSettings: () -> Unit,
   onNewNotebook: () -> Unit,
+  newNotebookIsPrimary: Boolean,
 ) {
   BoxWithConstraints(Modifier.fillMaxWidth()) {
     val narrow = maxWidth < PenLabLayout.headerNarrowBreakpoint
@@ -281,16 +294,31 @@ private fun LibraryHeader(
       PenLabIconButton(icon = PenLabIcons.FolderPlus, contentDescription = "New folder", onClick = onNewFolder)
       PenLabIconButton(icon = PenLabIcons.Settings, contentDescription = "Settings", onClick = onOpenSettings)
       Spacer(Modifier.width(PenLabSpacing.sm))
-      Button(
-        onClick = onNewNotebook,
-        shape = PenLabShapes.pill,
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-        modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
-        contentPadding = PaddingValues(horizontal = PenLabSpacing.lg, vertical = PenLabSpacing.sm),
-      ) {
+      val scheme = MaterialTheme.colorScheme
+      val label: @Composable RowScope.() -> Unit = {
         Icon(PenLabIcons.FilePlus, contentDescription = null, modifier = Modifier.size(PenLabLayout.iconMedium))
         Spacer(Modifier.width(PenLabSpacing.sm))
         Text("New notebook", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+      }
+      val buttonPadding = PaddingValues(horizontal = PenLabSpacing.lg, vertical = PenLabSpacing.sm)
+      if (newNotebookIsPrimary) {
+        Button(
+          onClick = onNewNotebook,
+          shape = PenLabShapes.pill,
+          colors = ButtonDefaults.buttonColors(containerColor = scheme.primary, contentColor = scheme.onPrimary),
+          modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+          contentPadding = buttonPadding,
+          content = label,
+        )
+      } else {
+        FilledTonalButton(
+          onClick = onNewNotebook,
+          shape = PenLabShapes.pill,
+          colors = ButtonDefaults.filledTonalButtonColors(containerColor = PenLabComponentTokens.chipIdleBg, contentColor = scheme.onSurface),
+          modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+          contentPadding = buttonPadding,
+          content = label,
+        )
       }
     }
     val padding = Modifier.fillMaxWidth().padding(start = PenLabLayout.libraryGutter, end = PenLabLayout.libraryGutter, top = PenLabLayout.libraryGutter, bottom = PenLabSpacing.sm)
@@ -421,8 +449,9 @@ private fun LibraryGrid(
     return if (isTerm) kids.flatMap(::shelvesOf) else listOf(folder)
   }
   val shelves = remember(subfolders, folders, notebooks, current) { if (current.isEmpty()) subfolders.flatMap(::shelvesOf) else emptyList() }
-  // Section headings only when there is more than one section to tell apart.
-  val headings = listOf(recent.isNotEmpty(), subfolders.isNotEmpty(), here.isNotEmpty()).count { it } > 1
+  // Section headings only when there is more than one section to tell apart, and never one that
+  // repeats the page title (see sectionHeadings).
+  val headings = sectionHeadings(recent.isNotEmpty(), subfolders.isNotEmpty(), here.isNotEmpty(), current)
   val full: GridSpan = { GridItemSpan(maxLineSpan) }
 
   LazyVerticalGrid(
@@ -435,7 +464,7 @@ private fun LibraryGrid(
     if (recent.isNotEmpty()) {
       item(key = "continue", span = full, contentType = "continue") {
         Column {
-          if (headings) PenLabSectionHeader("Continue", topPadding = PenLabSpacing.xs)
+          if (headings.continueStrip) PenLabSectionHeader(CONTINUE_HEADING, topPadding = PenLabSpacing.xs)
           Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xl)) {
             for (notebook in recent) {
               NotebookCard(
@@ -445,16 +474,15 @@ private fun LibraryGrid(
                 modifier = Modifier.width(PenLabLayout.continueCardWidth),
                 place = notebook.folder.substringAfterLast("/").ifEmpty { null },
                 accent = folderColor(notebook.folder, folderColors),
-                relativeDate = true,
               )
             }
           }
         }
       }
     }
-    if (headings && subfolders.isNotEmpty()) {
+    if (headings.folders) {
       item(key = "folders-heading", span = full, contentType = "heading") {
-        PenLabSectionHeader(if (current.isEmpty()) "Courses" else "Folders", topPadding = PenLabSpacing.xs)
+        PenLabSectionHeader(if (current.isEmpty()) COURSES_HEADING else FOLDERS_HEADING, topPadding = PenLabSpacing.xs)
       }
     }
     // Course shelves: at the top level each folder is a row of its notebooks, newest first;
@@ -499,9 +527,9 @@ private fun LibraryGrid(
       }
     }
     // Loose notebooks after the folders get their own heading.
-    if (headings && here.isNotEmpty()) {
+    if (headings.notebooks) {
       item(key = "notebooks-heading", span = full, contentType = "heading") {
-        PenLabSectionHeader("Notebooks", topPadding = PenLabSpacing.xs)
+        PenLabSectionHeader(NOTEBOOKS_HEADING, topPadding = PenLabSpacing.xs)
       }
     }
     items(here, key = { it.id }, contentType = { "notebook" }) { notebook ->
@@ -554,8 +582,8 @@ private fun MoveDialog(notebook: NotebookInfo, folders: List<String>, onDismiss:
   var target by remember { mutableStateOf(notebook.folder) }
   PenLabDialog(title = "Move “${notebook.title}”", onDismiss = onDismiss, primaryLabel = "Move", onPrimaryClick = { onMove(target) }) {
     FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
-      ChoiceChip("No folder", target.isEmpty()) { target = "" }
-      for (f in folders) ChoiceChip(f.replace("/", " › "), target == f) { target = f }
+      PenLabChoiceChip("No folder", target.isEmpty(), onClick = { target = "" })
+      for (f in folders) PenLabChoiceChip(f.replace("/", " › "), target == f, onClick = { target = f })
     }
   }
 }
@@ -573,8 +601,8 @@ private fun FolderMoveDialog(name: String, parent: String, places: List<String>,
     primaryEnabled = target != parent,
   ) {
     FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
-      ChoiceChip("Top level", target.isEmpty()) { target = "" }
-      for (f in places) ChoiceChip(f.replace("/", " › "), target == f) { target = f }
+      PenLabChoiceChip("Top level", target.isEmpty(), onClick = { target = "" })
+      for (f in places) PenLabChoiceChip(f.replace("/", " › "), target == f, onClick = { target = f })
     }
   }
 }
@@ -589,26 +617,61 @@ fun folderColor(path: String, colors: Map<String, Int>): Int? {
   }
 }
 
+/**
+ * Pick a folder's colour. Tapping a swatch applies it at once; "No colour" is one more choice in
+ * the row, not a button, so it only looks chosen when it is the current state. The current choice
+ * has a ring and a check, never fill alone.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FolderColorDialog(name: String, current: Int?, onDismiss: () -> Unit, onPick: (Int?) -> Unit) {
   val scheme = MaterialTheme.colorScheme
+  val edge = LocalPenLabColors.current.swatchEdge
+  val lightCheck = if (LocalPenLabColors.current.isDark) scheme.onSurface else scheme.surface
+  val darkCheck = if (LocalPenLabColors.current.isDark) scheme.surface else scheme.onSurface
   PenLabDialog(
     title = "Colour for “$name”",
     onDismiss = onDismiss,
-    primaryLabel = "No colour",
-    onPrimaryClick = { onPick(null) },
+    primaryLabel = "Done",
+    onPrimaryClick = onDismiss,
+    secondaryLabel = null,
+    onSecondaryClick = null,
     subtitle = "Folders inside take this colour unless they have their own.",
   ) {
-    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.md), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.md)) {
+    FlowRow(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
+      FolderColorSwatch(null, selected = current == null, description = "No colour", edge = edge, checkTint = scheme.onSurface) { onPick(null) }
       for (c in FolderPalette) {
-        val selected = c == current
-        Box(
-          Modifier.size(PenLabSpacing.touchTarget).clip(CircleShape).background(Color(c))
-            .then(if (selected) Modifier.border(PenLabLayout.ringSelected, scheme.onSurface, CircleShape) else Modifier)
-            .selectable(selected = selected, role = Role.RadioButton) { onPick(c) }
-            .semantics { contentDescription = "Colour ${FolderPalette.indexOf(c) + 1}" + if (selected) ", chosen" else "" },
-        )
+        val swatch = Color(c)
+        FolderColorSwatch(
+          swatch,
+          selected = c == current,
+          description = "Colour ${FolderPalette.indexOf(c) + 1}",
+          edge = edge,
+          checkTint = swatchCheckTint(swatch, lightCheck, darkCheck),
+        ) { onPick(c) }
+      }
+    }
+  }
+}
+
+/** One round colour choice (48dp target): a ring and a check mark when chosen; [color] null is "No colour" (an empty circle with a cross). */
+@Composable
+private fun FolderColorSwatch(color: Color?, selected: Boolean, description: String, edge: Color, checkTint: Color, onClick: () -> Unit) {
+  val scheme = MaterialTheme.colorScheme
+  Box(
+    Modifier.size(PenLabSpacing.touchTarget).clip(CircleShape)
+      .then(if (selected) Modifier.border(PenLabLayout.ringSelected, scheme.primary, CircleShape) else Modifier)
+      .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+      .semantics { contentDescription = description + if (selected) ", chosen" else "" },
+    contentAlignment = Alignment.Center,
+  ) {
+    Box(
+      Modifier.size(PenLabLayout.swatchSize).clip(CircleShape).background(color ?: Color.Transparent).border(PenLabLayout.hairline, edge, CircleShape),
+      contentAlignment = Alignment.Center,
+    ) {
+      when {
+        selected -> Icon(PenLabIcons.CheckBare, contentDescription = null, tint = checkTint, modifier = Modifier.size(PenLabLayout.iconMedium))
+        color == null -> Icon(PenLabIcons.Close, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(PenLabLayout.iconMedium))
       }
     }
   }
@@ -631,12 +694,18 @@ private fun TextPromptDialog(
 }
 
 @Composable
-internal fun PenLabTextField(value: String, onChange: (String) -> Unit, label: String) {
+internal fun PenLabTextField(value: String, onChange: (String) -> Unit, label: String, minLines: Int = 1) {
+  val focus = LocalFocusManager.current
   OutlinedTextField(
     value = value,
     onValueChange = onChange,
     label = { Text(label) },
-    singleLine = true,
+    singleLine = minLines == 1,
+    minLines = minLines,
+    // Done puts the keyboard away instead of leaving it over the rest of the dialog (a
+    // several-line field keeps Enter for new lines).
+    keyboardOptions = if (minLines == 1) KeyboardOptions(imeAction = ImeAction.Done) else KeyboardOptions.Default,
+    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
     shape = PenLabShapes.small,
     colors =
       OutlinedTextFieldDefaults.colors(
@@ -649,23 +718,6 @@ internal fun PenLabTextField(value: String, onChange: (String) -> Unit, label: S
         cursorColor = MaterialTheme.colorScheme.primary,
       ),
     modifier = Modifier.fillMaxWidth(),
-  )
-}
-
-@Composable
-private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
-  Text(
-    label,
-    color = if (selected) PenLabComponentTokens.chipSelectedContent else MaterialTheme.colorScheme.onSurface,
-    style = MaterialTheme.typography.labelLarge,
-    maxLines = 1,
-    overflow = TextOverflow.Ellipsis,
-    modifier =
-      Modifier.clip(PenLabShapes.small)
-        .background(if (selected) PenLabComponentTokens.chipSelectedBg else PenLabComponentTokens.chipIdleBg, PenLabShapes.small)
-        .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-        .heightIn(min = PenLabSpacing.touchTarget)
-        .padding(horizontal = PenLabSpacing.lg, vertical = PenLabSpacing.md),
   )
 }
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -22,6 +23,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -29,6 +33,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -162,6 +171,15 @@ private fun StepperIconButton(icon: ImageVector, label: String, enabled: Boolean
   }
 }
 
+/** The line above the results: what was found, in titles and lines of handwriting. */
+internal fun searchSummary(query: String, titles: Int, lines: Int, notebooksWithLines: Int): String {
+  val parts = buildList {
+    if (titles > 0) add(if (titles == 1) "1 notebook title" else "$titles notebook titles")
+    if (lines > 0) add((if (lines == 1) "1 line" else "$lines lines") + " of handwriting in $notebooksWithLines notebook" + if (notebooksWithLines == 1) "" else "s")
+  }
+  return if (parts.isEmpty()) "No matches for “$query”" else parts.joinToString(" · ")
+}
+
 private fun statusText(status: HandwritingIndex.Status): String? = when (status) {
   HandwritingIndex.Status.Ready -> null
   HandwritingIndex.Status.Downloading -> "Downloading the handwriting reader (once, about 20 MB)…"
@@ -194,6 +212,11 @@ fun PenLabSearchField(
   modifier: Modifier = Modifier,
   reading: Pair<Int, Int>? = null,
 ) {
+  // Only a touch may focus this field. When a notebook closes and the library comes back, Android
+  // hands focus to the first focusable thing on the screen, which is this field: the cursor
+  // blinked in it and the keyboard could pop up. Focus that arrives without a touch is dropped.
+  val focus = LocalFocusManager.current
+  var touched by remember { mutableStateOf(false) }
   androidx.compose.foundation.text.BasicTextField(
     value = query,
     onValueChange = onQueryChange,
@@ -201,7 +224,17 @@ fun PenLabSearchField(
     textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
     cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-    modifier = modifier.semantics { contentDescription = "Search all notebooks" },
+    modifier = modifier
+      .pointerInput(Unit) {
+        awaitPointerEventScope {
+          while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.any { it.pressed }) touched = true
+          }
+        }
+      }
+      .onFocusChanged { if (it.isFocused && !touched) focus.clearFocus() }
+      .semantics { contentDescription = "Search all notebooks" },
     decorationBox = { field ->
       Row(
         Modifier
@@ -256,22 +289,24 @@ fun PenLabSearchField(
   )
 }
 
-/** Matches from every notebook, grouped under the notebook's name; tap one to open it there. */
+/**
+ * Matches from every notebook: first the notebooks whose title matches ([titleHits], tap to open
+ * the notebook), then the lines of handwriting, grouped under the notebook's name (tap one to
+ * open it there).
+ */
 @Composable
 fun LibrarySearchResults(
   query: String,
+  titleHits: List<dev.penlab.app.notes.NotebookInfo>,
   results: List<dev.penlab.app.search.LibrarySearch.Result>,
   reading: Pair<Int, Int>?,
   onOpen: (dev.penlab.app.search.LibrarySearch.Result) -> Unit,
+  onOpenNotebook: (dev.penlab.app.notes.NotebookInfo) -> Unit,
 ) {
   val groups = remember(results) { results.groupBy { it.notebook.id }.values.toList() }
   LazyColumn(Modifier.fillMaxWidth().padding(horizontal = PenLabLayout.libraryGutter)) {
     item {
-      val count = when (results.size) {
-        0 -> "No matches for “$query”"
-        1 -> "1 match"
-        else -> "${results.size} matches in ${groups.size} notebook" + if (groups.size == 1) "" else "s"
-      }
+      val count = searchSummary(query, titleHits.size, results.size, groups.size)
       Column(Modifier.padding(vertical = 8.dp)) {
         Text(count, color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall)
         if (reading != null) {
@@ -280,6 +315,36 @@ fun LibrarySearchResults(
             color = PenLabColors.iconDisabled,
             style = MaterialTheme.typography.bodySmall,
           )
+        }
+      }
+    }
+    if (titleHits.isNotEmpty()) {
+      item(key = "titles-heading") {
+        Text(
+          "Notebook titles",
+          color = PenLabColors.iconDisabled,
+          style = MaterialTheme.typography.labelLarge,
+          modifier = Modifier.padding(top = PenLabSpacing.md, bottom = PenLabSpacing.xs),
+        )
+      }
+      items(titleHits, key = { "title-" + it.id }) { notebook ->
+        Row(
+          Modifier.fillMaxWidth().heightIn(min = PenLabSpacing.touchTarget).clip(PenLabShapes.small).clickable(role = Role.Button) { onOpenNotebook(notebook) }
+            .padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.sm),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(PenLabIcons.Paper, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = PenLabSpacing.md).size(PenLabLayout.iconMedium))
+          Text(notebook.title, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+          if (notebook.folder.isNotEmpty()) {
+            Text(
+              notebook.folder.replace("/", " › "),
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              style = MaterialTheme.typography.labelMedium,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.padding(start = PenLabSpacing.md),
+            )
+          }
         }
       }
     }

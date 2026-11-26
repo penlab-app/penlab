@@ -125,13 +125,23 @@ class NotebookStore(private val location: LibraryLocation) {
     }
   }
 
-  /** Removes an empty folder. Returns false if it still holds notebooks or folders. */
+  /**
+   * Removes an empty folder and its own colour (a new folder of the same name must not come back
+   * coloured). Returns false if it still holds notebooks or folders.
+   */
   fun deleteFolder(path: String): Boolean {
     val all = folders()
     if (list().any { it.folder == path || it.folder.startsWith("$path/") }) return false
     if (all.any { it.startsWith("$path/") }) return false
     writeFolders(all - path)
+    if (path in folderColors()) setFolderColor(path, null)
     return true
+  }
+
+  /** Undo of [deleteFolder]: the folder back under its parent, with the colour it had of its own (null = none). */
+  fun restoreFolder(path: String, color: Int?) {
+    createFolder(path)
+    if (color != null) setFolderColor(path, color)
   }
 
   private fun writeFolders(paths: List<String>) {

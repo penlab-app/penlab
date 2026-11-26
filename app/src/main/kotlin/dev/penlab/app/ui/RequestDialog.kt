@@ -1,19 +1,8 @@
 package dev.penlab.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -27,86 +16,53 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.dp
 import dev.penlab.app.notes.Request
+import dev.penlab.app.ui.components.PenLabDialog
+import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.theme.PenLabColors
+import dev.penlab.app.ui.theme.PenLabSpacing
+
+/** How many of the earlier notes the form lists (the rest is in requests.md). */
+private const val LISTED_REQUESTS = 12
 
 /**
  * The quick form: bug or feature, one line about it, Save. Underneath, the running list (open
- * items first), so it is clear what is already noted.
+ * items first), so it is clear what is already noted. Built on [PenLabDialog] like Rename and
+ * New folder: pill primary (Save), text secondary (Cancel).
  */
 @Composable
 fun RequestDialog(where: String, existing: List<Request>, onDismiss: () -> Unit, onSave: (kind: String, text: String) -> Unit) {
   var kind by remember { mutableStateOf("Bug") }
   var text by remember { mutableStateOf("") }
   val open = existing.count { !it.done }
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    title = { Text("Note a bug or idea", color = MaterialTheme.colorScheme.onSurface) },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          for (option in listOf("Bug", "Feature")) {
-            SmallChoice(option, kind == option) { kind = option }
-          }
+  PenLabDialog(
+    title = "Note a bug or idea",
+    onDismiss = onDismiss,
+    primaryLabel = "Save",
+    onPrimaryClick = { onSave(kind, text) },
+    primaryEnabled = text.isNotBlank(),
+  ) {
+    PenLabSegmentedControl(options = listOf("Bug", "Feature"), selected = kind, onSelect = { kind = it }, label = { it })
+    PenLabTextField(text, { text = it }, if (kind == "Bug") "What went wrong?" else "What should it do?", minLines = 3)
+    Text("Saved with: $where", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodySmall)
+    if (existing.isNotEmpty()) {
+      Text("Your list · $open open", color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall)
+      // Plain rows: the dialog already scrolls, and a scrolling list inside it cannot size itself.
+      val shown = existing.sortedBy { it.done }.take(LISTED_REQUESTS)
+      Column(verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs)) {
+        for (item in shown) {
+          Text(
+            "${item.kind} · ${item.text}",
+            color = if (item.done) PenLabColors.iconDisabled else PenLabColors.icon,
+            style = MaterialTheme.typography.bodyMedium.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
+          )
         }
-        OutlinedTextField(
-          value = text,
-          onValueChange = { text = it },
-          label = { Text(if (kind == "Bug") "What went wrong?" else "What should it do?") },
-          minLines = 3,
-          colors =
-            OutlinedTextFieldDefaults.colors(
-              focusedTextColor = MaterialTheme.colorScheme.onSurface,
-              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-              focusedBorderColor = MaterialTheme.colorScheme.primary,
-              unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-              focusedLabelColor = MaterialTheme.colorScheme.primary,
-              unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-              cursorColor = MaterialTheme.colorScheme.primary,
-            ),
-          modifier = Modifier.fillMaxWidth(),
-        )
-        Text("Saved with: $where", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodySmall)
-        if (existing.isNotEmpty()) {
-          Text("Your list · $open open", color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall)
-          LazyColumn(Modifier.heightIn(max = 220.dp)) {
-            items(existing.sortedBy { it.done }) { item ->
-              Text(
-                "${item.kind} · ${item.text}",
-                color = if (item.done) PenLabColors.iconDisabled else PenLabColors.icon,
-                style = MaterialTheme.typography.bodyMedium.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
-                modifier = Modifier.padding(vertical = 4.dp),
-              )
-            }
-          }
+        if (existing.size > shown.size) {
+          Text("and ${existing.size - shown.size} more", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodySmall)
         }
       }
-    },
-    confirmButton = {
-      TextButton(onClick = { onSave(kind, text) }, enabled = text.isNotBlank()) {
-        Text("Save", color = if (text.isNotBlank()) PenLabColors.icon else PenLabColors.iconDisabled)
-      }
-    },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = PenLabColors.iconDisabled) } },
-  )
-}
-
-@Composable
-private fun SmallChoice(label: String, selected: Boolean, onClick: () -> Unit) {
-  val shape = RoundedCornerShape(10.dp)
-  Text(
-    label,
-    color = if (selected) PenLabColors.onAccent else PenLabColors.icon,
-    style = MaterialTheme.typography.labelLarge,
-    modifier =
-      Modifier.clip(shape)
-        .background(if (selected) PenLabColors.accent else PenLabColors.chip, shape)
-        .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-        .heightIn(min = 40.dp)
-        .padding(horizontal = 14.dp, vertical = 10.dp),
-  )
+    }
+  }
 }
 
 /** Typing or editing a text box. Saving empty text removes the box. */

@@ -5,6 +5,8 @@ import dev.penlab.app.notes.NotebookInfo
 import dev.penlab.app.notes.NotebookKind
 import java.time.Instant
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /*
  * The library's decisions, kept free of Compose and Android so plain JVM tests can check them:
@@ -52,13 +54,54 @@ fun importMenuEntries(current: String): List<ImportMenuEntry> {
 const val CONTINUE_LIMIT = 4
 
 /**
- * The notebooks touched last, newest first, for the top level only. With fewer than two notebooks
- * the strip would only repeat the shelf below it, so it is left out (empty list).
+ * The notebooks touched last, newest first, for the top level only. A library of [limit] notebooks
+ * or fewer is already all on screen below, so the strip would only repeat it and is left out.
  */
 fun continueNotebooks(notebooks: List<NotebookInfo>, current: String, limit: Int = CONTINUE_LIMIT): List<NotebookInfo> {
-  if (current.isNotEmpty() || notebooks.size < 2) return emptyList()
+  if (current.isNotEmpty() || notebooks.size <= limit) return emptyList()
   return notebooks.sortedByDescending { it.modified }.take(limit)
 }
+
+/** Which section headings the library shows: see [sectionHeadings]. */
+data class SectionHeadings(val continueStrip: Boolean, val folders: Boolean, val notebooks: Boolean)
+
+/** The headings' texts, so the logic below and the screen cannot disagree. */
+const val CONTINUE_HEADING = "Continue"
+const val COURSES_HEADING = "Courses"
+const val FOLDERS_HEADING = "Folders"
+const val NOTEBOOKS_HEADING = "Notebooks"
+
+/**
+ * A heading is shown only when there is more than one section to tell apart, and never when its
+ * text is the page title (the last crumb: "Notebooks" at the top, else the open folder's name),
+ * which would just say the same thing twice.
+ */
+fun sectionHeadings(hasContinue: Boolean, hasFolders: Boolean, hasNotebooks: Boolean, current: String): SectionHeadings {
+  val several = listOf(hasContinue, hasFolders, hasNotebooks).count { it } > 1
+  val title = breadcrumbs(current).last().label
+  fun show(present: Boolean, text: String) = several && present && !text.equals(title, ignoreCase = true)
+  return SectionHeadings(
+    continueStrip = show(hasContinue, CONTINUE_HEADING),
+    folders = show(hasFolders, if (current.isEmpty()) COURSES_HEADING else FOLDERS_HEADING),
+    notebooks = show(hasNotebooks, NOTEBOOKS_HEADING),
+  )
+}
+
+// ---- Library search by title ---------------------------------------------------------------
+
+/**
+ * Notebooks whose title contains [query], titles starting with it first, then newest first. Same
+ * matching as handwriting search: letters and digits only, any case ("diffeq" finds "Diff. Eq").
+ */
+fun titleMatches(query: String, notebooks: List<NotebookInfo>): List<NotebookInfo> {
+  val wanted = searchKey(query)
+  if (wanted.isEmpty()) return emptyList()
+  return notebooks
+    .filter { searchKey(it.title).contains(wanted) }
+    .sortedWith(compareByDescending<NotebookInfo> { searchKey(it.title).startsWith(wanted) }.thenByDescending { it.modified })
+}
+
+private fun searchKey(text: String): String = text.lowercase().filter { it.isLetterOrDigit() }
 
 /**
  * "Today", "Yesterday" or "3 days ago" for the last week; null beyond that, so the caller prints
@@ -77,8 +120,34 @@ fun relativeDayLabel(nowMs: Long, thenMs: Long, zone: ZoneId = ZoneId.systemDefa
   }
 }
 
+/**
+ * The one date style of every notebook card: "Today" / "Yesterday" / "3 days ago" for the last
+ * week, else a short "26 Nov" (the year is added only for another year, "26 Nov 2025"). The
+ * space inside a date is non-breaking, so when a card is narrow the line breaks between the
+ * pages and the date, never in the middle of a date.
+ */
+fun cardDateLabel(nowMs: Long, thenMs: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String {
+  relativeDayLabel(nowMs, thenMs, zone)?.let { return it.replace(' ', NBSP) }
+  val then = Instant.ofEpochMilli(thenMs).atZone(zone)
+  val sameYear = then.year == Instant.ofEpochMilli(nowMs).atZone(zone).year
+  val pattern = if (sameYear) "d MMM" else "d MMM yyyy"
+  return then.format(DateTimeFormatter.ofPattern(pattern, locale)).replace(' ', NBSP)
+}
+
+private const val NBSP = '\u00A0'
+
 /** "4 pages", "1 page". */
 fun pagesLabel(count: Int): String = "$count ${if (count == 1) "page" else "pages"}"
+
+/**
+ * The small grey line under a card's title: "[place · ]4 pages · 26 Nov" ("Canvas" for an endless
+ * canvas). Each dot hangs on the end of the part before it and a part's own spaces are
+ * non-breaking, so on a narrow card the line wraps between parts instead of cutting one.
+ */
+fun cardMeta(place: String?, endless: Boolean, pageCount: Int, date: String): String {
+  val size = if (endless) "Canvas" else pagesLabel(pageCount).replace(' ', NBSP)
+  return listOfNotNull(place, size, date).joinToString("$NBSP· ")
+}
 
 /** "1 notebook", "3 notebooks". */
 fun notebooksLabel(count: Int): String = if (count == 1) "1 notebook" else "$count notebooks"

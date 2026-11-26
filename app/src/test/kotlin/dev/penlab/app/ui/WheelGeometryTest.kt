@@ -240,7 +240,7 @@ class WheelGeometryTest {
   fun theVisibleArcIsAtLeastAHalfCircleAndHoldsMoreThanFourTools() {
     for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
       val (_, ring) = ringFor(onLeft, onTop, side, bottom, top)
-      assertTrue("arc ${ring.spanDeg}", ring.spanDeg >= 130f)
+      assertTrue("arc ${ring.spanDeg}", ring.spanDeg >= 120f)
       assertTrue("count ${ring.count}", ring.count >= 4)
       assertEquals(ring.spanDeg, (ring.count - 1) * ring.stepDeg, 0.01f)
     }

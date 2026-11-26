@@ -24,6 +24,56 @@ object InkColors {
   /** Around the pages of an A4 notebook: a desk a step darker (or greyer) than the paper. */
   fun deskOnScreen(darkPage: Boolean): Int = if (darkPage) 0xFF0C0D0E.toInt() else 0xFFD9DADC.toInt()
 
+  /**
+   * The accent line round each page, from the theme's [primary] colour, drawn at
+   * [EDGE_ACCENT_ALPHA]. On the light page it is the primary as it is. On the dark page a dark
+   * primary (the light themes' copper or blue) keeps its hue but is lightened until the line, over
+   * the page and over the desk, is at least [EDGE_MIN_CONTRAST] against both. (It was close to
+   * invisible: dark copper at 55% on near-black.)
+   */
+  fun pageEdgeAccent(primary: Int, darkPage: Boolean): Int {
+    if (!darkPage) return (EDGE_ACCENT_ALPHA * 255f).roundToInt() shl 24 or (primary and 0x00FFFFFF)
+    val page = pageOnScreen(darkPage)
+    val desk = deskOnScreen(darkPage)
+    var colour = primary or 0xFF000000.toInt()
+    val toward = if (darkPage) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+    for (step in 0..20) {
+      val shown = (EDGE_ACCENT_ALPHA * 255f).roundToInt() shl 24 or (colour and 0x00FFFFFF)
+      if (contrast(over(shown, page), page) >= EDGE_MIN_CONTRAST && contrast(over(shown, desk), desk) >= EDGE_MIN_CONTRAST) break
+      colour = mix(colour, toward, 0.05f)
+    }
+    return (EDGE_ACCENT_ALPHA * 255f).roundToInt() shl 24 or (colour and 0x00FFFFFF)
+  }
+
+  const val EDGE_ACCENT_ALPHA = 0.55f
+  const val EDGE_MIN_CONTRAST = 3f
+
+  private fun over(top: Int, bottom: Int): Int {
+    val a = (top ushr 24) / 255f
+    fun ch(shift: Int) = (((top shr shift and 0xFF) * a + (bottom shr shift and 0xFF) * (1f - a))).roundToInt()
+    return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+  }
+
+  private fun mix(from: Int, to: Int, t: Float): Int {
+    fun ch(shift: Int) = (((from shr shift and 0xFF) * (1f - t) + (to shr shift and 0xFF) * t)).roundToInt()
+    return (0xFF shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+  }
+
+  /** WCAG contrast ratio between two opaque colours. */
+  fun contrast(a: Int, b: Int): Float {
+    val la = luminance(a)
+    val lb = luminance(b)
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+  }
+
+  private fun luminance(argb: Int): Float {
+    fun lin(shift: Int): Float {
+      val c = (argb shr shift and 0xFF) / 255f
+      return if (c <= 0.03928f) c / 12.92f else Math.pow(((c + 0.055f) / 1.055f).toDouble(), 2.4).toFloat()
+    }
+    return 0.2126f * lin(16) + 0.7152f * lin(8) + 0.0722f * lin(0)
+  }
+
   /** The thin edge drawn round each page. */
   fun pageEdgeOnScreen(darkPage: Boolean): Int = if (darkPage) 0xFF2A2C2F.toInt() else 0xFFBFC2C6.toInt()
 

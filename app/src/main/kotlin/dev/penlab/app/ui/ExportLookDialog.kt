@@ -32,6 +32,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -42,6 +44,8 @@ import androidx.compose.ui.unit.dp
 import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.InkTools
 import dev.penlab.app.ink.PageBackground
+import dev.penlab.app.ink.PageLayout
+import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
@@ -54,7 +58,12 @@ import dev.penlab.app.ui.theme.PenLabSpacing
  * handing in), or the dark page as it appears on screen. PDF notebooks stay white and skip this.
  */
 @Composable
-fun ExportLookDialog(onPick: (dark: Boolean) -> Unit, onDismiss: () -> Unit) {
+fun ExportLookDialog(
+  onPick: (dark: Boolean) -> Unit,
+  onDismiss: () -> Unit,
+  /** The notebook's own paper, so the previews show what will be exported (not always lined paper). */
+  paper: ExportPaper = ExportPaper(),
+) {
   var selectedDark by remember { mutableStateOf(false) }
   val scheme = MaterialTheme.colorScheme
 
@@ -76,6 +85,7 @@ fun ExportLookDialog(onPick: (dark: Boolean) -> Unit, onDismiss: () -> Unit) {
         description = "White paper, dark ink · best for printing",
         icon = PenLabIcons.Sun,
         darkPreview = false,
+        paper = paper,
         isSelected = !selectedDark,
         onClick = { selectedDark = false },
         modifier = Modifier.weight(1f),
@@ -85,6 +95,7 @@ fun ExportLookDialog(onPick: (dark: Boolean) -> Unit, onDismiss: () -> Unit) {
         description = "Dark backdrop, light ink · as on screen",
         icon = PenLabIcons.Moon,
         darkPreview = true,
+        paper = paper,
         isSelected = selectedDark,
         onClick = { selectedDark = true },
         modifier = Modifier.weight(1f),
@@ -122,6 +133,7 @@ private fun ExportLookCard(
   description: String,
   icon: ImageVector,
   darkPreview: Boolean,
+  paper: ExportPaper,
   isSelected: Boolean,
   onClick: () -> Unit,
   modifier: Modifier = Modifier,
@@ -153,7 +165,7 @@ private fun ExportLookCard(
         },
     verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
   ) {
-    ExportPagePreview(darkPage = darkPreview)
+    ExportPagePreview(darkPage = darkPreview, paper = paper)
 
     Row(
       modifier = Modifier.fillMaxWidth(),
@@ -201,11 +213,26 @@ private fun ExportLookCard(
   }
 }
 
+/** The notebook's paper as the export-look previews show it. */
+data class ExportPaper(
+  val style: PageStyle = PageStyle.LINED,
+  val widthMm: Float = 210f,
+  val heightMm: Float = 297f,
+  val rulingMm: Float = 0f,
+)
+
 /** Miniature vector-ink page preview rendered strictly from PenLab's paper and ink color model. */
 @Composable
-private fun ExportPagePreview(darkPage: Boolean) {
+private fun ExportPagePreview(darkPage: Boolean, paper: ExportPaper) {
+  val ruling =
+    remember(darkPage, paper) {
+      PageBackground(PageLayout.UNITS_PER_MM * 25.4f / 160f, darkPage).apply {
+        pageWidth = paper.widthMm * PageLayout.UNITS_PER_MM
+        pageHeight = paper.heightMm * PageLayout.UNITS_PER_MM
+        spacingMm = paper.rulingMm
+      }
+    }
   val paperColor = Color(InkColors.pageOnScreen(darkPage))
-  val rulingColor = Color(InkColors.onScreen(PageBackground.RULING_PAPER_COLOR, darkPage))
   val primaryInk = Color(InkColors.onScreen(InkTools.penColors[0].paperColor, darkPage) or 0xFF000000.toInt())
   val accentInk = Color(InkColors.onScreen(InkTools.penColors[1].paperColor, darkPage) or 0xFF000000.toInt())
   val edgeColor = LocalPenLabColors.current.swatchEdge
@@ -220,15 +247,15 @@ private fun ExportPagePreview(darkPage: Boolean) {
         .background(paperColor)
         .border(1.dp, edgeColor, shape),
   ) {
-    // Subtle horizontal ruling lines
-    val step = size.height / 4f
-    for (i in 1..3) {
-      drawLine(
-        color = rulingColor,
-        start = Offset(0f, step * i),
-        end = Offset(size.width, step * i),
-        strokeWidth = 1.dp.toPx(),
-      )
+    // The notebook's own paper (lined, grid, dotted, Cornell...), the top of the page across its full
+    // width, drawn by the same code that draws the page and the export.
+    drawIntoCanvas { canvas ->
+      val native = canvas.nativeCanvas
+      val scale = size.width / (paper.widthMm * PageLayout.UNITS_PER_MM)
+      native.save()
+      native.scale(scale, scale)
+      ruling.draw(native, paper.style, android.graphics.RectF(0f, 0f, size.width / scale, size.height / scale), scale)
+      native.restore()
     }
 
     // Primary handwritten-style vector curve (equation line)

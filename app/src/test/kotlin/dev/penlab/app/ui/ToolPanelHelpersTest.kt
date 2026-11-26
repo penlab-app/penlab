@@ -3,6 +3,8 @@ package dev.penlab.app.ui
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.ink.InkTool
+import dev.penlab.app.ink.InkTools
+import dev.penlab.app.ink.NamedColor
 import dev.penlab.app.ink.PenStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,5 +87,24 @@ class ToolPanelHelpersTest {
     assertEquals(310.dp, computeColorWheelDiameter(availableWidth = 310.dp, availableHeight = 720.dp))
     // Degenerate negative bounds never produce a negative diameter
     assertEquals(0.dp, computeColorWheelDiameter(availableWidth = (-10).dp, availableHeight = 400.dp))
+  }
+
+  @Test
+  fun aCustomColourNeverAddsARowToAFullPalette() {
+    val pens = InkTools.penColors
+    assertEquals(0, pens.size % SWATCH_COLUMNS)
+    val shown = swatchesWithCustom(pens, 0xFF123456.toInt())
+    assertEquals(pens.size, shown.size) // same number of rows: More colours / Pick stay put
+    assertEquals(0xFF123456.toInt(), shown.last().paperColor)
+    assertEquals(pens.dropLast(1), shown.dropLast(1))
+  }
+
+  @Test
+  fun aPaletteColourOrAPartRowIsLeftAlone() {
+    val pens = InkTools.penColors
+    assertEquals(pens, swatchesWithCustom(pens, pens[2].paperColor))
+    val part = listOf(NamedColor("A", 1), NamedColor("B", 2))
+    assertEquals(3, swatchesWithCustom(part, 3).size)
+    assertTrue(swatchesWithCustom(emptyList(), 5).isEmpty())
   }
 }

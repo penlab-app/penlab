@@ -115,6 +115,37 @@ internal object WheelGeometry {
     return listOf(PxRect(x0.toInt(), top.toInt(), x1.toInt(), bottom.toInt()))
   }
 
+  /**
+   * The rectangles that keep the side rail's drag grips out of the system Back gesture (a drag
+   * on a grip goes inward from the edge, which Back would otherwise take). The rail is as tall
+   * as the screen, more than Android's [maxHeight] per edge, so the budget is split between the
+   * grips: each gets a window centred on it (clamped to the screen), and windows that touch merge.
+   * A grip centre off the screen (the rail is scrolled) gets none.
+   */
+  fun railExclusionRects(
+    onLeft: Boolean,
+    width: Float,
+    height: Float,
+    railWidth: Float,
+    gripCentersY: List<Float>,
+    maxHeight: Float,
+  ): List<PxRect> {
+    val ys = gripCentersY.filter { it in 0f..height }.sorted()
+    if (ys.isEmpty() || width <= 0f || railWidth <= 0f || height <= 0f) return emptyList()
+    val x0 = if (onLeft) 0f else (width - railWidth).coerceAtLeast(0f)
+    val x1 = if (onLeft) railWidth.coerceAtMost(width) else width
+    val half = minOf(maxHeight / ys.size, height) / 2f
+    val merged = ArrayList<Pair<Float, Float>>()
+    for (y in ys) {
+      val top = (y - half).coerceIn(0f, height - 2 * half)
+      val span = top to top + 2 * half
+      val last = merged.lastOrNull()
+      if (last != null && span.first <= last.second) merged[merged.size - 1] = last.first to maxOf(last.second, span.second)
+      else merged.add(span)
+    }
+    return merged.map { PxRect(x0.toInt(), it.first.toInt(), x1.toInt(), it.second.toInt()) }
+  }
+
   // ---- The ring ----
 
   /** Where a ring slot at [angleDeg] (0 = along the bottom/top edge, 90 = along the side edge) sits. */

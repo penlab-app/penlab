@@ -667,7 +667,8 @@ fun PageConfigPopover(
       else listOf(PageConfigTab.PAPER, PageConfigTab.LAYERS)
     }
   val activeTab = if (selectedTab in tabs) selectedTab else tabs.first()
-  val width = if (activeTab == PageConfigTab.PAGES) 424.dp else 332.dp
+  // One width for every tab (the widest one a notebook has), so the tab strip never jumps when switching.
+  val width = if (isPaged) 424.dp else 332.dp
 
   PenLabPopoverSurface(
     isPalm = isPalm,

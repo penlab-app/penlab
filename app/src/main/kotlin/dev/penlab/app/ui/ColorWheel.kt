@@ -406,6 +406,7 @@ private inline fun androidx.compose.ui.graphics.drawscope.DrawScope.rotateCompat
 
 // ---- RGB -----------------------------------------------------------------------------------
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) // SliderDefaults.Track
 @Composable
 private fun RgbPicker(selected: Int, preview: Color, diameter: Dp, onPick: (Int) -> Unit) {
   val scheme = MaterialTheme.colorScheme
@@ -477,11 +478,24 @@ private fun RgbPicker(selected: Int, preview: Color, diameter: Dp, onPick: (Int)
                 activeTrackColor = scheme.primary,
                 inactiveTrackColor = scheme.outlineVariant,
               ),
+            // No gap round the thumb: the filled part runs to the thumb's centre, so the channel
+            // value reads straight off the track (the default leaves ~9 px of bare track).
+            track = { state ->
+              SliderDefaults.Track(
+                sliderState = state,
+                colors = SliderDefaults.colors(
+                  activeTrackColor = scheme.primary,
+                  inactiveTrackColor = scheme.outlineVariant,
+                ),
+                drawStopIndicator = null,
+                thumbTrackGapSize = 0.dp,
+              )
+            },
             modifier = Modifier.weight(1f).semantics { contentDescription = "$label channel" },
           )
           Text(
             text = "${value.toInt()}",
-            color = scheme.onSurfaceVariant,
+            color = scheme.onSurface,
             style = PenLabTextStyles.tabularLabel,
             textAlign = TextAlign.End,
             modifier = Modifier.width(38.dp),

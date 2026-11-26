@@ -509,8 +509,11 @@ object PenLabComponentTokens {
   // Anchored popovers & tool panels
   val panelBg: Color
     @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.surfaceContainerHigh
+  // `outline`, not `outlineVariant`: on a light page the popover has only this hairline and a soft
+  // shadow to separate it from the paper, and outlineVariant (about 1.4:1 on white) vanished (QA 26 Nov).
+  // (Dark chrome draws no border: see floatingChromeSurface.)
   val panelBorder: Color
-    @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.outlineVariant
+    @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.outline
 
   // Library cards & folder tiles (Level 1 flat surface + hairline border)
   val cardBg: Color

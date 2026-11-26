@@ -137,6 +137,13 @@ sealed class DockItem(val key: Int) {
   data object More : DockItem(MORE_CELL)
 }
 
+/**
+ * True when the picked tool has no cell of its own on the bar (e.g. the highlighter, chosen from
+ * More while not pinned), so the More button must show it as the active one.
+ */
+internal fun toolHiddenFromBar(items: List<DockItem>, selectedIndex: Int): Boolean =
+  selectedIndex >= 0 && items.none { it is DockItem.Tool && it.index == selectedIndex }
+
 /** Stands for the layers button where a cell number is needed. */
 const val LAYERS_CELL = -3
 
@@ -280,6 +287,9 @@ class ToolDock(context: Context) {
   internal var screenHeight = 0
   internal var cornerReachPx = 0f
 
+  /** Release speed (px/s) from which a drop counts as a throw. */
+  internal var flickMinSpeedPx = 0f
+
   internal suspend fun startDrag(from: Offset = gripCenter) {
     // Caught mid-flight: carry on from where the ball is now, never jump back.
     if (!(dragging && ball.isRunning)) ball.snapTo(from) else ball.stop()
@@ -309,10 +319,10 @@ class ToolDock(context: Context) {
     velocity = Offset.Zero
     val w = screenWidth.toFloat()
     val h = screenHeight.toFloat()
-    val projected = Offset(
-      (ball.value.x + project(release.x)).coerceIn(0f, w),
-      (ball.value.y + project(release.y)).coerceIn(0f, h),
-    )
+    // Where it lands is judged where the ball is shown (what the landing hint is glowing for), not
+    // where the finger is (the ball trails it by the grab offset and the touch slop). Only a real
+    // flick carries it further.
+    val projected = DockDrop.landingPoint(ball.value, release, w, h, flickMinSpeedPx)
     val target = targetFor(projected)
     val newAlong = if (!target.isCorner && !target.isVertical) (projected.x / w.coerceAtLeast(1f)).coerceIn(0.05f, 0.95f) else along
     val home =
@@ -331,9 +341,6 @@ class ToolDock(context: Context) {
     dragging = false
     prefs.edit().putString("side", side.name).putFloat("along", along).apply()
   }
-
-  /** How far a throw glides: the same deceleration as a scrolled list (0.998 per ms). */
-  private fun project(velocityPerSecond: Float): Float = velocityPerSecond / 1000f * 0.998f / (1f - 0.998f) * 0.6f
 
   /** Which shape a drop at [p] makes: a corner if close to two edges, else the nearest edge. */
   internal fun targetFor(p: Offset): DockSide {
@@ -354,6 +361,26 @@ class ToolDock(context: Context) {
         distances.minBy { it.second }.first
       }
     }
+  }
+}
+
+/** Pure rules for where a dropped toolbar lands (unit-tested). */
+internal object DockDrop {
+  /** A release slower than this (dp per second) is a placement, not a throw. */
+  const val FLICK_MIN_SPEED_DP = 700f
+
+  /** How far a throw glides: the same deceleration as a scrolled list (0.998 per ms). */
+  fun project(velocityPerSecond: Float): Float = velocityPerSecond / 1000f * 0.998f / (1f - 0.998f) * 0.6f
+
+  /**
+   * The point a drop is judged at: the ball's displayed position, or, for a flick of at least
+   * [flickMinSpeedPx], the point the throw would glide to. Always on the screen.
+   */
+  fun landingPoint(ball: Offset, release: Offset, width: Float, height: Float, flickMinSpeedPx: Float): Offset {
+    val flick = hypot(release.x, release.y) >= flickMinSpeedPx
+    val x = if (flick) ball.x + project(release.x) else ball.x
+    val y = if (flick) ball.y + project(release.y) else ball.y
+    return Offset(x.coerceIn(0f, width), y.coerceIn(0f, height))
   }
 }
 
@@ -412,6 +439,8 @@ fun DockedToolbar(
   panelKey: Int?,
   onSidesCovered: (left: Float, right: Float) -> Unit,
   modifier: Modifier = Modifier,
+  /** Height the bottom bar covers (px; 0 when it is not docked at the bottom), so the page's end clears it. */
+  onBottomCovered: (Float) -> Unit = {},
   instrumentsActive: Boolean = false,
   panel: @Composable () -> Unit,
 ) {
@@ -441,6 +470,8 @@ fun DockedToolbar(
       transformOrigin = origin
     }
   val isHorizontalBar = !side.isVertical && !side.isCorner
+  // A tool picked from More (highlighter, text box...) has no cell on the bar: More shows it as active.
+  val moreHoldsTool = toolHiddenFromBar(items, selectedIndex)
   val cell: @Composable (DockItem, Boolean) -> Unit = { item, round ->
     DockCell(
       item = item,
@@ -452,6 +483,7 @@ fun DockedToolbar(
       canRedo = canRedo,
       canClear = canClear,
       instrumentsActive = instrumentsActive,
+      moreHoldsTool = moreHoldsTool,
       openPanelKey = panelKey,
       round = round,
       compactHorizontal = isHorizontalBar,
@@ -471,6 +503,9 @@ fun DockedToolbar(
       side == DockSide.RIGHT -> onSidesCovered(0f, rail)
       else -> onSidesCovered(0f, 0f)
     }
+    if (!dock.dragging) {
+      onBottomCovered(if (side == DockSide.BOTTOM) with(density) { (BarHeight + EdgeGap + insets.bottom + 8.dp).toPx() } else 0f)
+    }
   }
   // Keep the wheel's edge clearances current when insets change without the screen resizing.
   androidx.compose.runtime.SideEffect { if (dock.screenWidth > 0) dock.applyWheelMetrics(density, insets) }
@@ -489,6 +524,7 @@ fun DockedToolbar(
       dock.screenHeight = it.size.height
       with(density) {
         dock.cornerReachPx = CornerReach.toPx()
+        dock.flickMinSpeedPx = DockDrop.FLICK_MIN_SPEED_DP.dp.toPx()
         dock.cellReachPx = 26.dp.toPx()
         dock.applyWheelMetrics(density, insets)
         dock.railHalfPx = (RailWidth / 2).toPx()
@@ -541,11 +577,36 @@ private fun Rail(
   modifier: Modifier,
 ) {
   val edgeInset = if (side == DockSide.LEFT) insets.left else insets.right
+  // Dragging a grip goes inward from the screen edge, which the system would take as Back (and leave
+  // the notebook). So keep a window round each grip out of the Back gesture, like the open wheel.
+  // measured = [rail width, screen height, start grip centre y, end grip centre y] in root pixels.
+  val view = androidx.compose.ui.platform.LocalView.current
+  val measured = remember { floatArrayOf(0f, 0f, Float.NaN, Float.NaN) }
+  val refreshExclusion = {
+    val screenW = if (dock.screenWidth > 0) dock.screenWidth.toFloat() else view.width.toFloat()
+    setGestureExclusion(
+      view,
+      WheelGeometry.railExclusionRects(
+        side == DockSide.LEFT, screenW, measured[1], measured[0],
+        listOf(measured[2], measured[3]), MaxExclusionHeight.value * view.resources.displayMetrics.density,
+      ),
+    )
+  }
+  androidx.compose.runtime.DisposableEffect(side) { onDispose { setGestureExclusion(view, emptyList()) } }
+  fun Modifier.trackGrip(slot: Int) = onGloballyPositioned {
+    measured[2 + slot] = it.positionInRoot().y + it.size.height / 2f // unclipped: a scrolled-away grip reads off screen
+    refreshExclusion()
+  }
   Box(
     modifier
       .fillMaxHeight()
       .width(RailWidth + edgeInset)
-      .onGloballyPositioned { dock.barBounds = it.boundsInRoot() }
+      .onGloballyPositioned {
+        dock.barBounds = it.boundsInRoot()
+        measured[0] = it.size.width.toFloat()
+        measured[1] = it.size.height.toFloat()
+        refreshExclusion()
+      }
       .background(PenLabComponentTokens.chromePillBg)
       .drawInnerEdge(side)
       .ignorePalm(isPalm)
@@ -559,9 +620,9 @@ private fun Rail(
       verticalArrangement = Arrangement.Center,
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-      Grip(vertical = true, modifier = startGrip)
+      Grip(vertical = true, modifier = startGrip.trackGrip(0))
       DockCells(items, tools, vertical = true, cell)
-      Grip(vertical = true, modifier = endGrip)
+      Grip(vertical = true, modifier = endGrip.trackGrip(1))
     }
   }
 }
@@ -1342,6 +1403,7 @@ private fun DockCell(
   canRedo: Boolean,
   canClear: Boolean,
   instrumentsActive: Boolean,
+  moreHoldsTool: Boolean,
   openPanelKey: Int?,
   round: Boolean,
   compactHorizontal: Boolean,
@@ -1366,7 +1428,7 @@ private fun DockCell(
     DockItem.Redo -> ActionCell(PenLabIcons.Redo, "Redo", enabled = canRedo, active = false, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
     DockItem.Paper -> ActionCell(PenLabIcons.Paper, "Paper style", enabled = true, active = openPanelKey == PAPER_CELL, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
     DockItem.Instruments -> ActionCell(PenLabIcons.Ruler, "Tools: ruler, protractor, shape snap", enabled = true, active = openPanelKey == INSTRUMENTS_CELL || instrumentsActive, showActiveDot = instrumentsActive, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
-    DockItem.More -> ActionCell(PenLabIcons.ChevronDown, "More tools", enabled = true, active = openPanelKey == MORE_CELL, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
+    DockItem.More -> ActionCell(PenLabIcons.ChevronDown, if (moreHoldsTool) "More tools, a tool from here is active" else "More tools", enabled = true, active = openPanelKey == MORE_CELL || moreHoldsTool, showActiveDot = moreHoldsTool, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
     DockItem.Clear -> ActionCell(PenLabIcons.Clear, "Clear page", enabled = canClear, active = false, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
     DockItem.Layers -> ActionCell(PenLabIcons.Layers, "Layers", enabled = true, active = openPanelKey == LAYERS_CELL, showActiveDot = false, round = round, compactHorizontal = compactHorizontal, modifier = track) { onItem(item) }
   }

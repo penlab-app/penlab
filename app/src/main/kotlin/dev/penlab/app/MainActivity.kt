@@ -75,6 +75,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.penlab.app.ink.InkCanvasView
+import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.ViewMemory
 import dev.penlab.app.ink.InkStroke
 import dev.penlab.app.ink.InkTool
@@ -390,6 +391,7 @@ class MainActivity : ComponentActivity() {
         }
         askExportLook?.let { (info, share) ->
           dev.penlab.app.ui.ExportLookDialog(
+            paper = dev.penlab.app.ui.ExportPaper(info.pageStyle, info.pageWidthMm, info.pageHeightMm, info.rulingMm),
             onPick = { dark ->
               askExportLook = null
               buildExport(info, dark, share)
@@ -1649,7 +1651,7 @@ private fun NoteScreen(
   }
   // The space the toolbar covers beside the page, as the dock last reported it. Present mode
   // hides the toolbar, so the page may use the whole screen; leaving restores these.
-  val dockSides = remember { floatArrayOf(0f, 0f) }
+  val dockSides = remember { floatArrayOf(0f, 0f, 0f) } // left, right, bottom
   // Where the page was panned and zoomed to just before Present: leaving puts it back.
   val viewBeforePresent = remember { ViewMemory() }
   DisposableEffect(present) {
@@ -1658,9 +1660,11 @@ private fun NoteScreen(
     if (present) {
       viewBeforePresent.keep(canvas.currentView())
       canvas.setSideInsets(0f, 0f)
+      canvas.setBottomInset(0f)
       canvas.fitToWidth() // fills the screen
     } else {
       canvas.setSideInsets(dockSides[0], dockSides[1])
+      canvas.setBottomInset(dockSides[2])
       viewBeforePresent.take()?.let(canvas::restoreView)
     }
     onDispose { canvas.presenting = false }
@@ -1827,7 +1831,7 @@ private fun NoteScreen(
 
   val isPalm = { canvas.isPenWriting }
   val edgeAccent = androidx.compose.material3.MaterialTheme.colorScheme.primary
-  LaunchedEffect(edgeAccent) { canvas.pageEdgeAccent = edgeAccent.copy(alpha = 0.55f).toArgb() }
+  LaunchedEffect(edgeAccent, darkPage) { canvas.pageEdgeAccent = InkColors.pageEdgeAccent(edgeAccent.toArgb(), darkPage) }
 
   // Measure left & right floating island widths so DockedToolbar knows the exact free middle span.
   var leftIslandWidthPx by remember { mutableIntStateOf(0) }
@@ -1968,6 +1972,10 @@ private fun NoteScreen(
         dockSides[0] = left
         dockSides[1] = right
         if (!present) canvas.setSideInsets(left, right) // the peeking toolbar overlays the page
+      },
+      onBottomCovered = { bottom ->
+        dockSides[2] = bottom
+        if (!present) canvas.setBottomInset(bottom)
       },
       instrumentsActive = rulerOn || protractorOn,
       modifier = Modifier.fillMaxSize(), // raises itself above other chrome while open (inside DockedToolbar)

@@ -149,6 +149,21 @@ private const val MAX_SPACING_MM = 20f
 
 // ---- Tool options popover (Pen, Eraser, Highlighter, Fill, Text) ------------------------------
 
+/** Swatches per row in the colour grid of [ToolOptionsPanel]. */
+internal const val SWATCH_COLUMNS = 4
+
+/**
+ * The swatches to show for [current]. A colour picked from the wheel or eyedropper (not in the
+ * [palette]) takes the place of the last swatch instead of adding one: when the palette fills
+ * its rows, an extra swatch would start a new row and push More colours / Pick down by one row.
+ * Picking any palette swatch brings the replaced one back. A partly filled last row just gains it.
+ */
+internal fun swatchesWithCustom(palette: List<NamedColor>, current: Int): List<NamedColor> {
+  if (palette.isEmpty() || palette.any { it.paperColor == current }) return palette
+  val custom = NamedColor("Custom", current)
+  return if (palette.size % SWATCH_COLUMNS == 0) palette.dropLast(1) + custom else palette + custom
+}
+
 /**
  * Anchored stylus popover opened by a second tap on an already-selected tool slot:
  *  - **Pen**: 3 visual nib cards (Ballpoint / Pressure / Fountain), 5 line-pattern buttons,
@@ -183,9 +198,7 @@ fun ToolOptionsPanel(
   val scheme = MaterialTheme.colorScheme
   val palette = InkTools.colorsFor(tool.kind)
   // A colour picked from the wheel or eyedropper appears as an extra swatch so it can be re-picked.
-  val colors =
-    if (palette.isEmpty() || palette.any { it.paperColor == tool.paperColor }) palette
-    else palette + NamedColor("Custom", tool.paperColor)
+  val colors = swatchesWithCustom(palette, tool.paperColor)
   val range = InkTools.sizeRange(tool.kind)
   val hasSizeControl = range.endInclusive > range.start
 
@@ -365,7 +378,7 @@ fun ToolOptionsPanel(
           val darkCheckTint = if (LocalPenLabColors.current.isDark) scheme.surface else scheme.onSurface
 
           Column(verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs)) {
-            for (row in colors.chunked(4)) {
+            for (row in colors.chunked(SWATCH_COLUMNS)) {
               Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -421,7 +434,7 @@ fun ToolOptionsPanel(
                     }
                   }
                 }
-                repeat(4 - row.size) {
+                repeat(SWATCH_COLUMNS - row.size) {
                   Spacer(Modifier.weight(1f))
                 }
               }

@@ -855,6 +855,7 @@ class InkCanvasView(
     if (event.actionMasked == MotionEvent.ACTION_DOWN) {
       stopFling()
       pullAtDown = pullDistance
+      pullTouching = true
       if (!runningFingerPenCopy) fingerPenActive = false // a new touch starts clean
     }
 
@@ -991,6 +992,7 @@ class InkCanvasView(
       pinchedThisGesture = false
     }
     if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+      pullTouching = false
       if (pullDistance != 0f) {
         pullDistance = 0f
         pullReady = false
@@ -1113,14 +1115,26 @@ class InkCanvasView(
   /** How far it was already pulled when the current touch began. */
   private var pullAtDown = 0f
 
+  /** A touch is down (set at ACTION_DOWN, cleared at UP/CANCEL). */
+  private var pullTouching = false
+
+  /**
+   * Whether the "pull to add" hint belongs on screen: only while a touch is pulling the page past
+   * the end (further than it already was when the touch began), or while the page springs back.
+   * Being past the end by geometry alone (a short notebook, a turned tablet, a fitted page) is
+   * not a pull, so it shows nothing and can never be "ready".
+   */
+  private fun pullIsLive(): Boolean =
+    PullToAdd.isLive(pullDistance, pullAtDown, pullTouching, pullBack?.isRunning == true, 8f * density)
+
   private fun updatePull() {
     val layout = pageLayout ?: return
-    val bottom = floatArrayOf(width / 2f, height.toFloat())
+    val bottom = floatArrayOf(width / 2f, height - bottomInset)
     screenToPage.mapPoints(bottom)
     val past = (bottom[1] - layout.totalHeight - layout.gap) * pageToScreen.mapRadius(1f)
     pullDistance = past.coerceAtLeast(0f)
     val wasReady = pullReady
-    pullReady = pullDistance > PULL_TO_ADD_DP * density
+    pullReady = PullToAdd.isReady(pullIsLive(), pullTouching, pullDistance, PULL_TO_ADD_DP * density)
     if (pullReady != wasReady) performHapticFeedback(if (pullReady) HapticFeedbackConstants.CLOCK_TICK else HapticFeedbackConstants.TEXT_HANDLE_MOVE)
   }
 
@@ -1529,6 +1543,15 @@ class InkCanvasView(
 
   private var leftInset = 0f
   private var rightInset = 0f
+
+  /** Screen space a bottom toolbar covers (px): the end of the last page rests above it, not under it. */
+  private var bottomInset = 0f
+
+  fun setBottomInset(px: Float) {
+    if (px == bottomInset) return
+    bottomInset = px
+    viewMoved()
+  }
 
   private fun keepPagesInView() {
     val layout = pageLayout ?: return
@@ -2640,7 +2663,7 @@ class InkCanvasView(
           if (page in 0 until layout.count) pdf.prefetch(layout.backgroundOf(page), wanted)
         }
       }
-      if (pullDistance > 0f) {
+      if (pullIsLive()) {
         val top = layout.totalHeight + layout.gap
         val shown = (pullDistance / zoom).coerceAtMost(layout.pageHeight)
         pullPaint.strokeWidth = 1.5f * density / zoom

@@ -201,4 +201,68 @@ class WheelGeometryTest {
     assertEquals(0f, s.x, 0.001f)
     assertEquals(100f, s.y, 0.001f)
   }
+
+  // ---- Rail exclusion ----
+
+  @Test
+  fun railExclusionCoversBothGripsOnTheEdgeWithinTheLimit() {
+    val rects = WheelGeometry.railExclusionRects(true, w, h, 160f, listOf(100f, h - 100f), maxHeight = 400f)
+    assertEquals(2, rects.size)
+    assertTrue(rects.all { it.left == 0 && it.right == 160 })
+    assertTrue(rects.sumOf { it.height } <= 400)
+    assertTrue(rects[0].top <= 100 && rects[0].bottom >= 100)
+    assertTrue(rects[1].top <= (h - 100f).toInt() && rects[1].bottom >= (h - 100f).toInt())
+  }
+
+  @Test
+  fun railExclusionOnTheRightSitsAgainstTheRightEdge() {
+    val r = WheelGeometry.railExclusionRects(false, w, h, 160f, listOf(h / 2), maxHeight = 400f).single()
+    assertEquals(w.toInt(), r.right)
+    assertEquals((w - 160f).toInt(), r.left)
+    assertEquals(400, r.height)
+  }
+
+  @Test
+  fun railExclusionMergesTouchingGripsAndSkipsOffScreenOnes() {
+    val merged = WheelGeometry.railExclusionRects(true, w, h, 160f, listOf(300f, 350f), maxHeight = 400f)
+    assertEquals(1, merged.size)
+    assertTrue(merged.single().height <= 400)
+    val onlyVisible = WheelGeometry.railExclusionRects(true, w, h, 160f, listOf(-50f, 300f), maxHeight = 400f)
+    assertEquals(1, onlyVisible.size)
+    assertTrue(WheelGeometry.railExclusionRects(true, w, h, 160f, listOf(-50f, h + 10f), maxHeight = 400f).isEmpty())
+  }
+
+  @Test
+  fun railExclusionStaysOnScreenNearTheEnds() {
+    val r = WheelGeometry.railExclusionRects(true, w, h, 160f, listOf(5f), maxHeight = 400f).single()
+    assertEquals(0, r.top)
+    val e = WheelGeometry.railExclusionRects(true, w, h, 160f, listOf(h - 5f), maxHeight = 400f).single()
+    assertEquals(h.toInt(), e.bottom)
+  }
+
+  // ---- Dropping the toolbar, and the bar's "picked tool" test ----
+
+  @Test
+  fun aSlowDropIsJudgedWhereTheBallIs() {
+    val ball = Offset(40f, 60f)
+    val p = DockDrop.landingPoint(ball, Offset(120f, -80f), w, h, flickMinSpeedPx = 1000f)
+    assertEquals(ball, p)
+  }
+
+  @Test
+  fun aFlickGlidesOnAndStaysOnTheScreen() {
+    val p = DockDrop.landingPoint(Offset(800f, 1200f), Offset(0f, 9000f), w, h, flickMinSpeedPx = 1000f)
+    assertEquals(h, p.y, 0.001f) // thrown down: clamped to the bottom edge
+    assertEquals(800f, p.x, 0.001f)
+    val q = DockDrop.landingPoint(Offset(10f, 10f), Offset(-4000f, -4000f), w, h, flickMinSpeedPx = 1000f)
+    assertEquals(Offset(0f, 0f), q)
+  }
+
+  @Test
+  fun aToolWithoutACellOnTheBarIsHiddenFromIt() {
+    val items = listOf(DockItem.Tool(0), DockItem.Tool(1), DockItem.More)
+    assertFalse(toolHiddenFromBar(items, 1))
+    assertTrue(toolHiddenFromBar(items, 5)) // e.g. the highlighter, picked from More
+    assertFalse(toolHiddenFromBar(items, -1))
+  }
 }

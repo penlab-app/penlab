@@ -153,6 +153,15 @@ class ThemeTokensTest {
     assertEquals(PenLabShapes.large, PenLabShapes.material.large)
   }
 
+  @Test
+  fun lightPopoverEdgeIsVisibleOnAWhitePage() {
+    // PenLabComponentTokens.panelBorder is the scheme's `outline`; on a light page it is the popover's only edge.
+    for (accent in AccentTheme.entries) {
+      val scheme = penLabColorScheme(accent, isDark = false)
+      assertContrastAtLeast("$accent popover edge on white paper", scheme.outline, Color.White, 3.0)
+    }
+  }
+
   private fun assertContrastAtLeast(name: String, foreground: Color, background: Color, minimum: Double) {
     val ratio = contrastRatio(foreground, background)
     assertTrue("$name contrast was %.2f:1 (expected >= %.2f:1)".format(ratio, minimum), ratio >= minimum)

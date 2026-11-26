@@ -82,3 +82,61 @@ class PluginConsentTest {
     assertEquals(1, pluginSubtitle(row.let { PluginRow(it.packageName, it.name, emptyList(), emptyList(), true, true, false, "needs bridge API 3") }).lines().count { "Cannot be used" in it })
   }
 }
+
+/** The honest state of a plugin row after a crash, and "Try again". */
+class PluginCrashStateTest {
+  private class P(override val id: String) : dev.penlab.plugin.Plugin {
+    override val apiVersion = dev.penlab.plugin.API_VERSION
+    override val name = "P $id"
+    override fun capabilities() = emptyList<dev.penlab.plugin.Capability>()
+  }
+
+  private fun row(enabled: Boolean, crashed: Boolean, problem: String? = null) =
+    PluginRow("x.pkg", "X", emptyList(), emptyList(), trusted = true, enabled = enabled, switchedOff = crashed, problem = problem)
+
+  @Test
+  fun aCrashedPluginShowsTheSwitchOffAndOffersTryAgain() {
+    val r = row(enabled = true, crashed = true)
+    assertTrue(r.enabled) // the saved choice is kept
+    assertFalse(r.switchOn) // but the switch does not lie
+    assertFalse(r.switchEnabled)
+    assertTrue(r.canRetry)
+  }
+
+  @Test
+  fun aHealthyOrUserDisabledPluginHasNoTryAgain() {
+    assertTrue(row(enabled = true, crashed = false).let { it.switchOn && it.switchEnabled && !it.canRetry })
+    assertTrue(row(enabled = false, crashed = false).let { !it.switchOn && it.switchEnabled && !it.canRetry })
+  }
+
+  @Test
+  fun rowsBuiltFromTheRegistryFlagKeepTheUsersChoiceSeparate() {
+    val plugin = DiscoveredPlugin("x.pkg", "x.Svc", null, "broken", trusted = true)
+    val crashed = PluginRows.row(plugin, enabled = true, switchedOff = true)
+    assertFalse(crashed.switchOn)
+    val userOff = PluginRows.row(plugin, enabled = false, switchedOff = true)
+    assertFalse(userOff.canRetry) // crash flag is irrelevant when the user had it off
+  }
+
+  @Test
+  fun reenableClearsOnlyTheSessionFlag() {
+    val store = HashMap<String, Boolean>()
+    val consent = PluginConsent(
+      object : ConsentStore {
+        override fun enabled(pkg: String) = store[pkg]
+        override fun setEnabled(pkg: String, enabled: Boolean) { store[pkg] = enabled }
+        override fun consented(pkg: String) = true
+        override fun setConsented(pkg: String) {}
+      },
+    )
+    val registry = dev.penlab.app.plugins.PluginRegistry(emptyList())
+    val plugin = P("p.id")
+    registry.replaceExternal(listOf(plugin))
+    registry.disable(plugin, RuntimeException("boom"))
+    assertTrue(registry.isSwitchedOff("p.id"))
+    assertTrue(consent.isEnabled("x.pkg", trusted = true)) // crash did not touch the saved choice
+    registry.reenable("p.id")
+    assertFalse(registry.isSwitchedOff("p.id"))
+    assertTrue(registry.isEnabled("p.id"))
+  }
+}

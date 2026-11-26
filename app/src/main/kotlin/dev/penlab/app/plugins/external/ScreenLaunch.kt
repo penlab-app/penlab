@@ -10,6 +10,7 @@ import dev.penlab.plugin.PageRef
 import dev.penlab.plugin.Selection
 import dev.penlab.sdk.PenLabBridge
 import dev.penlab.sdk.PenLabScreenContract
+import dev.penlab.sdk.ScreenTheme
 import java.io.File
 import java.io.IOException
 
@@ -20,10 +21,10 @@ class StagedScreen(val intent: Intent, val session: IoSession)
 object ScreenLaunch {
   /**
    * The intent for [screen]: explicit component, the page's facts as extras, and (with a selection)
-   * its PNG and strokes as content URIs of PenLab's FileProvider. Extras are not covered by a URI grant,
+   * its PNG and strokes as content URIs of PenLab's FileProvider, and PenLab's current look ([theme]). Extras are not covered by a URI grant,
    * so the URIs are also in the intent's ClipData, which is.
    */
-  fun stage(context: Context, screen: ExternalScreen, page: PageRef, darkPage: Boolean, selection: Selection, ioRoot: File): StagedScreen {
+  fun stage(context: Context, screen: ExternalScreen, page: PageRef, darkPage: Boolean, selection: Selection, ioRoot: File, theme: ScreenTheme): StagedScreen {
     val session = IoSession.create(ioRoot)
     try {
       val info = RequestFiles.writeSelection(session.dir, selection)
@@ -35,6 +36,7 @@ object ScreenLaunch {
           .putExtra(PenLabScreenContract.EXTRA_PAGE_WIDTH_MM, page.widthMm)
           .putExtra(PenLabScreenContract.EXTRA_PAGE_HEIGHT_MM, page.heightMm)
           .putExtra(PenLabScreenContract.EXTRA_DARK_PAGE, darkPage)
+      PenLabScreenContract.putTheme(intent, theme)
       var clip: ClipData? = null
       fun share(extra: String, name: String?) {
         if (name == null) return

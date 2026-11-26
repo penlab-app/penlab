@@ -36,12 +36,25 @@ class PluginRow(
   /** The permissions the plugin declares. */
   val permissions: List<String>,
   val trusted: Boolean,
+  /** The user's saved choice (trusted default included), whatever happened this session. */
   val enabled: Boolean,
-  /** Switched on by the user but crashed or timed out: off until PenLab restarts. */
+  /**
+   * Crashed or timed out this session: off until PenLab restarts or the user presses "Try again".
+   * Kept apart from [enabled], which is only the user's saved choice and survives a crash.
+   */
   val switchedOff: Boolean,
   /** Why it cannot be used (another bridge version, a broken manifest), or null. */
   val problem: String?,
-)
+) {
+  /** What the switch shows: on only if the user wants it AND it is not crashed right now. */
+  val switchOn: Boolean get() = enabled && !switchedOff
+
+  /** Whether the switch can be flipped: not while it is crashed (use [canRetry]) or unusable. */
+  val switchEnabled: Boolean get() = problem == null && !switchedOff
+
+  /** Show "Try again": the user wants it on and it crashed this session. */
+  val canRetry: Boolean get() = enabled && switchedOff
+}
 
 /** Finds plugin apps: every exported service with the `dev.penlab.PLUGIN` action (PenLab's manifest asks for visibility of those with `<queries>`). */
 class PluginScanner(private val context: Context) {
@@ -138,6 +151,13 @@ class ExternalPluginManager(
       }
       ConsentStep.AskConsent -> false
     }
+  }
+
+  /** "Try again": clears [pkg]'s session crash flag (the user's choice is untouched) and rescans. */
+  fun retry(pkg: String) {
+    discovered.firstOrNull { it.packageName == pkg }?.manifest?.id?.let(registry::reenable)
+    apply()
+    rescan()
   }
 
   /** The user accepted [pkg]'s consent dialog. */

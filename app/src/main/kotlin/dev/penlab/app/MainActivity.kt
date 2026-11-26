@@ -466,6 +466,7 @@ class MainActivity : ComponentActivity() {
             onPluginsShown = externalPlugins::rescan,
             onPluginEnabled = externalPlugins::setEnabled,
             onPluginConsent = externalPlugins::accept,
+            onPluginRetry = externalPlugins::retry,
             // The guide lives on the library screen, so it is only offered there.
             onWelcomeGuide = if (open == null) ({ settingsOpen = false; welcomeRequested = true }) else null,
             onReport = {
@@ -1060,10 +1061,12 @@ class MainActivity : ComponentActivity() {
    */
   private fun launchScreen(entry: PluginRegistry.Entry<PageAction>, screen: ExternalScreen, notebook: OpenNotebook, selection: dev.penlab.plugin.Selection, page: PageRef) {
     val darkPage = resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = notebook.pdf != null)
+    // Read on the main thread: Accent is Compose state.
+    val theme = dev.penlab.sdk.ScreenTheme(Accent.isDark, Accent.theme.accent.toArgb(), darkPage)
     io.execute {
       val staged =
         try {
-          ScreenLaunch.stage(applicationContext, screen, page, darkPage, selection, externalPlugins.ioRoot)
+          ScreenLaunch.stage(applicationContext, screen, page, darkPage, selection, externalPlugins.ioRoot, theme)
         } catch (e: Exception) {
           Log.e("Plugins", "Could not prepare ${screen.label}", e)
           main.post {

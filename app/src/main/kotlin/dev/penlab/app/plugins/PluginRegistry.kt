@@ -118,6 +118,15 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
   fun isSwitchedOff(pluginId: String) = pluginId in disabled
 
   /**
+   * Clears the session crash flag of [pluginId] ("Try again"). The user's own on/off choice is not
+   * touched (that lives in PluginConsent); this only lets the plugin run again. A plugin that crashes
+   * again is switched off again, with a message.
+   */
+  fun reenable(pluginId: String) {
+    disabled.remove(pluginId)
+  }
+
+  /**
    * Switches [plugin] off until PenLab restarts and tells the user once. Idempotent: a second
    * failure of the same plugin adds no second message.
    */

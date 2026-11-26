@@ -32,6 +32,24 @@ class ScreenRequest(
 }
 
 /**
+ * PenLab's current look, so a plugin screen can match it (see [PenLabScreenContract.theme]).
+ * Plain values, no Android types, so any UI toolkit can use them.
+ */
+data class ScreenTheme(
+  /** PenLab's interface is in its dark theme. */
+  val darkUi: Boolean,
+  /** The accent colour of that theme, as an ARGB int (alpha 0xFF). */
+  val accentArgb: Int,
+  /** The paper of the open notebook is dark. (Not the same as [darkUi]: they are separate settings.) */
+  val darkPaper: Boolean,
+) {
+  companion object {
+    /** What [PenLabScreenContract.theme] returns when an older PenLab sent nothing: light, a neutral blue. */
+    val DEFAULT = ScreenTheme(darkUi = false, accentArgb = 0xFF2F6FD6.toInt(), darkPaper = false)
+  }
+}
+
+/**
  * Helpers for a plugin's `screen` activity: PenLab starts the activity (declared exported, named in the
  * manifest) with [Activity.startActivityForResult]; the activity reads what it was given with [readRequest]
  * and answers with `setResult(RESULT_OK, PenLabScreenContract.resultIntent(this, result))` before it finishes.
@@ -46,6 +64,15 @@ object PenLabScreenContract {
   const val EXTRA_PAGE_WIDTH_MM = "dev.penlab.extra.PAGE_WIDTH_MM"
   const val EXTRA_PAGE_HEIGHT_MM = "dev.penlab.extra.PAGE_HEIGHT_MM"
   const val EXTRA_DARK_PAGE = "dev.penlab.extra.DARK_PAGE"
+
+  /** Boolean: PenLab's interface is dark. */
+  const val EXTRA_THEME_DARK_UI = "dev.penlab.extra.THEME_DARK_UI"
+
+  /** Int: PenLab's accent colour, ARGB. */
+  const val EXTRA_THEME_ACCENT = "dev.penlab.extra.THEME_ACCENT"
+
+  /** Boolean: the open notebook's paper is dark. */
+  const val EXTRA_THEME_DARK_PAPER = "dev.penlab.extra.THEME_DARK_PAPER"
 
   /** Uri of the selection PNG; granted for reading (also through the intent's ClipData). */
   const val EXTRA_SELECTION_IMAGE = "dev.penlab.extra.SELECTION_IMAGE"
@@ -64,6 +91,18 @@ object PenLabScreenContract {
 
   /** True if [activity] was started for a result by PenLab. */
   fun isCalledByPenLab(activity: Activity): Boolean = activity.callingActivity?.packageName == PenLabBridge.HOST_PACKAGE
+
+  /** PenLab's look at launch time: UI dark or light, accent colour, dark paper. Missing extras give [ScreenTheme.DEFAULT]'s values. */
+  fun theme(intent: Intent): ScreenTheme =
+    ScreenTheme(
+      darkUi = intent.getBooleanExtra(EXTRA_THEME_DARK_UI, ScreenTheme.DEFAULT.darkUi),
+      accentArgb = intent.getIntExtra(EXTRA_THEME_ACCENT, ScreenTheme.DEFAULT.accentArgb),
+      darkPaper = intent.getBooleanExtra(EXTRA_THEME_DARK_PAPER, ScreenTheme.DEFAULT.darkPaper),
+    )
+
+  /** The three theme extras for [theme], to put on a screen's launch intent. */
+  fun putTheme(intent: Intent, theme: ScreenTheme): Intent =
+    intent.putExtra(EXTRA_THEME_DARK_UI, theme.darkUi).putExtra(EXTRA_THEME_ACCENT, theme.accentArgb).putExtra(EXTRA_THEME_DARK_PAPER, theme.darkPaper)
 
   /** What PenLab passed in [intent]; throws [IllegalArgumentException] if it is not a PenLab screen launch. */
   @Suppress("DEPRECATION")

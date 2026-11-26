@@ -46,7 +46,9 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
 Settings → Plugins lists every plugin with name, package, capabilities and declared permissions. A plugin signed with the
 same certificate as PenLab is **Trusted** and on by default; any other is off until the user switches it on, with a
 one-time consent dialog. The choice is stored by package name. A plugin that crashes, times out or answers nonsense is
-switched off until PenLab restarts, with one message (the same crash isolation as built-in plugins). The service also
+switched off until PenLab restarts, with one message (the same crash isolation as built-in plugins). Settings shows such a
+plugin with its switch off and a "Try again" button that clears the crash flag and rescans; the user's saved on/off choice is
+never changed by a crash. The service also
 checks its caller: only `dev.penlab.app` may call it (`PenLabPluginService`), optionally also with the same signature
 (`requireSameSignature`).
 
@@ -83,6 +85,21 @@ content URIs of PenLab's FileProvider, granted for reading through the intent's 
 `readRequest(intent)`, and answers with `setResult(RESULT_OK, PenLabScreenContract.resultIntent(this, result))`: the result JSON
 and its files as granted content URIs served by the SDK's `PenLabResultProvider`. PenLab only follows URIs of a provider owned by
 the plugin's own package. Cancelling places nothing.
+
+### Theme extras
+
+PenLab also passes its current look so a screen can match it. Read them with `PenLabScreenContract.theme(intent)`, which
+returns a `ScreenTheme(darkUi, accentArgb, darkPaper)`; if an older PenLab sent nothing you get a light default.
+
+| Extra | Type | Meaning |
+|---|---|---|
+| `dev.penlab.extra.THEME_DARK_UI` (`EXTRA_THEME_DARK_UI`) | boolean | PenLab's interface is in its dark theme |
+| `dev.penlab.extra.THEME_ACCENT` (`EXTRA_THEME_ACCENT`) | int (ARGB, alpha 0xFF) | the accent colour of that theme (Blueprint, Copper, ...) |
+| `dev.penlab.extra.THEME_DARK_PAPER` (`EXTRA_THEME_DARK_PAPER`) | boolean | the open notebook's paper is dark (a separate setting from the UI theme; same value as `DARK_PAGE`) |
+
+The values are those at launch time; a screen is not told if the user changes theme while it is open. Targeting SDK 35+
+means the screen draws edge to edge: pad your content with the system-bar insets (see `HelloActivity`, which also sets the
+status-bar icon colour from `darkUi`).
 
 ## Writing a plugin
 

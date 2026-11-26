@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -95,6 +96,8 @@ fun SettingsSheet(
   /** The user flipped a plugin's switch; false means "ask for consent first" (then [onPluginConsent] runs on accept). */
   onPluginEnabled: (packageName: String, on: Boolean) -> Boolean = { _, _ -> true },
   onPluginConsent: (packageName: String) -> Unit = {},
+  /** "Try again" on a plugin that crashed this session. */
+  onPluginRetry: (packageName: String) -> Unit = {},
 ) {
   val scheme = MaterialTheme.colorScheme
   val extended = LocalPenLabColors.current
@@ -449,11 +452,14 @@ fun SettingsSheet(
               PenLabSwitchRow(
                 label = if (row.trusted) "${row.name} · Trusted" else row.name,
                 subtitle = pluginSubtitle(row),
-                checked = row.enabled,
-                enabled = row.problem == null,
+                checked = row.switchOn,
+                enabled = row.switchEnabled,
                 onCheckedChange = { on -> if (!onPluginEnabled(row.packageName, on)) consentFor = row },
                 horizontalPadding = 0.dp,
               )
+              if (row.canRetry) {
+                TextButton(onClick = { onPluginRetry(row.packageName) }) { Text("Try again") }
+              }
             }
           }
 

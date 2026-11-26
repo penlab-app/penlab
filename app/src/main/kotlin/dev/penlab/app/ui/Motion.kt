@@ -18,33 +18,52 @@ enum class MotionSpeed(val label: String, val factor: Float) {
   FAST("Fast", 0.55f),
 }
 
+/** The speed that matches Android's animator duration scale (0 = animations removed). Pure, unit-tested. */
+internal fun speedForSystemScale(scale: Float): MotionSpeed = when {
+  scale == 0f -> MotionSpeed.OFF
+  scale < 0.8f -> MotionSpeed.FAST
+  scale > 1.4f -> MotionSpeed.SLOW
+  else -> MotionSpeed.NORMAL
+}
+
 /**
  * Every UI animation goes through here, so one setting (in the zoom readout's panel) can speed
  * them up, slow them down or switch them off. The page itself (ink, pan, zoom)
  * never animates, so this cannot slow writing down.
  */
 object Motion {
-  var speed by mutableStateOf(MotionSpeed.NORMAL)
+  /** The speed the person picked here (or Android's own scale until they pick one). */
+  private var chosen by mutableStateOf(MotionSpeed.NORMAL)
+
+  /** Android's "Remove animations" (Settings.Global ANIMATOR_DURATION_SCALE = 0) is on. */
+  var systemOff by mutableStateOf(false)
     private set
+
+  /** What is in effect: always OFF while Android's "Remove animations" is on, else the chosen speed. */
+  val speed: MotionSpeed
+    get() = if (systemOff) MotionSpeed.OFF else chosen
 
   private var prefs: android.content.SharedPreferences? = null
 
   fun load(context: Context) {
     val p = context.getSharedPreferences("motion", Context.MODE_PRIVATE)
     prefs = p
-    // Until the user picks a speed here, follow Android's own animation setting (off = off).
-    val system = android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
-    val fromSystem = when {
-      system == 0f -> MotionSpeed.OFF
-      system < 0.8f -> MotionSpeed.FAST
-      system > 1.4f -> MotionSpeed.SLOW
-      else -> MotionSpeed.NORMAL
-    }
-    speed = MotionSpeed.entries.firstOrNull { it.name == p.getString("speed", null) } ?: fromSystem
+    val system = systemScale(context)
+    // Until the user picks a speed here, follow Android's own animation setting.
+    chosen = MotionSpeed.entries.firstOrNull { it.name == p.getString("speed", null) } ?: speedForSystemScale(system)
+    systemOff = system == 0f
   }
 
+  /** Call on resume: the person may have switched "Remove animations" in Android's settings meanwhile. */
+  fun refreshSystem(context: Context) {
+    systemOff = systemScale(context) == 0f
+  }
+
+  private fun systemScale(context: Context): Float =
+    android.provider.Settings.Global.getFloat(context.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+
   fun set(value: MotionSpeed) {
-    speed = value
+    chosen = value
     prefs?.edit()?.putString("speed", value.name)?.apply()
   }
 

@@ -341,6 +341,8 @@ private fun HslWheel(selected: Int, screen: (Int) -> Color, diameter: Dp, onPick
   Canvas(
     Modifier
       .fillMaxSize()
+      // Drag-only picker: the red, green and blue sliders are the way to set a colour by ear or key.
+      .semantics { contentDescription = "Colour wheel. Chosen colour ${formatHexRgb(hsl(hue, sat, light))}. Use the sliders for exact values." }
       .pointerInput(ringWidth) {
         detectDragGestures(
           onDragStart = { p ->

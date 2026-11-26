@@ -1386,7 +1386,7 @@ fun SelectionActions(
     }
 
   PenLabChromePill(
-    modifier = modifier.height(BarHeight),
+    modifier = modifier.heightIn(min = BarHeight),
     isPalm = isPalm,
     contentPadding = PaddingValues(horizontal = 6.dp),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
@@ -1658,7 +1658,7 @@ private fun SelectionPillAction(
   Row(
     modifier =
       Modifier
-        .height(BarHeight)
+        .heightIn(min = BarHeight)
         .widthIn(min = PenLabSpacing.touchTarget)
         .insetPillClickable(interaction, onClick, enabled = enabled)
         .padding(horizontal = 9.dp)
@@ -1717,7 +1717,7 @@ private fun SelectionMoreTrigger(
   Row(
     modifier =
       Modifier
-        .height(BarHeight)
+        .heightIn(min = BarHeight)
         .widthIn(min = PenLabSpacing.touchTarget)
         .insetPillClickable(interaction, onClick, background = bg)
         .padding(horizontal = 10.dp)
@@ -1777,7 +1777,7 @@ fun PasteMenu(
   modifier: Modifier = Modifier,
 ) {
   PenLabChromePill(
-    modifier = modifier.height(BarHeight),
+    modifier = modifier.heightIn(min = BarHeight),
     isPalm = isPalm,
     contentPadding = PaddingValues(horizontal = 6.dp),
     horizontalArrangement = Arrangement.spacedBy(0.dp),

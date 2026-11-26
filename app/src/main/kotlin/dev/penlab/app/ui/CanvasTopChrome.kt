@@ -103,7 +103,7 @@ fun FileChromePill(
   val titleInteraction = remember { MutableInteractionSource() }
 
   PenLabChromePill(
-    modifier = modifier.height(BarHeight),
+    modifier = modifier.heightIn(min = BarHeight),
     isPalm = isPalm,
     contentPadding = PaddingValues(horizontal = PenLabSpacing.xs),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
@@ -116,7 +116,7 @@ fun FileChromePill(
     Box(
       modifier =
         Modifier
-          .height(BarHeight)
+          .heightIn(min = BarHeight)
           .widthIn(min = 64.dp, max = 160.dp)
           .insetPillClickable(titleInteraction, onToggleQuickMenu, titleBg)
           .padding(horizontal = PenLabSpacing.sm)
@@ -501,7 +501,7 @@ fun PageConfigChromePill(
   val pageConfigInteraction = remember { MutableInteractionSource() }
 
   PenLabChromePill(
-    modifier = modifier.height(BarHeight),
+    modifier = modifier.heightIn(min = BarHeight),
     isPalm = isPalm,
     contentPadding = PaddingValues(horizontal = PenLabSpacing.xs),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
@@ -526,7 +526,7 @@ fun PageConfigChromePill(
     Box(
       modifier =
         Modifier
-          .height(BarHeight)
+          .heightIn(min = BarHeight)
           .widthIn(min = PenLabSpacing.touchTarget)
           .insetPillClickable(
             zoomInteraction,
@@ -582,7 +582,7 @@ fun PageConfigChromePill(
     Box(
       modifier =
         Modifier
-          .height(BarHeight)
+          .heightIn(min = BarHeight)
           .widthIn(min = PenLabSpacing.touchTarget)
           .insetPillClickable(
             pageConfigInteraction,

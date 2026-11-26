@@ -68,6 +68,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
@@ -1076,6 +1078,12 @@ private fun Wheel(
           }
           .semantics {
             contentDescription = "Tools. Tap to " + (if (dock.wheelOpen) "close" else "open") + "; press and pull to pick; hold to move."
+            role = Role.Button
+            // The wheel is driven by raw pointer gestures, which TalkBack's double tap does not send.
+            onClick(label = if (dock.wheelOpen) "Close tools" else "Open tools") {
+              dock.wheelOpen = !dock.wheelOpen
+              true
+            }
           },
         contentAlignment = Alignment.Center,
       ) {

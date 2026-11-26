@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlin.math.atan2
@@ -59,6 +61,8 @@ fun MarkerWheel(
 
   Canvas(
     modifier
+      // Drawn and driven by gestures only, so say what it is and which colour is chosen.
+      .semantics { contentDescription = "Marker colour wheel. Chosen colour ${formatHexRgb(selected)}. Drag to turn, tap a colour to pick it." }
       .pointerInput(Unit) {
         val tracker = VelocityTracker()
         var lastAngle = 0f

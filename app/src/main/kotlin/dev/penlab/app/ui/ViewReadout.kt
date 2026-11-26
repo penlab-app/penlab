@@ -168,9 +168,9 @@ private fun PresetRow(
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       for (preset in presets) {
-        Chip(label(preset), Modifier.combinedClickable(onClick = { onPick(preset) }, onLongClick = { onRemove(preset) }))
+        Chip(label(preset), Modifier.combinedClickable(role = Role.Button, onClick = { onPick(preset) }, onLongClick = { onRemove(preset) }))
       }
-      Chip("+", Modifier.clickable(onClick = onAdd).semantics { contentDescription = addLabel })
+      Chip("+", Modifier.clickable(role = Role.Button, onClick = onAdd).semantics { contentDescription = addLabel })
     }
   }
 }

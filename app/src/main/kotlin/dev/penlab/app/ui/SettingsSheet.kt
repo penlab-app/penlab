@@ -236,7 +236,16 @@ fun SettingsSheet(
             selected = Motion.speed,
             onSelect = Motion::set,
             label = { it.label },
+            enabled = !Motion.systemOff,
           )
+          if (Motion.systemOff) {
+            Text(
+              text = "Off because Android's Remove animations is on.",
+              style = MaterialTheme.typography.bodySmall,
+              color = scheme.onSurfaceVariant,
+              modifier = Modifier.padding(top = PenLabSpacing.xs),
+            )
+          }
 
           Spacer(Modifier.height(PenLabSpacing.xl))
           HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)

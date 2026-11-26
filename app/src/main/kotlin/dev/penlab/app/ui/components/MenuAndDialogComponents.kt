@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -339,11 +340,15 @@ fun PenLabSliderRow(
                 )
                 .combinedClickable(
                   enabled = enabled,
+                  role = Role.Button,
                   onClick = { onSelectFavourite?.invoke(fav) },
                   onLongClick = { onRemoveFavourite?.invoke(fav) },
                 )
                 .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm)
-                .semantics { contentDescription = "$chipText. Long press to remove." },
+                .semantics {
+                  contentDescription = "$chipText. Long press to remove."
+                  this.selected = selected
+                },
             contentAlignment = Alignment.Center,
           ) {
             Text(
@@ -360,7 +365,7 @@ fun PenLabSliderRow(
                 .size(PenLabSpacing.touchTarget)
                 .clip(PenLabShapes.small)
                 .background(PenLabComponentTokens.chipIdleBg)
-                .clickable(enabled = enabled, onClick = onAddFavourite)
+                .clickable(enabled = enabled, role = Role.Button, onClick = onAddFavourite)
                 .semantics { contentDescription = addFavouriteDescription },
             contentAlignment = Alignment.Center,
           ) {

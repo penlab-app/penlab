@@ -161,7 +161,7 @@ private fun StepperIconButton(icon: ImageVector, label: String, enabled: Boolean
     modifier = Modifier
       .size(PenLabSpacing.touchTarget)
       .clip(PenLabShapes.pill)
-      .clickable(enabled = enabled, onClick = onClick)
+      .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
       .semantics { contentDescription = label },
     contentAlignment = Alignment.Center,
   ) {

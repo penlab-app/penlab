@@ -633,6 +633,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
+    Motion.refreshSystem(this)
     checkStorage()
   }
 

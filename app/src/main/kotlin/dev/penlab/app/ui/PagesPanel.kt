@@ -5,7 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,7 +46,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -173,12 +172,9 @@ fun PagesPanelContent(
               if (onlyBookmarked) Modifier.border(1.5.dp, scheme.primary, PenLabShapes.pill)
               else Modifier
             )
-            .clickable(role = Role.Switch) { onlyBookmarked = !onlyBookmarked }
+            .toggleable(value = onlyBookmarked, role = Role.Switch) { onlyBookmarked = it }
             .padding(horizontal = PenLabSpacing.md)
-            .semantics {
-              contentDescription = if (onlyBookmarked) "Showing bookmarked pages. Tap for all pages." else "Bookmarks only: show only bookmarked pages"
-              selected = onlyBookmarked
-            },
+            .semantics { contentDescription = "Bookmarks only: show only bookmarked pages" },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
@@ -333,11 +329,8 @@ private fun PageTile(
             .align(Alignment.TopEnd)
             .size(PenLabSpacing.touchTarget)
             .clip(CircleShape)
-            .clickable(role = Role.Switch, onClick = onToggleBookmark)
-            .semantics {
-              contentDescription = if (bookmarked) "Remove bookmark from page ${page + 1}" else "Bookmark page ${page + 1}"
-              selected = bookmarked
-            },
+            .toggleable(value = bookmarked, role = Role.Switch) { onToggleBookmark() }
+            .semantics { contentDescription = "Bookmark page ${page + 1}" },
         contentAlignment = Alignment.Center,
       ) {
         Box(

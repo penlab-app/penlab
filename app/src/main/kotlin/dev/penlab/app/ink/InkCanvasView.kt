@@ -856,6 +856,7 @@ class InkCanvasView(
       stopFling()
       pullAtDown = pullDistance
       pullTouching = true
+      pullPastSince = PullToAdd.NOT_PAST
       if (!runningFingerPenCopy) fingerPenActive = false // a new touch starts clean
     }
 
@@ -993,6 +994,8 @@ class InkCanvasView(
     }
     if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
       pullTouching = false
+      removeCallbacks(pullHoldTick)
+      pullPastSince = PullToAdd.NOT_PAST
       if (pullDistance != 0f) {
         pullDistance = 0f
         pullReady = false
@@ -1118,6 +1121,15 @@ class InkCanvasView(
   /** A touch is down (set at ACTION_DOWN, cleared at UP/CANCEL). */
   private var pullTouching = false
 
+  /** When this touch's pull went past the threshold and stayed (uptime ms), or [PullToAdd.NOT_PAST]. */
+  private var pullPastSince = PullToAdd.NOT_PAST
+
+  /** The finger may be perfectly still at the threshold (no events), so a timer flips "ready" and redraws. */
+  private val pullHoldTick = Runnable {
+    updatePull()
+    finishedView.invalidate()
+  }
+
   /**
    * Whether the "pull to add" hint belongs on screen: only while a touch is pulling the page past
    * the end (further than it already was when the touch began), or while the page springs back.
@@ -1134,7 +1146,13 @@ class InkCanvasView(
     val past = (bottom[1] - layout.totalHeight - layout.gap) * pageToScreen.mapRadius(1f)
     pullDistance = past.coerceAtLeast(0f)
     val wasReady = pullReady
-    pullReady = PullToAdd.isReady(pullIsLive(), pullTouching, pullDistance, PULL_TO_ADD_DP * density)
+    val now = SystemClock.uptimeMillis()
+    val over = PullToAdd.isPastThreshold(pullIsLive(), pullTouching, pullDistance, PULL_TO_ADD_DP * density)
+    val wasPast = pullPastSince != PullToAdd.NOT_PAST
+    pullPastSince = PullToAdd.heldSince(pullPastSince, over, now)
+    pullReady = PullToAdd.isReady(pullPastSince, now)
+    if (over || wasPast) removeCallbacks(pullHoldTick) // only while a pull is in progress: panning stays cheap
+    if (over && !pullReady) postDelayed(pullHoldTick, PullToAdd.remainingMs(pullPastSince, now))
     if (pullReady != wasReady) performHapticFeedback(if (pullReady) HapticFeedbackConstants.CLOCK_TICK else HapticFeedbackConstants.TEXT_HANDLE_MOVE)
   }
 
@@ -1142,6 +1160,8 @@ class InkCanvasView(
   fun addPage() {
     val layout = pageLayout ?: return
     pullReady = false
+    pullPastSince = PullToAdd.NOT_PAST
+    removeCallbacks(pullHoldTick)
     pullDistance = 0f
     performHapticFeedback(HapticFeedbackConstants.CONFIRM)
     insertPage(layout.count)
@@ -1606,20 +1626,39 @@ class InkCanvasView(
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
     super.onSizeChanged(w, h, oldw, oldh)
     val layout = pageLayout ?: return
-    if (oldw <= 0 || w == oldw) return
+    if (oldw <= 0 || (w == oldw && h == oldh)) return
     pageToScreen.getValues(matrixValues)
     if (abs(matrixValues[Matrix.MSKEW_Y]) > 1e-3f) return
     val zoom = matrixValues[Matrix.MSCALE_X]
     val oldFree = oldw - leftInset - rightInset
     val wasFitted = abs(layout.pageWidth * zoom - oldFree) / oldFree < 0.08f
-    if (!wasFitted && layout.pageWidth * zoom <= w - leftInset - rightInset) return
-    stopFling()
-    val middle = floatArrayOf(oldw / 2f, oldh / 2f)
-    screenToPage.mapPoints(middle)
-    val fit = ((w - leftInset - rightInset) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
-    pageToScreen.setScale(fit, fit)
-    pageToScreen.postTranslate(leftInset, h / 2f - middle[1] * fit)
+    if (w != oldw && (wasFitted || layout.pageWidth * zoom > w - leftInset - rightInset)) {
+      stopFling()
+      val middle = floatArrayOf(oldw / 2f, oldh / 2f)
+      screenToPage.mapPoints(middle)
+      val fit = ((w - leftInset - rightInset) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
+      pageToScreen.setScale(fit, fit)
+      pageToScreen.postTranslate(leftInset, h / 2f - middle[1] * fit)
+    }
+    settleAfterResize(layout)
     viewMoved()
+  }
+
+  /**
+   * After a size change the end of the notebook may sit high on a taller screen (the middle was kept
+   * in the middle), leaving a large empty area. Pulling past the end is only ever a finger's job, so
+   * slide the content down until the end rests at the bottom (never moving the first page's top
+   * below its limit, so a short notebook stays at the top).
+   */
+  private fun settleAfterResize(layout: PageLayout) {
+    val bottom = floatArrayOf(width / 2f, height - bottomInset)
+    pageToScreen.invert(screenToPage)
+    screenToPage.mapPoints(bottom)
+    val zoom = pageToScreen.mapRadius(1f)
+    val pastEnd = (bottom[1] - layout.totalHeight - layout.gap) * zoom
+    pageToScreen.getValues(matrixValues)
+    val dy = ViewSettle.shiftDown(pastEnd, matrixValues[Matrix.MTRANS_Y], topClearance())
+    if (dy > 0f) pageToScreen.postTranslate(0f, dy)
   }
 
   /** After a pinch: if the page ended up nearly screen-wide, snap it to exactly screen-wide. */
@@ -2669,7 +2708,7 @@ class InkCanvasView(
         pullPaint.strokeWidth = 1.5f * density / zoom
         canvas.drawRect(0f, top, layout.pageWidth, top + shown, pullPaint)
         pullText.textSize = 15f * density / zoom
-        val message = if (pullReady) "Release to add a page" else "Pull to add a page"
+        val message = if (pullReady) "Release to add a page" else if (pullPastSince != PullToAdd.NOT_PAST) "Keep holding" else "Pull to add a page"
         val textY = top + shown / 2f
         canvas.drawText(message, layout.pageWidth / 2f, textY, pullText)
         // How far there is to go: fills as the page is pulled, full = let go to add.

@@ -32,11 +32,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -214,8 +214,9 @@ fun PenLabSearchField(
 ) {
   // Only a touch may focus this field. When a notebook closes and the library comes back, Android
   // hands focus to the first focusable thing on the screen, which is this field: the cursor
-  // blinked in it and the keyboard could pop up. Focus that arrives without a touch is dropped.
-  val focus = LocalFocusManager.current
+  // blinked in it and the keyboard could pop up. So the field can't take focus at all until it is
+  // touched (and forgets the touch once focus leaves). Clearing focus after it arrived instead
+  // made Android hand it straight back: an endless loop and a StackOverflowError (26 Nov).
   var touched by remember { mutableStateOf(false) }
   androidx.compose.foundation.text.BasicTextField(
     value = query,
@@ -233,7 +234,8 @@ fun PenLabSearchField(
           }
         }
       }
-      .onFocusChanged { if (it.isFocused && !touched) focus.clearFocus() }
+      .focusProperties { canFocus = touched }
+      .onFocusChanged { if (!it.isFocused && !it.hasFocus) touched = false }
       .semantics { contentDescription = "Search all notebooks" },
     decorationBox = { field ->
       Row(

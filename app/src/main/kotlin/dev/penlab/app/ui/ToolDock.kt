@@ -986,9 +986,12 @@ private fun Wheel(
             // The darker groove is the tool ring's; the lighter zone inside its inner rim holds the colour dots.
             val ring = dock.wheelRing.radius
             val band = WheelCell.toPx() + 10.dp.toPx()
-            drawCircle(wheelGroove, radius = ring, center = c, style = Stroke(band))
-            drawCircle(PenLabColors.hairline, radius = ring + band / 2f, center = c, style = Stroke(1.dp.toPx()))
-            drawCircle(wheelInnerRim, radius = ring - band / 2f, center = c, style = Stroke(1.dp.toPx()))
+            // The light zone is only as wide as the colour dots need (Akram 26 Nov: thinner); the groove fills the rest.
+            val outer = ring + band / 2f
+            val inner = (dock.wheelColorRing.radius + WheelGeometry.COLOR_CELL_DP.dp.toPx() / 2f + 8.dp.toPx()).coerceAtMost(ring - band / 2f)
+            drawCircle(wheelGroove, radius = (outer + inner) / 2f, center = c, style = Stroke(outer - inner))
+            drawCircle(PenLabColors.hairline, radius = outer, center = c, style = Stroke(1.dp.toPx()))
+            drawCircle(wheelInnerRim, radius = inner, center = c, style = Stroke(1.dp.toPx()))
           }
           .border(1.dp, PenLabColors.hairline, shape)
           .ignorePalm(isPalm)

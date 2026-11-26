@@ -164,7 +164,8 @@ internal object WheelGeometry {
    */
   fun colorRing(tool: Ring, toolCell: Float, colorCell: Float, hubHalf: Float, hubClearance: Float, cellGap: Float): Ring {
     val innerEdge = hubHalf + hubClearance
-    val radius = maxOf((innerEdge + tool.radius - toolCell / 2f) / 2f, innerEdge + colorCell / 2f)
+    // Akram 26 Nov: the light zone should be thin, so the dots hug the button.
+    val radius = innerEdge + colorCell / 2f + cellGap
     val toolCut = (tool.radius * Math.sin(Math.toRadians((-tool.startDeg).toDouble()))).toFloat().coerceAtLeast(0f)
     val depth = (toolCell / 2f + toolCut - colorCell / 2f).coerceAtLeast(0f)
     val a = Math.toDegrees(Math.asin((depth / radius).toDouble().coerceIn(0.0, 1.0))).toFloat()

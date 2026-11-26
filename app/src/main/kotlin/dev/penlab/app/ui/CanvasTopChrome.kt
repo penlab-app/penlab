@@ -811,7 +811,7 @@ private fun ChromePillDivider() {
 }
 
 @Composable
-private fun ChromePillIconButton(
+internal fun ChromePillIconButton(
   icon: ImageVector,
   contentDescription: String,
   onClick: () -> Unit,

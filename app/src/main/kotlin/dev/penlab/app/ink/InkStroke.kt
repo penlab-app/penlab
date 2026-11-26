@@ -272,11 +272,21 @@ object StrokeMeshes {
 }
 
 /**
- * A stroke's place in an audio recording, packed in one Long: the recording's number in the
- * notebook's list (high 32 bits) and the position in milliseconds (low 32 bits). This app no
- * longer records or plays audio; the mark is only carried through loading, editing and saving
- * so notebooks written by versions that did keep it unchanged.
+ * A stroke's place in a recording (the "media" plugin capability, docs/plugin-bridge.md): the recording's number in
+ * the notebook's list (high 32 bits) and the position in milliseconds (low 32 bits, up to 49 days) packed in one
+ * Long. The packing is Graphite's AudioMark, so notebooks written by Graphite keep working. PenLab stamps it at pen-up
+ * while a media plugin records; with no media plugin installed the mark is only carried through loading, editing and
+ * saving.
  */
 object MediaMark {
   const val NONE = -1L
+
+  /** The mark of position [positionMs] in recording number [recording] (an index into the notebook's recordings list). */
+  fun of(recording: Int, positionMs: Long): Long = (recording.toLong() shl 32) or (positionMs and 0xFFFFFFFFL)
+
+  /** The recording number of [mark] (not meaningful for [NONE]). */
+  fun recording(mark: Long): Int = (mark ushr 32).toInt()
+
+  /** The position in the recording of [mark], in milliseconds. */
+  fun positionMs(mark: Long): Long = mark and 0xFFFFFFFFL
 }

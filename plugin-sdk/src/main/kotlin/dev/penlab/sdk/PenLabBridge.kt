@@ -59,4 +59,29 @@ object PenLabBridge {
 
   /** Result file name of a notebook's background PDF. */
   const val FILE_PDF = "pdf"
+
+  // ---- Media (lecture recording): the host side of the "media" capability -----------------------------
+
+  /** The version of [IPenLabHost], the interface PenLab offers a media plugin. */
+  const val HOST_API_VERSION = 1
+
+  /** PenLab's exported media service (class name; its package is [HOST_PACKAGE]). [PenLabHostClient] binds it. */
+  const val HOST_MEDIA_SERVICE = "dev.penlab.app.plugins.host.MediaHostService"
+
+  /**
+   * `run` capability id of PenLab's recording controls (the pill and the "Record lecture" entry). The request JSON has
+   * `command` = [MEDIA_START], [MEDIA_PAUSE], [MEDIA_RESUME] or [MEDIA_STOP]. The answer is a normal result: `none`, or `error` with a message.
+   */
+  const val CAP_MEDIA_COMMAND = "media:command"
+
+  /** `run` capability id of a finger tap on marked ink: the request JSON has `ref` (the recording's reference) and `positionMs`; the plugin plays from there. */
+  const val CAP_MEDIA_SEEK = "media:seek"
+
+  const val MEDIA_START = "start"
+  const val MEDIA_PAUSE = "pause"
+  const val MEDIA_RESUME = "resume"
+  const val MEDIA_STOP = "stop"
+
+  /** The longest recording reference PenLab stores (characters). Longer, blank or control-character refs are refused (`mediaStarted` returns -1). */
+  const val MAX_MEDIA_REF_LENGTH = 1024
 }

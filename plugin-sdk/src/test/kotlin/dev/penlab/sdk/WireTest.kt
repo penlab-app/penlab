@@ -225,4 +225,109 @@ class WireTest {
     val json = ResultCodec.encode(PluginResult.Items(listOf(ResultItem.text("t", 0f, 0f, 1f, 1f, rotationDeg = Float.NaN)))).json
     assertEquals(0f, (ResultCodec.decode(json) as PluginResult.Items).items.single().rotationDeg, 0f)
   }
+
+  // ---- Media: the wire format the contract names -----------------------------------------------------
+
+  @Test
+  fun mediaCommandRequestCarriesTheContractKeysAndStaysAPluginRequest() {
+    val json = PenLabPluginService.mediaCommandRequest(PenLabBridge.MEDIA_PAUSE)
+    val o = org.json.JSONObject(json)
+    assertEquals("pause", o.getString("command")) // the contract's {"command": ...}
+    assertEquals("media:command", o.getString("capabilityId"))
+    assertFalse(o.has("positionMs")) // a command has no seek position
+    val back = PluginRequest.fromJson(json) // a plugin's run() must still be able to parse it
+    assertEquals("media:command", back.capabilityId)
+    assertEquals("pause", back.media!!.command)
+    assertNull(back.page)
+  }
+
+  @Test
+  fun everyCommandRoundTrips() {
+    for (command in listOf(PenLabBridge.MEDIA_START, PenLabBridge.MEDIA_PAUSE, PenLabBridge.MEDIA_RESUME, PenLabBridge.MEDIA_STOP)) {
+      assertEquals(command, PluginRequest.fromJson(PenLabPluginService.mediaCommandRequest(command)).media!!.command)
+    }
+    assertEquals(listOf("start", "pause", "resume", "stop"), listOf(PenLabBridge.MEDIA_START, PenLabBridge.MEDIA_PAUSE, PenLabBridge.MEDIA_RESUME, PenLabBridge.MEDIA_STOP))
+  }
+
+  @Test
+  fun mediaSeekRequestCarriesRefAndPosition() {
+    val ref = "content://media/external/audio/123 with \"quotes\" and \u00e9"
+    val json = PenLabPluginService.mediaSeekRequest(ref, 83_250L)
+    val o = org.json.JSONObject(json)
+    assertEquals(ref, o.getString("ref"))
+    assertEquals(83_250L, o.getLong("positionMs"))
+    assertEquals("media:seek", o.getString("capabilityId"))
+    val back = PluginRequest.fromJson(json).media!!
+    assertEquals(ref, back.ref)
+    assertEquals(83_250L, back.positionMs)
+    assertNull(back.command)
+  }
+
+  @Test
+  fun aNegativeSeekPositionIsSentAsZero() {
+    assertEquals(0L, PluginRequest.fromJson(PenLabPluginService.mediaSeekRequest("r", -5L)).media!!.positionMs)
+  }
+
+  @Test
+  fun aPluginCallExposesTheMediaFieldsOnlyForTheirCapability() {
+    val command = PluginCall(PenLabBridge.CAP_MEDIA_COMMAND, PluginRequest.fromJson(PenLabPluginService.mediaCommandRequest("start")), android.os.Bundle())
+    assertEquals("start", command.mediaCommand)
+    assertNull(command.mediaSeekRef)
+    val seek = PluginCall(PenLabBridge.CAP_MEDIA_SEEK, PluginRequest.fromJson(PenLabPluginService.mediaSeekRequest("r1", 1234)), android.os.Bundle())
+    assertEquals("r1", seek.mediaSeekRef)
+    assertEquals(1234L, seek.mediaSeekPositionMs)
+    assertNull(seek.mediaCommand)
+  }
+
+  @Test
+  fun aBareContractCommandWithACapabilityIdParses() {
+    // What a hand-written host (or an older test) might send: just the contract keys plus the capability id.
+    val r = PluginRequest.fromJson("""{"capabilityId":"media:command","command":"stop"}""")
+    assertEquals("stop", r.media!!.command)
+  }
+
+  @Test
+  fun ordinaryRequestsCarryNoMediaFields() {
+    val json = PluginRequest("wordcount").toJson()
+    assertFalse(json.contains("command"))
+    assertNull(PluginRequest.fromJson(json).media)
+  }
+
+  @Test
+  fun hostConstantsMatchTheContract() {
+    assertEquals("dev.penlab.app", PenLabBridge.HOST_PACKAGE)
+    assertEquals("dev.penlab.app.plugins.host.MediaHostService", PenLabBridge.HOST_MEDIA_SERVICE)
+    assertEquals(1, PenLabBridge.HOST_API_VERSION)
+  }
+
+  @Test
+  fun aCommandCarriesTheOpenNotebookInPage() {
+    val json = PenLabPluginService.mediaCommandRequest("start", PageInfo("nb-7", 3, 210f, 297f, darkPage = false))
+    assertEquals("nb-7", org.json.JSONObject(json).getJSONObject("page").getString("notebookId"))
+    val call = PluginCall(PenLabBridge.CAP_MEDIA_COMMAND, PluginRequest.fromJson(json), android.os.Bundle())
+    assertEquals("nb-7", call.mediaNotebookId)
+    assertEquals("start", call.mediaCommand)
+    // Without a page (an older host, or no notebook open) the id is simply absent.
+    val bare = PluginCall(PenLabBridge.CAP_MEDIA_COMMAND, PluginRequest.fromJson(PenLabPluginService.mediaCommandRequest("stop")), android.os.Bundle())
+    assertNull(bare.mediaNotebookId)
+  }
+
+  @Test
+  fun aSeekCarriesTheRecordingIndexNextToRefAndPosition() {
+    val json = PenLabPluginService.mediaSeekRequest("Recordings/Graphite/x.m4a", 9_000, recordingIndex = 4)
+    val o = org.json.JSONObject(json)
+    assertEquals(4, o.getInt("recordingIndex"))
+    assertEquals("Recordings/Graphite/x.m4a", o.getString("ref"))
+    assertEquals(9_000L, o.getLong("positionMs"))
+    val call = PluginCall(PenLabBridge.CAP_MEDIA_SEEK, PluginRequest.fromJson(json), android.os.Bundle())
+    assertEquals(4, call.mediaSeekRecordingIndex)
+    assertEquals(-1, PluginCall(PenLabBridge.CAP_MEDIA_COMMAND, PluginRequest.fromJson(PenLabPluginService.mediaCommandRequest("start")), android.os.Bundle()).mediaSeekRecordingIndex)
+  }
+
+  @Test
+  fun aSeekFromAnOlderHostWithoutAnIndexReadsAsMinusOne() {
+    val r = PluginRequest.fromJson("""{"capabilityId":"media:seek","ref":"r","positionMs":5}""")
+    assertEquals(-1, r.media!!.recordingIndex)
+    assertEquals(-1, PluginRequest.fromJson(PenLabPluginService.mediaSeekRequest("r", 5)).media!!.recordingIndex)
+  }
 }

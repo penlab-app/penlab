@@ -19,6 +19,12 @@ data class ScreenChrome(
   /** The row of buttons along the top, with the page counter and the tabs in it. */
   val topBar: Boolean get() = !fullScreen && !present
 
+  /**
+   * The recording pill (and the "Record lecture" button): everywhere except Present, where only the page and the ink show
+   * (the recording itself goes on). Full screen keeps it: the pill is the only way to see and stop a recording there.
+   */
+  val mediaPill: Boolean get() = !present
+
   /** The tool dock (rail, bar, wheel) and, with it, every panel that opens from it. */
   val toolbar: Boolean get() = !present || toolsPeeking
 

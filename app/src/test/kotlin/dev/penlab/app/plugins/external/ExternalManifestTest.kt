@@ -2,6 +2,7 @@ package dev.penlab.app.plugins.external
 
 import dev.penlab.app.plugins.ScreenPlacement
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,5 +91,23 @@ class ExternalManifestTest {
   @Test
   fun aPluginWithNoCapabilitiesIsStillValid() {
     assertEquals(0, ok("""{"id":"a.b","name":"P","apiVersion":2}""").capabilities.size)
+  }
+
+  @Test
+  fun mediaCapabilityReadsItsPlacementAndScreen() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"media","id":"record","label":"Record lecture","icon":"x","placement":"topBar","screen":"recordings"},
+        {"kind":"media","id":"two","label":"Two","placement":"fileMenu"},
+        {"kind":"media","id":"three","label":"Three"},
+        {"kind":"media","id":"four","label":"Four","placement":"somewhereNew","screen":"not a plain id!"}
+      ]}""",
+    )
+    val media = m.capabilities.map { it as CapabilityDecl.MediaDecl }
+    assertEquals(listOf(MediaPlacement.TOP_BAR, MediaPlacement.FILE_MENU, MediaPlacement.MORE_MENU, MediaPlacement.MORE_MENU), media.map { it.placement })
+    assertEquals("recordings", media[0].screenId)
+    assertNull(media[1].screenId)
+    assertNull(media[3].screenId) // not a plain id: dropped, the capability stays
+    assertEquals("Record lecture", media[0].label)
   }
 }

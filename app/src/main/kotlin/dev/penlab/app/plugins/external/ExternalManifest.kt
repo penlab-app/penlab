@@ -6,6 +6,18 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 
+/** Where a media plugin's "Record lecture" entry appears. */
+enum class MediaPlacement {
+  /** A button in the top chrome (where the recording pill appears while recording). */
+  TOP_BAR,
+
+  /** The toolbar's More panel, Plugins group (the default). */
+  MORE_MENU,
+
+  /** The file menu (the notebook's options popover). */
+  FILE_MENU,
+}
+
 /** Whether a page action needs ink selected. */
 enum class SelectionRule { REQUIRED, NONE, ANY }
 
@@ -35,8 +47,11 @@ sealed interface CapabilityDecl {
     override val kind get() = "recogniser"
   }
 
-  /** Read but not hosted yet. */
-  class MediaDecl(override val id: String, override val label: String) : CapabilityDecl {
+  /**
+   * Lecture recording (docs/plugin-bridge.md, "Media"). [placement] says where PenLab puts the "Record lecture" entry;
+   * [screenId] is the optional id of a `screen` capability of the same plugin that lists recordings (it appears under its own placement).
+   */
+  class MediaDecl(override val id: String, override val label: String, val placement: MediaPlacement = MediaPlacement.MORE_MENU, val screenId: String? = null) : CapabilityDecl {
     override val kind get() = "media"
   }
 }
@@ -122,7 +137,17 @@ object ManifestParser {
         CapabilityDecl.ScreenDecl(id, label, activity, placement)
       }
       "recogniser" -> CapabilityDecl.RecogniserDecl(id, label)
-      "media" -> CapabilityDecl.MediaDecl(id, label)
+      "media" ->
+        CapabilityDecl.MediaDecl(
+          id, label,
+          // An unknown placement keeps the capability and uses the default (a newer plugin on an older PenLab still records).
+          when (c.optString("placement", "moreMenu")) {
+            "topBar" -> MediaPlacement.TOP_BAR
+            "fileMenu" -> MediaPlacement.FILE_MENU
+            else -> MediaPlacement.MORE_MENU
+          },
+          c.optString("screen").trim().takeIf { plainId.matches(it) },
+        )
       else -> null // a kind this PenLab does not know: ignored, as the contract says
     }
   }

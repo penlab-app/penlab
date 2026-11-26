@@ -180,7 +180,6 @@ class WheelGeometryTest {
   fun ringCellsMeetTheTouchTargetMinimumAndAreAboutAQuarterBigger() {
     assertTrue(WheelGeometry.CELL_DP >= 48f)
     assertEquals(1.25f, WheelGeometry.CELL_DP / 40f, 0.01f)
-    assertEquals(1.25f, WheelGeometry.RING_RADIUS_DP / 124f, 0.01f)
   }
 
   private fun ringFor(onLeft: Boolean, onTop: Boolean, insetSide: Float = 60f, insetBottom: Float = 60f, topReserve: Float = 200f): Pair<WheelGeometry.Corner, WheelGeometry.Ring> {

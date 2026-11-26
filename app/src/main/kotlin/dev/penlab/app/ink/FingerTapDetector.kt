@@ -67,7 +67,9 @@ class FingerTapDetector(private val maxMovePx: Float, private val onTap: (finger
     maxFingers = maxOf(maxFingers, startPositions.size)
   }
 
-  private fun MotionEvent.wasCanceled() = flags and MotionEvent.FLAG_CANCELED != 0
+  private fun MotionEvent.wasCanceled() =
+    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+      flags and MotionEvent.FLAG_CANCELED != 0
 
   private companion object {
     /** Longest a tap may last, first finger down to last finger up. */

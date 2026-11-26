@@ -127,10 +127,18 @@ class StrokeChunkCache(
     val last = chunks.lastOrNull()
     val total = totalStrokes
     if (index >= total) {
-      val target = last?.takeIf { it.strokes.size < CHUNK_SIZE } ?: Chunk().also(chunks::add)
-      target.strokes += stroke
-      target.needsRecording = true
-      target.boundsStale = true
+      val target = last?.takeIf { it.strokes.size < CHUNK_SIZE }
+      if (target != null) {
+        target.strokes += stroke
+        target.needsRecording = true
+        if (!target.boundsStale) target.bounds.union(stroke.bounds)
+      } else {
+        chunks += Chunk().apply {
+          strokes += stroke
+          bounds.set(stroke.bounds)
+          boundsStale = false
+        }
+      }
       totalStrokes++
       return
     }
@@ -140,7 +148,7 @@ class StrokeChunkCache(
         // Goes into the middle of the page (undo of an erase, or a highlight under the ink).
         chunk.strokes.add(index - chunkStart, stroke)
         chunk.needsRecording = true
-        chunk.boundsStale = true
+        if (!chunk.boundsStale) chunk.bounds.union(stroke.bounds)
         totalStrokes++
         if (chunk.strokes.size > 2 * CHUNK_SIZE) splitInHalf(position)
         return
@@ -282,13 +290,13 @@ class StrokeChunkCache(
 
   private companion object {
     /** Strokes per chunk: the most that get re-recorded when one stroke changes. */
-    const val CHUNK_SIZE = 64
+    const val CHUNK_SIZE = 16
 
     /** Chunks re-recorded per frame after a zoom, to spread that work out. */
-    const val ZOOM_REFRESHES_PER_FRAME = 4
+    const val ZOOM_REFRESHES_PER_FRAME = 8
 
     /** Off-screen chunks recorded ahead per frame (their strokes are already built). */
-    const val PREPARES_PER_FRAME = 3
+    const val PREPARES_PER_FRAME = 6
 
     /** On-screen strokes built straight away in a frame; more than this are built in the background. */
     const val SYNC_BUILD_LIMIT = 12

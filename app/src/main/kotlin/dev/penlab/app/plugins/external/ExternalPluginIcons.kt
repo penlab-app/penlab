@@ -7,6 +7,7 @@ import android.util.Log
 import android.util.LruCache
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.res.ResourcesCompat
 import kotlin.math.roundToInt
 
 /** Implemented by external plugin capabilities that may carry a loaded `@drawable` menu icon. */
@@ -50,13 +51,16 @@ object ExternalPluginIcons {
         val id = res.getIdentifier(drawableName, "drawable", packageName)
         if (id == 0) null
         else {
-          val drawable = res.getDrawable(id, null)
-          val (w, h) = boundedSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
-          val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-          val canvas = Canvas(bmp)
-          drawable.setBounds(0, 0, w, h)
-          drawable.draw(canvas)
-          bmp.asImageBitmap()
+          val drawable = ResourcesCompat.getDrawable(res, id, null)
+          if (drawable == null) null
+          else {
+            val (w, h) = boundedSize(drawable.intrinsicWidth, drawable.intrinsicHeight)
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            drawable.setBounds(0, 0, w, h)
+            drawable.draw(canvas)
+            bmp.asImageBitmap()
+          }
         }
       } catch (t: Throwable) {
         Log.w(TAG, "Could not load icon $drawableName from $packageName", t)

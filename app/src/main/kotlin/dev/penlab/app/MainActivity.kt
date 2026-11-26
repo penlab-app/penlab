@@ -56,6 +56,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -1890,13 +1891,13 @@ private fun NoteScreen(
   // The toolbar's slots, dynamically sized to [toolbarConfig.penCount] pens + utility tools.
   val tools = remember { mutableStateListOf<InkTool>().apply { addAll(toolSettings.loadTools(toolbarConfig.penCount)) } }
   var selected by remember { mutableIntStateOf(toolSettings.selectedIndex.coerceIn(0, tools.lastIndex)) }
-  val context = LocalContext.current
+  val resources = androidx.compose.ui.platform.LocalResources.current
   val mmPerDp = remember {
-    val metrics = context.resources.displayMetrics
+    val metrics = resources.displayMetrics
     metrics.density * 25.4f / metrics.xdpi // dp → pixels → millimetres on this screen
   }
   var pageStyle by remember { mutableStateOf(canvas.pageStyle) }
-  var rulingMm by remember { mutableStateOf(canvas.rulingMm) }
+  var rulingMm by remember { mutableFloatStateOf(canvas.rulingMm) }
   var layerState by remember { mutableStateOf(canvas.layers) }
   // Which toolbar panel is open: a tool's index, PAPER_CELL, LAYERS_CELL, INSTRUMENTS_CELL, MORE_CELL, or null.
   var openPanel by remember { mutableStateOf<Int?>(null) }

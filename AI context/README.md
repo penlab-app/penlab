@@ -58,6 +58,11 @@
 - **External `@drawable` menu icons:** `"icon"` manifest parsing in `ExternalManifest.kt`, bounded (`<= 96px`) LRU cross-package loader in `ExternalPluginIcons.kt`, `HasExternalIcon` on `ExternalPageAction`/`ExternalScreen`/`ExternalMedia`, shared `PluginMenuRow` rendering across `MorePanel`/`SelectionActions`/`FileOptionsPopover`, and `sample-plugin` `ic_wordcount` reference example.
 - **Tests & device QA:** 495 JVM unit tests passing (`:app` 451 + `:plugin-sdk` 44, including `ExternalPluginIconsTest`, expanded `ExternalManifestTest` & `ExternalPluginTest`), verified on Tab S9 (`arm64-v8a` R8 build).
 
+### Phase 4 — Pen-Up `StrokeChunkCache` Optimization & `lintRelease` Polish (26 Nov 2026, QA-Verified on Tab S9)
+- **`StrokeChunkCache` pen-up optimization:** `CHUNK_SIZE` lowered `64 → 16`, `ZOOM_REFRESHES_PER_FRAME` `4 → 8`, `PREPARES_PER_FRAME` `3 → 6`, plus O(1) incremental `bounds.union(...)` on append (`StrokeChunkCache.kt`).
+- **`lintRelease` & release polish:** `0` lint errors (`87` warnings, `0` `ContentDescription` / `RtlHardcoded`); fixed `InlinedApi` (`FingerTapDetector.kt`), `UseCompatLoadingForDrawables` (`ExternalPluginIcons.kt`), `LocalContextResourcesRead` & `AutoboxingStateCreation` (`MainActivity.kt`), and steady-state `SelectionView.onDraw` `DrawAllocation` (`InkCanvasView.kt`).
+- **Verified:** 495 JVM unit tests passing + `:sample-plugin:compileDebugKotlin`, `arm64-v8a` R8 APK (`13.32 MB`), and 4-theme QA PASS on Tab S9 (`Dark/Light × Blueprint/Copper`, `gfxinfo` `50th: 5ms`, `90th: 8ms`, zero `logcat` errors).
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)

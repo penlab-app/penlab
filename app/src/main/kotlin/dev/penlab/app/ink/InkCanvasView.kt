@@ -3884,20 +3884,24 @@ class InkCanvasView(
     private val path = Path()
     private val box = RectF()
     private val movedMatrix = Matrix()
+    private var lassoScreenPoints = FloatArray(64)
 
     override fun onDraw(canvas: Canvas) {
       drawSearchHit(canvas)
       drawPlayback(canvas)
       if (lassoGesture == LassoGesture.DRAWING && lassoPath.size > 1) {
         path.rewind()
-        val points = FloatArray(lassoPath.size * 2)
+        val count = lassoPath.size
+        val needed = count * 2
+        if (lassoScreenPoints.size < needed) lassoScreenPoints = FloatArray(needed)
+        val points = lassoScreenPoints
         lassoPath.forEachIndexed { i, p ->
           points[i * 2] = p.x
           points[i * 2 + 1] = p.y
         }
-        pageToScreen.mapPoints(points)
+        pageToScreen.mapPoints(points, 0, points, 0, count)
         path.moveTo(points[0], points[1])
-        for (i in 1 until lassoPath.size) path.lineTo(points[i * 2], points[i * 2 + 1])
+        for (i in 1 until count) path.lineTo(points[i * 2], points[i * 2 + 1])
         // Show the loop closed while it will be read as a loop, so it is clear before the pen lifts.
         if (lassoPath.size > 2 && !isOpenLine(lassoPath, lassoBounds())) path.close()
         canvas.drawPath(path, dashed)

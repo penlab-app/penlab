@@ -2,6 +2,7 @@ package dev.penlab.plugin
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import java.io.File
 
 /*
  * Plain data: what crosses the plugin boundary. No PenLab or Ink types, so the same shapes can later
@@ -40,11 +41,27 @@ class PageRef(val notebookId: String, val pageIndex: Int, val widthMm: Float, va
 
 /**
  * A page object that is not ink. [typeId] says what it is (a plugin's own id, or `penlab.text` /
- * `penlab.image` for the base's); [payload] is whatever bytes the plugin needs. PenLab stores
- * [typeId] and [payload] untouched and gives them back after any number of saves, even in a build
- * where the plugin is absent (it then shows as a grey box). [boundsMm] is the area it covers.
+ * `penlab.image` / `penlab.ink-image` for the base's); [payload] is whatever bytes the plugin needs.
+ * PenLab stores [typeId] and [payload] untouched and gives them back after any number of saves, even in a
+ * build where the plugin is absent (it then shows as a grey box). [boundsMm] is the area it covers.
+ *
+ * The rest is the items format 1 of the plugin bridge (all optional, so older callers compile unchanged):
+ * - [id] is the page item's id in a [Selection] (null for an item a plugin is returning); [rotationDeg] its turn in
+ *   degrees about its centre.
+ * - [unrotatedBoundsMm] is the box before the turn. In a [Selection], [boundsMm] is the turned item's axis-aligned
+ *   box and this is the exact rectangle; they are the same when [rotationDeg] is 0. In a result, [boundsMm] is
+ *   already the unrotated box, turned by [rotationDeg].
+ * - [replaces] (results only) is the id of a selected item this one takes the place of, in the same undo step.
  */
-class PluginItem(val typeId: String, val boundsMm: RectF, val payload: ByteArray) {
+class PluginItem(
+  val typeId: String,
+  val boundsMm: RectF,
+  val payload: ByteArray,
+  val id: String? = null,
+  val rotationDeg: Float = 0f,
+  val unrotatedBoundsMm: RectF = boundsMm,
+  val replaces: String? = null,
+) {
   init {
     require(typeId.isNotEmpty() && '\n' !in typeId) { "typeId must be a non-empty single line" }
   }
@@ -54,13 +71,15 @@ class PluginItem(val typeId: String, val boundsMm: RectF, val payload: ByteArray
  * What the user has selected with the lasso. [strokes] and [items] are the selected ones, [boundsMm]
  * their common area, and [bitmap] a picture of exactly them (dark ink on a transparent
  * background, at most 1200 px on the long side; null when the selection is empty). The host owns the bitmap:
- * copy it if it is needed after the call returns.
+ * copy it if it is needed after the call returns. [imageFiles] maps the id of each selected picture item to its
+ * original file in the notebook (read-only; nothing is read or copied until a plugin app needs it).
  */
 class Selection(
   val strokes: List<PluginStroke>,
   val items: List<PluginItem>,
   val boundsMm: RectF,
   val bitmap: Bitmap?,
+  val imageFiles: Map<String, File> = emptyMap(),
 ) {
   val isEmpty: Boolean get() = strokes.isEmpty() && items.isEmpty()
 

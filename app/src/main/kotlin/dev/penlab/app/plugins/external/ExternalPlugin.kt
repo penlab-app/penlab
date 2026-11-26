@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import dev.penlab.app.plugins.ExtensionImporter
+import dev.penlab.app.plugins.PluginConvert
 import dev.penlab.app.plugins.ScreenPageAction
 import dev.penlab.app.plugins.ScreenPlacement
 import dev.penlab.plugin.API_VERSION
@@ -23,6 +24,7 @@ import dev.penlab.sdk.PluginRequest
 import dev.penlab.sdk.ResultCodec
 import dev.penlab.sdk.SdkStroke
 import dev.penlab.sdk.SelectionInfo
+import dev.penlab.sdk.SelectionItem
 import dev.penlab.sdk.StrokeFamily
 import dev.penlab.sdk.StrokesBinary
 import dev.penlab.sdk.SourceInfo
@@ -55,8 +57,13 @@ class IoSession private constructor(val dir: File) {
 object RequestFiles {
   fun sdkStroke(s: PluginStroke) = SdkStroke(s.xs, s.ys, s.pressures, s.times, s.tool.name, s.argb, s.widthMm, StrokeFamily.fromId(s.family), s.layer)
 
-  /** Writes `selection.png` and `strokes.json` for [selection] into [dir]; null for an empty selection. */
-  fun writeSelection(dir: File, selection: Selection): SelectionInfo? {
+  /**
+   * Writes `selection.png`, `strokes.json` and (with [withItems]) the selected pictures as `item-<n>` into [dir], and lists
+   * the selected items; null for an empty selection. Pictures: at most [PenLabBridge.MAX_ITEM_FILES], each prepared by
+   * [ItemPictures.prepare]; any further or unreadable picture is listed without a file. Items without an id are not listed.
+   * Screens pass `withItems = false` (they do not get items yet).
+   */
+  fun writeSelection(dir: File, selection: Selection, withItems: Boolean = true): SelectionInfo? {
     if (selection.isEmpty) return null
     var image: String? = null
     selection.bitmap?.let { bitmap ->
@@ -65,7 +72,32 @@ object RequestFiles {
     }
     File(dir, PenLabBridge.FILE_STROKES).writeText(StrokesJson.encode(selection.strokes.map(::sdkStroke)), Charsets.UTF_8)
     val b = selection.boundsMm
-    return SelectionInfo(floatArrayOf(b.left, b.top, b.right, b.bottom), selection.strokes.size, selection.items.size, image, PenLabBridge.FILE_STROKES)
+    val items = if (withItems) selectedItems(dir, selection) else emptyList()
+    return SelectionInfo(floatArrayOf(b.left, b.top, b.right, b.bottom), selection.strokes.size, selection.items.size, image, PenLabBridge.FILE_STROKES, items)
+  }
+
+  private fun selectedItems(dir: File, selection: Selection): List<SelectionItem> {
+    var files = 0
+    return selection.items.mapNotNull { item ->
+      val id = item.id ?: return@mapNotNull null
+      val u = item.unrotatedBoundsMm
+      val box = floatArrayOf(u.left, u.top, u.right, u.bottom)
+      val isPicture = item.typeId == PluginConvert.TYPE_IMAGE || item.typeId == PluginConvert.TYPE_INK_IMAGE
+      var file: String? = null
+      var mime: String? = null
+      if (isPicture && files < PenLabBridge.MAX_ITEM_FILES) {
+        val source = selection.imageFiles[id]
+        val name = PenLabBridge.itemFileName(files)
+        val written = if (source == null) null else try { ItemPictures.prepare(source, File(dir, name)) } catch (e: IOException) { null }
+        if (written != null) {
+          file = name
+          mime = written
+          files++
+        }
+      }
+      val text = if (item.typeId == PluginConvert.TYPE_TEXT) item.payload.toString(Charsets.UTF_8) else null
+      SelectionItem(id, item.typeId, box, item.rotationDeg, file, mime, text)
+    }
   }
 
   /** Opens [names] (files in [dir]) as descriptors in a Bundle; close the result when the call is over. Missing files are left out. */
@@ -151,11 +183,14 @@ class ExternalPageAction(
       var files = OpenedFiles(Bundle())
       try {
         val info = RequestFiles.writeSelection(session.dir, selection)
-        files = RequestFiles.open(session.dir, listOfNotNull(info?.imageFile, info?.strokesFile))
+        val itemFiles = info?.items.orEmpty().mapNotNull { it.file }
+        files = RequestFiles.open(session.dir, listOfNotNull(info?.imageFile, info?.strokesFile) + itemFiles)
         // darkPage is only known to screens (the v1 PageRef does not carry it).
-        val request = PluginRequest(decl.id, PageInfo(page.notebookId, page.pageIndex, page.widthMm, page.heightMm, darkPage = false), info, strokesFormat = StrokesBinary.VERSION)
+        val request = PluginRequest(decl.id, PageInfo(page.notebookId, page.pageIndex, page.widthMm, page.heightMm, darkPage = false), info, strokesFormat = StrokesBinary.VERSION, itemsFormat = PenLabBridge.ITEMS_FORMAT)
+        // `replaces` is honoured only for items this very request listed.
+        val replaceable = info?.items.orEmpty().map { it.id }.toSet()
         transport.call(decl.id, request.toJson(), files.bundle, PluginTimeouts.ACTION_MS).orThrow(pluginName).use {
-          ResultMapper.toResult(ResultCodec.decode(it.resultJson), it.files, pluginName)
+          ResultMapper.toResult(ResultCodec.decode(it.resultJson), it.files, pluginName, replaceable)
         }
       } finally {
         files.close()

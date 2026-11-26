@@ -61,24 +61,89 @@ AIDL `dev.penlab.sdk.IPenLabPlugin`: `int apiVersion()`, `Bundle run(String capa
 PenLab binds the explicit component on a worker thread for one call, waits 60 s (importers 180 s), then calls `cancel`,
 unbinds and reports a timeout.
 
-Request JSON (`PluginRequest`): `capabilityId`, `strokesFormat` (the newest strokes-file version PenLab reads, see below; absent or 0 in an older PenLab), `page {notebookId, pageIndex, widthMm, heightMm, darkPage}`,
-`selection {boundsMm[l,t,r,b], strokeCount, itemCount, imageFile, strokesFile}`, `source {displayName, mimeType,
+Request JSON (`PluginRequest`): `capabilityId`, `strokesFormat` (the newest strokes-file version PenLab reads, see below; absent or 0 in an older PenLab),
+`itemsFormat` (the newest items format, see "Selected items"; absent or 0 in an older PenLab), `page {notebookId, pageIndex, widthMm, heightMm, darkPage}`,
+`selection {boundsMm[l,t,r,b], strokeCount, itemCount, imageFile, strokesFile, items[]}`, `source {displayName, mimeType,
 suggestedTitle, file}` (importers). Request files: `selection.png` (dark ink on transparent, at most 1200 px),
-`strokes.json` (`StrokesJson`), `source`. Positions are millimetres of paper.
+`strokes.json` (`StrokesJson`), `item-<n>` (original pictures of selected photos, below), `source`. Positions are millimetres of paper.
 
 Result JSON (`ResultCodec`), returned in the Bundle under `result`, files by name next to it:
 
-- `{"type":"items","items":[{"typeId","boundsMm":[l,t,r,b],"text"?,"file"?}],"strokesFile"?}`: `penlab.text` (the `text`),
+- `{"type":"items","items":[{"typeId","boundsMm":[l,t,r,b],"text"?,"file"?,"replaces"?,"rotationDeg"?}],"strokesFile"?}`: `penlab.text` (the `text`),
   `penlab.image` (a photo) and `penlab.ink-image` (ink: dark on transparent, shown light on the dark page) with the
   picture as the item's `file`. PenLab saves pictures into the notebook's `images/` and makes real image and text items, so
   they draw and export after the plugin is uninstalled. Any other `typeId` shows as a grey box. `strokesFile` names a
   result file of real strokes (next section). Items and strokes together are one undo step; with nothing selected they are
   centred on the visible page as one group.
+  `rotationDeg` and `replaces` are explained in "Selected items" below.
 - `{"type":"text","text"}` (a dialog), `{"type":"message","message"}`, `{"type":"none"}`.
 - `{"type":"error","message"}`: the plugin could not do it. Shown as a message; the plugin stays on. (An importer's
   "cannot read this file" is this or `none`.)
 - importer: `{"type":"notebook","title","pageWidthMm","pageHeightMm","pdfFile"?,"strokesFile"?,"pages":[{"backgroundPdfPage","items":[...]}]}`.
   It becomes a notebook through the same path as a PDF import. The one `strokesFile` holds the ink of all pages (below).
+
+### Selected items: the original photos in, "replace" out (items format 1)
+
+`selection.png` is only a **render** of the selection (strokes and items, at most 1200 px, transparent paper). A plugin that
+works on a selected photo (remove its background, crop, enhance, read its text) needs the real picture, and wants to swap the
+photo for the result instead of adding a second copy. Items format 1 does both. It is additive: the bridge version stays 2, an
+older plugin ignores the new fields, and `PluginRequest.itemsFormat` / `canReplaceItems` tell a plugin whether the PenLab it
+runs in has it (0 / false in a PenLab without it, which sends no items and would ignore `replaces`).
+
+**Request.** Top-level `itemsFormat` (1; `PenLabBridge.ITEMS_FORMAT`) and `selection.items`, one entry per selected page item
+(`SelectionItem`; `PluginRequest.selectionItems`):
+
+```json
+{ "itemsFormat": 1,
+  "selection": { "boundsMm": [..], "strokeCount": 3, "itemCount": 2, "imageFile": "selection.png", "strokesFile": "strokes.json",
+    "items": [
+      { "id": "9b1c...", "typeId": "penlab.image", "boundsMm": [l,t,r,b], "rotationDeg": 20, "file": "item-0", "mimeType": "image/jpeg" },
+      { "id": "4e07...", "typeId": "penlab.text",  "boundsMm": [l,t,r,b], "rotationDeg": 0, "text": "..." } ] } }
+```
+
+- `id` is the page item's id, stable for the notebook; a result names it in `replaces`.
+- `boundsMm` is the item's **unrotated** box in notebook millimetres: the rectangle before PenLab turns it about its centre by
+  `rotationDeg` degrees. (This is the same convention results use, so a plugin can hand the numbers straight back.)
+- `penlab.image` and `penlab.ink-image` items carry `file`, the name of a request file (`item-0`, `item-1`, ...; a
+  `ParcelFileDescriptor` in the files Bundle like `selection.png`) holding the **original picture** from the notebook, and
+  `mimeType` (sniffed from the bytes: `image/png`, `image/jpeg`, ...). A picture whose long side is over **2048 px** is scaled down
+  to 2048 (re-encoded as PNG if it was PNG or has transparency, else JPEG, quality 92); a smaller one is sent byte for byte.
+  Read it with `PluginCall.itemBytes(item)` / `itemInputStream(item)`.
+- Limits: at most 8 picture files per call and 32 MB each; further pictures (or one that cannot be read) are listed without
+  `file`, so a plugin falls back to `selection.png`. Text items carry `text`; plugin-owned items carry neither file nor text.
+- Items PenLab does not list: items whose layer is hidden are not selected in the first place (same rule as `selection.png`).
+
+**Result.** A result item may carry two more fields:
+
+- `rotationDeg` (default 0): `boundsMm` is the unrotated box, turned about its centre by this angle, as in the request.
+- `replaces` (default none): the `id` of a **selected item listed in this call's request**. PenLab removes that item and puts
+  the new one at the same place in the stacking order, in the **same single undo step** as everything else in the result (other
+  added items, strokes); the new item takes over the old one's place in the selection. An empty box (`right <= left` or
+  `bottom <= top`) with `replaces` means "keep the old item's position and turn and fit the picture inside its old box".
+  The old picture file stays in `images/` (undo needs it).
+- Safety: `replaces` is honoured only for ids this call's request listed, and each id once; anything else (an unknown id, an id from
+  another call, a second item naming the same id, an item the user deleted meanwhile, a plugin screen's result) is ignored and the
+  item is simply added. A plugin cannot delete things it was not given. `ResultMapper` does this check; `PluginItemMaterialiser.place`
+  does the in-place swap.
+
+In the SDK: `ResultItem.image(png, l, t, r, b, ink, rotationDeg, replaces)` and `ResultItem.text(..., rotationDeg, replaces)`.
+A plugin that replaces a photo checks `call.request.canReplaceItems` first and otherwise adds its result beside the original:
+
+```kotlin
+override fun onRun(call: PluginCall): PluginResult {
+  val photo = call.selectionItems.firstOrNull { it.isPicture && it.file != null } ?: return fallBackToSelectionImage(call)
+  val bytes = call.itemBytes(photo) ?: return PluginResult.Error("no picture")
+  val out = process(bytes)
+  val b = photo.boundsMm
+  return PluginResult.Items(listOf(ResultItem.image(out, b[0], b[1], b[2], b[3], rotationDeg = photo.rotationDeg, replaces = photo.id)))
+}
+```
+
+Plugin *screens* do not get items yet (their intent has the selection's PNG and strokes only), so a screen's `replaces` is ignored.
+Tests: `WireTest` (SDK: request items, result fields, older-PenLab defaults), `RequestItemsTest` (host: files, caps, ids),
+`ResultMapperTest` (valid / invalid / missing / duplicate `replaces`), `ItemPicturesTest`, `PluginItemMaterialiserTest` (in-place
+swap, empty-box frame, one-undo-step grouping). Device check: photo on the page, lasso it, run a plugin that replaces it; the photo
+is swapped in place (rotated photo keeps its angle), one undo brings the photo back, two selected photos are both replaced.
 
 ### Strokes (real ink)
 

@@ -28,6 +28,15 @@ class PluginCall internal constructor(val capabilityId: String, val request: Plu
   /** The selected strokes, in millimetres; empty when nothing is selected. */
   fun strokes(): List<SdkStroke> = readBytes(PenLabBridge.FILE_STROKES)?.let { StrokesJson.decode(String(it, Charsets.UTF_8)) } ?: emptyList()
 
+  /** The selected page items (items format 1; empty from an older PenLab, see [PluginRequest.itemsFormat]). */
+  val selectionItems: List<SelectionItem> get() = request.selectionItems
+
+  /** The original picture of a selected photo as a stream (null if PenLab sent none). Items format 1. */
+  fun itemInputStream(item: SelectionItem): InputStream? = item.file?.let { inputStream(it) }
+
+  /** The whole original picture of a selected photo (null if PenLab sent none). Items format 1. */
+  fun itemBytes(item: SelectionItem, maxBytes: Long = PenLabBridge.MAX_ITEM_FILE_BYTES): ByteArray? = item.file?.let { PluginFiles.readBytes(files, it, maxBytes) }
+
   /** For an importer: the file the user picked, or null. */
   fun source(): InputStream? = inputStream(PenLabBridge.FILE_SOURCE)
 }

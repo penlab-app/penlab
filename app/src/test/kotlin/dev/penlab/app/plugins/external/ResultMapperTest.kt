@@ -205,4 +205,41 @@ class ResultMapperTest {
       // expected
     }
   }
+
+  // ---- items format 1: replaces and rotation -------------------------------------------------
+
+  private fun picture(replaces: String?, rotation: Float = 0f, file: String = "item-0") = ResultItem(PenLabBridge.TYPE_IMAGE, floatArrayOf(1f, 2f, 3f, 4f), file = file, replaces = replaces, rotationDeg = rotation)
+
+  private fun mapped(vararg wire: ResultItem, replaceable: Set<String>): List<dev.penlab.plugin.PluginItem> =
+    (ResultMapper.toResult(Wire.Items(wire.toList()), Files(mapOf("item-0" to byteArrayOf(1), "item-1" to byteArrayOf(2))), "P", replaceable) as V1.Items).items
+
+  @Test
+  fun replacesIsKeptForAnIdTheRequestListedAndCarriesTheTurn() {
+    val out = mapped(picture("abc", 20f), replaceable = setOf("abc", "def"))
+    assertEquals("abc", out.single().replaces)
+    assertEquals(20f, out.single().rotationDeg, 0f)
+  }
+
+  @Test
+  fun replacesOfAnItemThatWasNotInTheSelectionIsIgnoredSoTheItemIsJustAdded() {
+    val out = mapped(picture("not-listed"), replaceable = setOf("abc"))
+    assertEquals(1, out.size)
+    assertNull(out.single().replaces)
+  }
+
+  @Test
+  fun replacesIsIgnoredWhenTheCallListedNoItems() {
+    assertNull(items(Wire.Items(listOf(picture("abc"))), Files(mapOf("item-0" to byteArrayOf(1)))).single().replaces)
+  }
+
+  @Test
+  fun missingReplacesStaysNullAndOneIdIsReplacedAtMostOnce() {
+    val out = mapped(picture(null), picture("abc", file = "item-0"), picture("abc", file = "item-1"), replaceable = setOf("abc"))
+    assertEquals(listOf(null, "abc", null), out.map { it.replaces })
+  }
+
+  @Test
+  fun aNonFiniteTurnBecomesNoTurn() {
+    assertEquals(0f, mapped(picture("abc", Float.NaN), replaceable = setOf("abc")).single().rotationDeg, 0f)
+  }
 }

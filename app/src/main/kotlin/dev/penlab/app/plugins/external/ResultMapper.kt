@@ -40,10 +40,18 @@ object ResultMapper {
   /** Largest strokes file accepted from a plugin (about 4 million points). */
   const val MAX_STROKES_BYTES = 64L * 1024 * 1024
 
-  /** A page action's or screen's answer. [pluginName] is for the message when the plugin reports an error. */
-  fun toResult(wire: WireResult, files: ResultFiles, pluginName: String): PluginResult =
+  /**
+   * A page action's or screen's answer. [pluginName] is for the message when the plugin reports an error. [replaceable] are the
+   * ids of the selected items this call's request listed: a result item's `replaces` is kept only if it is one of them (and only
+   * for the first item that names it); any other `replaces` is dropped, so that item is just added and a plugin cannot delete
+   * what it was not given. The default (none) is for callers that sent no items.
+   */
+  fun toResult(wire: WireResult, files: ResultFiles, pluginName: String, replaceable: Set<String> = emptySet()): PluginResult =
     when (wire) {
-      is WireResult.Items -> PluginResult.Items(wire.items.map { item(it, files) }, strokeSections(wire.strokesName, files).flatten())
+      is WireResult.Items -> {
+        val taken = HashSet<String>()
+        PluginResult.Items(wire.items.map { item(it, files, replaceable, taken) }, strokeSections(wire.strokesName, files).flatten())
+      }
       is WireResult.Text -> PluginResult.Text(wire.text)
       is WireResult.Message -> PluginResult.Message(wire.message)
       WireResult.None -> PluginResult.None
@@ -92,7 +100,7 @@ object ResultMapper {
   private fun stroke(s: SdkStroke) =
     PluginStroke(s.xs, s.ys, s.pressures, s.times, if (s.family == StrokeFamily.HIGHLIGHTER) Tool.HIGHLIGHTER else Tool.PEN, s.argb, s.widthMm, s.family.id, s.layer)
 
-  private fun item(item: ResultItem, files: ResultFiles): PluginItem {
+  private fun item(item: ResultItem, files: ResultFiles, replaceable: Set<String> = emptySet(), taken: MutableSet<String> = HashSet()): PluginItem {
     val payload =
       when {
         item.file != null -> {
@@ -109,7 +117,9 @@ object ResultMapper {
     if ((item.typeId == PenLabBridge.TYPE_IMAGE || item.typeId == PenLabBridge.TYPE_INK_IMAGE) && payload.isEmpty()) throw WireFormatException("a picture item has no picture")
     val b = item.boundsMm
     return try {
-      PluginItem(item.typeId, RectF(b[0], b[1], b[2], b[3]), payload)
+      val replaces = item.replaces?.takeIf { it in replaceable && taken.add(it) }
+      val rotation = if (item.rotationDeg.isFinite()) item.rotationDeg else 0f
+      PluginItem(item.typeId, RectF(b[0], b[1], b[2], b[3]), payload, rotationDeg = rotation, replaces = replaces)
     } catch (e: IllegalArgumentException) {
       throw WireFormatException(e.message ?: "bad item")
     }

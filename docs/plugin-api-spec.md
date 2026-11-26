@@ -26,6 +26,10 @@ page index, size mm) · `Selection` (strokes + items + bounds + a rendered `Bitm
 `PageItem` (type id string, bounds, `ByteArray` payload) · `Result` = items to place | text |
 message | nothing.
 
+Since the bridge's items format 1 (see `plugin-bridge.md`), `PluginItem` also has optional `id`, `rotationDeg`,
+`unrotatedBoundsMm` and (in results) `replaces`, and `Selection.imageFiles` maps a selected photo's item id to its original file.
+All have defaults, so existing callers are unchanged.
+
 ## Extension points (v1)
 
 1. **PageAction** — a button on the toolbar or the selection menu. `label, icon, enabledWhen(selection

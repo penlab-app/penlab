@@ -2,6 +2,7 @@ package dev.penlab.sdk
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -155,5 +156,73 @@ class WireTest {
         // expected
       }
     }
+  }
+
+  private val photo = SelectionItem("9b1c", PenLabBridge.TYPE_IMAGE, floatArrayOf(10f, 20f, 110f, 80f), 20f, "item-0", "image/jpeg")
+  private val note = SelectionItem("4e07", PenLabBridge.TYPE_TEXT, floatArrayOf(0f, 0f, 5f, 5f), text = "héllo")
+
+  @Test
+  fun requestWithItemsRoundTrips() {
+    val selection = SelectionInfo(floatArrayOf(0f, 0f, 120f, 90f), 0, 2, PenLabBridge.FILE_SELECTION_IMAGE, PenLabBridge.FILE_STROKES, listOf(photo, note))
+    val back = PluginRequest.fromJson(PluginRequest("cutout", selection = selection, itemsFormat = PenLabBridge.ITEMS_FORMAT).toJson())
+    assertEquals(1, back.itemsFormat)
+    assertTrue(back.canReplaceItems)
+    val items = back.selectionItems
+    assertEquals(listOf("9b1c", "4e07"), items.map { it.id })
+    assertEquals(20f, items[0].rotationDeg, 0f)
+    assertArrayEquals(floatArrayOf(10f, 20f, 110f, 80f), items[0].boundsMm, 0f)
+    assertEquals("item-0", items[0].file)
+    assertEquals("image/jpeg", items[0].mimeType)
+    assertTrue(items[0].isPicture)
+    assertNull(items[1].file)
+    assertEquals("héllo", items[1].text)
+    assertFalse(items[1].isPicture)
+  }
+
+  @Test
+  fun anOlderPenLabSendsNoItems() {
+    val back = PluginRequest.fromJson("""{"apiVersion":2,"capabilityId":"x","selection":{"boundsMm":[0,0,1,1],"strokeCount":0,"itemCount":1}}""")
+    assertEquals(0, back.itemsFormat)
+    assertFalse(back.canReplaceItems)
+    assertTrue(back.selectionItems.isEmpty())
+    // and a request without items does not write an empty array
+    assertFalse(PluginRequest("x", selection = SelectionInfo(floatArrayOf(0f, 0f, 1f, 1f), 0, 0)).toJson().contains("\"items\""))
+  }
+
+  @Test
+  fun selectionItemsThisSdkCannotReadAreSkipped() {
+    val back = PluginRequest.fromJson(
+      """{"capabilityId":"x","itemsFormat":1,"selection":{"boundsMm":[0,0,1,1],"strokeCount":0,"itemCount":4,"items":[
+        {"id":"a"},{"id":"b","typeId":"penlab.image","boundsMm":[1,2,3]},5,{"id":"c","typeId":"penlab.image","boundsMm":[0,0,4,4]}]}}""",
+    )
+    assertEquals(listOf("c"), back.selectionItems.map { it.id })
+    assertEquals(0f, back.selectionItems[0].rotationDeg, 0f)
+  }
+
+  @Test
+  fun resultItemReplacesAndRotationRoundTrip() {
+    val encoded = ResultCodec.encode(PluginResult.Items(listOf(ResultItem.image(byteArrayOf(1, 2), 1f, 2f, 3f, 4f, rotationDeg = 20f, replaces = "9b1c"), ResultItem.text("t", 0f, 0f, 1f, 1f, replaces = "4e07"))))
+    val items = (ResultCodec.decode(encoded.json) as PluginResult.Items).items
+    assertEquals("9b1c", items[0].replaces)
+    assertEquals(20f, items[0].rotationDeg, 0f)
+    assertEquals("4e07", items[1].replaces)
+    assertEquals(0f, items[1].rotationDeg, 0f)
+    assertEquals("item-0", items[0].file)
+  }
+
+  @Test
+  fun resultItemWithoutTheNewFieldsReadsAsDefaultsAndWritesNothingExtra() {
+    val plain = ResultCodec.encode(PluginResult.Items(listOf(ResultItem.text("t", 0f, 0f, 1f, 1f)))).json
+    assertFalse(plain.contains("replaces"))
+    assertFalse(plain.contains("rotationDeg"))
+    val item = (ResultCodec.decode("""{"type":"items","items":[{"typeId":"penlab.text","boundsMm":[0,0,1,1],"text":"t"}]}""") as PluginResult.Items).items.single()
+    assertNull(item.replaces)
+    assertEquals(0f, item.rotationDeg, 0f)
+  }
+
+  @Test
+  fun aNonFiniteTurnIsWrittenAndReadAsNone() {
+    val json = ResultCodec.encode(PluginResult.Items(listOf(ResultItem.text("t", 0f, 0f, 1f, 1f, rotationDeg = Float.NaN)))).json
+    assertEquals(0f, (ResultCodec.decode(json) as PluginResult.Items).items.single().rotationDeg, 0f)
   }
 }

@@ -205,8 +205,14 @@ class InkCanvasView(
   fun addImage(fileName: String) {
     val aspect = itemPainter.aspect(fileName) ?: return
     val visible = RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
-    val w = visible.width() * 0.5f
-    val item = ImageItem(PageItem.newId(), fileName, visible.centerX(), visible.centerY(), w, w / aspect)
+    var w = visible.width() * 0.5f
+    var h = w / aspect
+    val maxH = visible.height() * 0.72f
+    if (h > maxH && maxH > 0f) {
+      h = maxH
+      w = h * aspect
+    }
+    val item = ImageItem(PageItem.newId(), fileName, visible.centerX(), visible.centerY(), w, h)
     changeItems { it += item }
   }
 

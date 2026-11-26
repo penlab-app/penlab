@@ -196,6 +196,7 @@ import dev.penlab.app.ui.INSTRUMENTS_CELL
 import dev.penlab.app.ui.InstrumentsPanel
 import dev.penlab.app.ui.PaperPanel
 import dev.penlab.app.ui.PasteMenu
+import dev.penlab.app.ui.PdfCropDialog
 import dev.penlab.app.ui.SelectionActions
 import dev.penlab.app.ui.ToolOptionsPanel
 import dev.penlab.app.ui.ToolSettings
@@ -265,6 +266,7 @@ class MainActivity : ComponentActivity() {
   private var runningPluginJob: kotlinx.coroutines.Job? = null
   private var runningPluginCancel: (() -> Unit)? = null
   private var pluginCancelAction by mutableStateOf<(() -> Unit)?>(null)
+  private var pdfCropRequest by mutableStateOf<Pair<OpenNotebook, Uri>?>(null)
 
   // ---- Media (lecture recording plugins, docs/plugin-bridge.md "Media") ----------------------------------------------
   // The state lives in MediaHost.sessions (process-wide: the plugin's calls arrive on binder threads); this is the screen's view of it.
@@ -527,7 +529,8 @@ class MainActivity : ComponentActivity() {
           if (uri != null && notebook != null) importImage(uri, notebook)
         }
         val pickPdfFromCanvas = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-          if (uri != null) importPdfAndOpen(uri)
+          val notebook = open
+          if (uri != null && notebook != null) pdfCropRequest = notebook to uri
         }
         val current = open
         if (current == null) {
@@ -681,7 +684,7 @@ class MainActivity : ComponentActivity() {
               onOpenSettings = { settingsOpen = true },
               onReport = { where -> reportingFrom = where },
               onInsertImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-              onImportPdf = { pickPdfFromCanvas.launch(arrayOf(*plugins.importMimeTypes().toTypedArray(), "application/pdf")) },
+              onAddFromPdf = { pickPdfFromCanvas.launch(arrayOf("application/pdf")) },
               // Reading externalPlugins.version here makes the menus redraw after a rescan swaps plugins.
               pluginActions = { selectionEmpty -> externalPlugins.version.let { plugins.pageActions(selectionEmpty) } },
               moreMenuActions = { externalPlugins.version.let { plugins.moreMenuActions() } },
@@ -697,6 +700,18 @@ class MainActivity : ComponentActivity() {
               search = current.search,
               projector = projector,
             )
+            val cropRequest = pdfCropRequest
+            if (cropRequest != null && cropRequest.first === current) {
+              PdfCropDialog(
+                uri = cropRequest.second,
+                imagesDir = notebooks.imagesDir(current.info),
+                onPlaced = { fileName ->
+                  pdfCropRequest = null
+                  if (open === current) current.canvas.addImage(fileName)
+                },
+                onDismiss = { pdfCropRequest = null },
+              )
+            }
           }
         }
       }
@@ -1587,6 +1602,7 @@ class MainActivity : ComponentActivity() {
   private fun switchTo(info: NotebookInfo) {
     val current = open ?: return openNotebook(info)
     if (current.info.id == info.id) return
+    pdfCropRequest = null
     save()
     saveCover(current)
     current.pdf?.close()
@@ -1597,6 +1613,7 @@ class MainActivity : ComponentActivity() {
 
   /** Saves and goes back to the library. */
   private fun closeNotebook() {
+    pdfCropRequest = null
     cancelRunningPlugin()
     save()
     open?.let(::saveCover)
@@ -1887,7 +1904,7 @@ private fun NoteScreen(
   onOpenSettings: () -> Unit,
   onReport: (where: String) -> Unit,
   onInsertImage: () -> Unit,
-  onImportPdf: () -> Unit,
+  onAddFromPdf: () -> Unit,
   /** Plugin page actions for the "more" menu (true) or the lasso menu (false), and running one. */
   pluginActions: (selectionEmpty: Boolean) -> List<PluginRegistry.Entry<PageAction>>,
   /** Plugin screens placed in the toolbar's More panel. */
@@ -2405,7 +2422,7 @@ private fun NoteScreen(
             canClear = canClear,
             onAddFromPdf = {
               openPanel = null
-              onImportPdf()
+              onAddFromPdf()
             },
             onAddImage = {
               openPanel = null

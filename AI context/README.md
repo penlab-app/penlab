@@ -69,6 +69,12 @@
 - Persisted `pressureSensitivity` in `ViewSettings.kt`, exposed `Light` / `Balanced` / `Firm` segmented control under **Settings → Writing & input** (`SettingsSheet.kt`), and wired into `InkCanvasView.kt` / `MainActivity.kt`.
 - Verified `:app:testDebugUnitTest` (`54` suites, `491` tests, `0` failures — including `PressureCurveTest` & `ViewSettingsLogicTest`) and Tab S9 R8 release QA (`13.34 MB` `arm64-v8a` APK, `CN=PenLab, O=penlab-app`).
 
+### Stage 2 (Round 2) — "Add from PDF" Page Scroller + Region Crop & Place (26 Nov 2026, QA-Verified on Tab S9)
+- Added pure-Kotlin `PdfCropGeometry.kt` (`NormalizedCropRect`, `CropHandle`, `hitTestCropHandle`, `applyCropDrag`, `PixelCropBounds`, `computeHighResCropBounds`).
+- Added `PdfCropDialog.kt` with single-thread `PdfCropSession`, bounded thumbnail & page preview `LruCache`s (`16 MB` / `24 MB`), scrollable left page strip (`LazyColumn`), interactive crop overlay (`28.dp` touch handles, outer scrim, thirds grid), footer page navigation / `Full page` / `Reset`, and high-res lossless PNG crop export saved into the open notebook's `images/` directory.
+- Clamped tall snippets cleanly in `InkCanvasView.addImage` (`h <= visible.height() * 0.72f`) and rewired `MainActivity.kt` canvas `onAddFromPdf` (`pickPdfFromCanvas`) away from `importPdfAndOpen` while keeping Library PDF import untouched.
+- Verified `:app:testDebugUnitTest` (`55` suites, `497` tests, `0` failures — including 6 `PdfCropGeometryTest` tests & `TypographyDisciplineTest`) and Tab S9 end-to-end R8 release QA.
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)
@@ -189,12 +195,12 @@ done
 | **Component Library** | `app/src/main/kotlin/dev/penlab/app/ui/components/{ChromeComponents.kt, MenuAndDialogComponents.kt}` |
 | **Canvas Chrome & Toolbar** | `app/src/main/kotlin/dev/penlab/app/ui/{CanvasTopChrome.kt, ToolDock.kt, ToolbarConfig.kt, ToolSettings.kt, ToolPanels.kt}` |
 | **Popovers & Pickers** | `app/src/main/kotlin/dev/penlab/app/ui/{ColorWheel.kt, MarkerWheel.kt, PagesPanel.kt, ViewReadout.kt, ViewSettings.kt, SearchUi.kt}` |
-| **Dialogs, Settings & Modes** | `app/src/main/kotlin/dev/penlab/app/ui/{SettingsSheet.kt, PresentMode.kt, ExportLookDialog.kt, RequestDialog.kt, Motion.kt}` |
+| **Dialogs, Settings & Modes** | `app/src/main/kotlin/dev/penlab/app/ui/{SettingsSheet.kt, PresentMode.kt, ExportLookDialog.kt, PdfCropDialog.kt, PdfCropGeometry.kt, RequestDialog.kt, Motion.kt}` |
 | **Library** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, LibraryCards.kt, Covers.kt}`, `app/src/main/kotlin/dev/penlab/app/notes/{CoverMaker.kt, LibraryMigration.kt}` |
 | **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, PageItems.kt, PenBrushes.kt, PressureCurve.kt, StrokeChunkCache.kt}` |
 | **Projector View** | `app/src/main/kotlin/dev/penlab/app/projector/{ProjectorLogic.kt, ProjectorSurface.kt}`, `app/src/test/kotlin/dev/penlab/app/projector/ProjectorLogicTest.kt` |
 | **External Plugin Bridge** | `app/src/main/kotlin/dev/penlab/app/plugins/external/{ExternalManifest.kt, ExternalPlugin.kt, ExternalPluginIcons.kt, ExternalPluginManager.kt, PluginTransport.kt}`, `app/src/test/kotlin/dev/penlab/app/plugins/external/{ExternalManifestTest.kt, ExternalPluginTest.kt, ExternalPluginIconsTest.kt}` |
-| **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt}`, `app/src/test/kotlin/dev/penlab/app/ink/PressureCurveTest.kt` |
+| **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt, PdfCropGeometryTest.kt}`, `app/src/test/kotlin/dev/penlab/app/ink/PressureCurveTest.kt` |
 
 ## Notes from the 25–26 Nov review + plugin work (`AI context/notes/`)
 - `REVIEW-2026-11-26.md` — what landed overnight (merge, Stage 6, wheel fix, Stage 7 craft, review fixes, real bugs found).

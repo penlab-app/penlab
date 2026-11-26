@@ -78,6 +78,8 @@ fun PenLabMenuItem(
   destructive: Boolean = false,
   enabled: Boolean = true,
   trailingContent: (@Composable () -> Unit)? = null,
+  /** Side padding; 0 where the row sits in a column whose labels start at the edge (Settings). */
+  horizontalPadding: Dp = PenLabSpacing.md,
 ) {
   val scheme = MaterialTheme.colorScheme
   val primaryTint =
@@ -100,7 +102,7 @@ fun PenLabMenuItem(
         .heightIn(min = PenLabSpacing.touchTarget)
         .clip(PenLabShapes.small)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-        .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
+        .padding(horizontal = horizontalPadding, vertical = PenLabSpacing.sm),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     if (icon != null) {
@@ -189,6 +191,8 @@ fun PenLabSwitchRow(
   enabled: Boolean = true,
   /** Side padding; 0 where the row sits in a column of labels that start at the edge (Settings). */
   horizontalPadding: Dp = PenLabSpacing.xs,
+  /** Menu look: the label and icon use the same style and size as [PenLabMenuItem], for popover menus. */
+  menuStyle: Boolean = false,
 ) {
   val scheme = MaterialTheme.colorScheme
   Row(
@@ -216,7 +220,7 @@ fun PenLabSwitchRow(
             checked -> scheme.primary
             else -> scheme.onSurfaceVariant
           },
-        modifier = Modifier.size(PenLabLayout.iconDefault),
+        modifier = Modifier.size(if (menuStyle) PenLabLayout.iconMedium else PenLabLayout.iconDefault),
       )
       Spacer(Modifier.width(PenLabSpacing.md))
     }
@@ -227,7 +231,7 @@ fun PenLabSwitchRow(
       Text(
         text = label,
         color = if (enabled) scheme.onSurface else PenLabComponentTokens.toolIconDisabled,
-        style = MaterialTheme.typography.bodyLarge,
+        style = if (menuStyle) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyLarge,
       )
       if (subtitle != null) {
         Text(

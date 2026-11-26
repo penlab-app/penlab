@@ -10,6 +10,14 @@ const val TOP_CLEARANCE_DP = 64f
 fun topClearancePx(presenting: Boolean, density: Float): Float = if (presenting) 0f else TOP_CLEARANCE_DP * density
 
 /**
+ * Whether the rotate knob must flip below the selection box: its CIRCLE would touch the top
+ * buttons, i.e. the knob's centre minus its radius and a small margin is above the covered strip,
+ * not merely its centre. All values in pixels, y down.
+ */
+fun rotateKnobHidden(knobCentreY: Float, radiusPx: Float, marginPx: Float, obstructionPx: Float): Boolean =
+  knobCentreY - radiusPx - marginPx < obstructionPx
+
+/**
  * Remembers where the page was panned and zoomed to (the nine values of the view matrix) while
  * something temporary, like Present mode, moves it, so leaving can put it back exactly.
  */

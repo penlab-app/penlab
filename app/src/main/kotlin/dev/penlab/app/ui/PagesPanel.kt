@@ -59,6 +59,13 @@ import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
 
+/** A4 portrait, the shape used when the page size is not known. */
+const val A4_PORTRAIT_ASPECT = 210f / 297f
+
+/** Width over height for a page thumbnail tile: the page's own shape, so landscape pages are not cropped. */
+fun thumbnailAspect(pageWidth: Float, pageHeight: Float): Float =
+  if (pageWidth > 0f && pageHeight > 0f) (pageWidth / pageHeight).coerceIn(0.25f, 4f) else A4_PORTRAIT_ASPECT
+
 /**
  * Every page as a thumbnail. Tap to go there, tap the ribbon to bookmark, long-press for
  * insert before / after and delete. The "Bookmarks only" toggle filters to bookmarked pages.
@@ -78,6 +85,7 @@ fun PagesPanel(
   onDelete: (Int) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  pageAspect: Float = A4_PORTRAIT_ASPECT,
 ) {
   PenLabPopoverSurface(
     isPalm = isPalm,
@@ -94,6 +102,7 @@ fun PagesPanel(
       onToggleBookmark = onToggleBookmark,
       onInsert = onInsert,
       onDelete = onDelete,
+      pageAspect = pageAspect,
     )
   }
 }
@@ -115,6 +124,7 @@ fun PagesPanelContent(
   onDelete: (Int) -> Unit,
   showHeading: Boolean = true,
   modifier: Modifier = Modifier,
+  pageAspect: Float = A4_PORTRAIT_ASPECT,
 ) {
   val scheme = MaterialTheme.colorScheme
   var onlyBookmarked by remember { mutableStateOf(false) }
@@ -250,6 +260,7 @@ fun PagesPanelContent(
             current = page == currentPage,
             bookmarked = page in bookmarks,
             image = remember(page, version) { thumbnail(page, thumbWidthPx) },
+            aspect = pageAspect,
             onJump = { onJump(page) },
             onToggleBookmark = { onToggleBookmark(page) },
             onInsertBefore = { onInsert(page) },
@@ -275,6 +286,7 @@ private fun PageTile(
   current: Boolean,
   bookmarked: Boolean,
   image: Bitmap?,
+  aspect: Float,
   onJump: () -> Unit,
   onToggleBookmark: () -> Unit,
   onInsertBefore: () -> Unit,
@@ -290,7 +302,7 @@ private fun PageTile(
       Box(
         Modifier
           .fillMaxWidth()
-          .aspectRatio(210f / 297f)
+          .aspectRatio(aspect)
           .clip(shape)
           .background(scheme.surface)
           .border(
@@ -308,7 +320,7 @@ private fun PageTile(
           Image(
             bitmap = it.asImageBitmap(),
             contentDescription = null,
-            contentScale = ContentScale.Crop,
+            contentScale = ContentScale.Fit,
             modifier = Modifier.fillMaxSize(),
           )
         }

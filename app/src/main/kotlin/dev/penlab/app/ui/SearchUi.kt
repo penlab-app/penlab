@@ -343,13 +343,15 @@ fun LibrarySearchResults(
       }
     }
     if (titleHits.isNotEmpty()) {
-      item(key = "titles-heading") {
-        Text(
-          "Notebook titles",
-          color = PenLabColors.iconDisabled,
-          style = MaterialTheme.typography.labelLarge,
-          modifier = Modifier.padding(top = PenLabSpacing.md, bottom = PenLabSpacing.xs),
-        )
+      if (showTitlesHeading(titleHits.size, results.size)) {
+        item(key = "titles-heading") {
+          Text(
+            "Notebook titles",
+            color = PenLabColors.iconDisabled,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(top = PenLabSpacing.md, bottom = PenLabSpacing.xs),
+          )
+        }
       }
       items(titleHits, key = { "title-" + it.id }) { notebook ->
         Row(

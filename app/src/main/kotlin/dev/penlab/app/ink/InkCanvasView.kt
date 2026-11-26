@@ -3167,7 +3167,7 @@ class InkCanvasView(
     out[0] = selectionBounds.centerX()
     out[1] = selectionBounds.top - offset
     pageToScreen.mapPoints(out)
-    val hidden = out[1] < topObstruction
+    val hidden = rotateKnobHidden(out[1], HANDLE_RADIUS_DP * density, ROTATE_KNOB_MARGIN_DP * density, topObstruction)
     out[0] = selectionBounds.centerX()
     out[1] = if (hidden) selectionBounds.bottom + offset else selectionBounds.top - offset
     matrix.mapPoints(out)
@@ -3720,6 +3720,8 @@ class InkCanvasView(
 
     /** How far above the box the rotate handle sits (dp). */
     const val ROTATE_HANDLE_OFFSET_DP = 26f
+    /** Air kept between the rotate knob's edge and the top buttons before it flips below the box. */
+    const val ROTATE_KNOB_MARGIN_DP = 6f
 
     /** Resizing limits, relative to the size when the handle was grabbed. */
     const val MIN_SCALE = 0.1f

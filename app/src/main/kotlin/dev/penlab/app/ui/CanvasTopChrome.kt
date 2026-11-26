@@ -638,6 +638,7 @@ fun PageConfigPopover(
   bookmarks: Set<Int>,
   contentVersion: Int,
   thumbnail: (page: Int, widthPx: Int) -> Bitmap?,
+  pageAspect: Float,
   onJumpPage: (Int) -> Unit,
   onToggleBookmark: (Int) -> Unit,
   onInsertPage: (at: Int) -> Unit,
@@ -701,6 +702,7 @@ fun PageConfigPopover(
           onInsert = onInsertPage,
           onDelete = onDeletePage,
           showHeading = false,
+          pageAspect = pageAspect,
         )
       }
       PageConfigTab.PAPER -> {

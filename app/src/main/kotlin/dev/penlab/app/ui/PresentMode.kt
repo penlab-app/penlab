@@ -44,6 +44,20 @@ data class ScreenChrome(
   val backLeavesPresent: Boolean get() = present
 }
 
+/** What the Back button does on the note screen, most local first. */
+enum class BackAction { CLOSE_OVERLAYS, LEAVE_PRESENT, LEAVE_FULL_SCREEN, LEAVE_NOTEBOOK }
+
+/**
+ * Back peels one layer: an open popover, panel or wheel first, then Present, then full screen, and only
+ * when nothing is left does it leave the notebook. Pure so the order can be unit-tested.
+ */
+fun backAction(overlayOpen: Boolean, present: Boolean, fullScreen: Boolean): BackAction = when {
+  overlayOpen -> BackAction.CLOSE_OVERLAYS
+  present -> BackAction.LEAVE_PRESENT
+  fullScreen -> BackAction.LEAVE_FULL_SCREEN
+  else -> BackAction.LEAVE_NOTEBOOK
+}
+
 /** The corner buttons are faint so they do not draw the class's eyes (same as Leave full screen). */
 const val CORNER_BUTTON_ALPHA = 0.55f
 

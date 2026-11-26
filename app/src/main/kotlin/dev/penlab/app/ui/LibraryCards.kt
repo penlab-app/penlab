@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -124,42 +126,47 @@ internal fun NotebookCard(
       .semantics { contentDescription = "${notebook.title}, $detail. Long press or use the menu for options." }
   ) {
     val aspect = if (notebook.kind == NotebookKind.A4) notebook.pageWidthMm / notebook.pageHeightMm else PenLabLayout.canvasAspect
-    Box {
-      // The real first page once there is a cover; the paper style until then.
-      val cover by produceState(Covers.cached(notebook.id), notebook.id, notebook.modified) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Covers.load(notebook.id, coverFile) }
-      }
-      val image = cover
-      if (image != null) {
-        Image(
-          image,
-          contentDescription = null,
-          contentScale = ContentScale.Crop,
-          alignment = Alignment.TopCenter,
-          // On the dark page, plain notebooks look as they do inside (ink inverted); PDFs stay white.
-          colorFilter = if (darkPage && !isPdf) InvertCover else null,
-          modifier = Modifier.fillMaxWidth().aspectRatio(aspect)
-            .flatCardSurface(PenLabShapes.medium, PenLabComponentTokens.cardBg, PenLabComponentTokens.cardBorder),
-        )
-      } else {
-        PaperPreview(notebook.pageStyle, darkPage, pdf = isPdf, modifier = Modifier.fillMaxWidth().aspectRatio(aspect), shape = PenLabShapes.medium)
-      }
-      if (isPdf) {
-        Text(
-          "PDF",
-          color = scheme.onPrimaryContainer,
-          style = MaterialTheme.typography.labelSmall,
-          modifier = Modifier.align(Alignment.TopStart).padding(PenLabSpacing.sm)
-            .clip(PenLabShapes.extraSmall).background(scheme.primaryContainer)
-            .padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.xs),
-        )
+    // Every cover sits in a box of the same height (a portrait sheet) so title and meta lines
+    // line up across a row; a landscape cover is letterboxed inside it.
+    Box(Modifier.fillMaxWidth().aspectRatio(COVER_BOX_ASPECT), contentAlignment = Alignment.Center) {
+      val fit = if (coverFillsBoxWidth(aspect)) Modifier.fillMaxWidth() else Modifier.fillMaxHeight()
+      Box(fit.aspectRatio(aspect)) {
+        // The real first page once there is a cover; the paper style until then.
+        val cover by produceState(Covers.cached(notebook.id), notebook.id, notebook.modified) {
+          value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Covers.load(notebook.id, coverFile) }
+        }
+        val image = cover
+        if (image != null) {
+          Image(
+            image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.TopCenter,
+            // On the dark page, plain notebooks look as they do inside (ink inverted); PDFs stay white.
+            colorFilter = if (darkPage && !isPdf) InvertCover else null,
+            modifier = Modifier.fillMaxSize()
+              .flatCardSurface(PenLabShapes.medium, PenLabComponentTokens.cardBg, PenLabComponentTokens.cardBorder),
+          )
+        } else {
+          PaperPreview(notebook.pageStyle, darkPage, pdf = isPdf, modifier = Modifier.fillMaxSize(), shape = PenLabShapes.medium)
+        }
+        if (isPdf) {
+          Text(
+            "PDF",
+            color = scheme.onPrimaryContainer,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.align(Alignment.TopStart).padding(PenLabSpacing.sm)
+              .clip(PenLabShapes.extraSmall).background(scheme.primaryContainer)
+              .padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.xs),
+          )
+        }
       }
     }
     // Title beside the menu button; the grey meta line below gets the card's whole width
     // (beside the button a shelf card had room for only ~100dp and cut the date off).
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
       Text(
-        notebook.title,
+        breakableTitle(notebook.title),
         color = scheme.onSurface,
         // Heading line breaking prefers the word boundary; a word longer than the card still has to give.
         style = MaterialTheme.typography.titleSmall.copy(lineBreak = LineBreak.Heading, hyphens = Hyphens.None),
@@ -180,7 +187,8 @@ internal fun NotebookCard(
         PenLabMenuItem("Delete", { menu = false; onDelete() }, icon = PenLabIcons.Delete, destructive = true)
       }
     }
-    Row(verticalAlignment = Alignment.Top) {
+    // A little air under a two-line title before the meta line.
+    Row(Modifier.padding(top = PenLabSpacing.xs), verticalAlignment = Alignment.Top) {
       if (place != null) {
         Box(Modifier.padding(top = PenLabSpacing.xs).size(PenLabLayout.dot).background(accent?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
         Spacer(Modifier.width(PenLabSpacing.sm))

@@ -190,4 +190,20 @@ class SelectionAndPresentTest {
     assertTrue(exited.leaveFullScreenButton && exited.toolbar && exited.selectionUi && exited.messages)
     assertFalse(exited.presentButtons || exited.keepScreenOn)
   }
+
+  @Test
+  fun backPeelsOverlayThenPresentThenFullScreenThenNotebook() {
+    assertEquals(BackAction.CLOSE_OVERLAYS, backAction(overlayOpen = true, present = true, fullScreen = true))
+    assertEquals(BackAction.CLOSE_OVERLAYS, backAction(overlayOpen = true, present = false, fullScreen = false))
+    assertEquals(BackAction.LEAVE_PRESENT, backAction(overlayOpen = false, present = true, fullScreen = true))
+    assertEquals(BackAction.LEAVE_FULL_SCREEN, backAction(overlayOpen = false, present = false, fullScreen = true))
+    assertEquals(BackAction.LEAVE_NOTEBOOK, backAction(overlayOpen = false, present = false, fullScreen = false))
+  }
+
+  @Test
+  fun pageThumbnailUsesThePagesOwnShape() {
+    assertEquals(297f / 210f, thumbnailAspect(297f, 210f), 1e-6f) // A4 landscape is wider than tall
+    assertEquals(210f / 297f, thumbnailAspect(210f, 297f), 1e-6f)
+    assertEquals(A4_PORTRAIT_ASPECT, thumbnailAspect(0f, 0f), 1e-6f) // unknown size falls back to A4 portrait
+  }
 }

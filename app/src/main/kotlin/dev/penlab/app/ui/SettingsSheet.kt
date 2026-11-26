@@ -305,6 +305,7 @@ fun SettingsSheet(
             label = "Customise toolbar items",
             subtitle = "${toolbarConfig.visibleOrderedItems.size} items visible · tap to toggle or reorder",
             icon = PenLabIcons.PenTools,
+            horizontalPadding = 0.dp, // the labels around it start at the section edge
             onClick = { customizeToolbarExpanded = !customizeToolbarExpanded },
             trailingContent = {
               Icon(
@@ -430,6 +431,7 @@ fun SettingsSheet(
                 label = "Welcome guide",
                 subtitle = "Replay the quick look-and-paper setup.",
                 icon = PenLabIcons.Sparkles,
+                horizontalPadding = 0.dp,
                 showChevron = true,
                 onClick = onWelcomeGuide,
               )
@@ -439,6 +441,7 @@ fun SettingsSheet(
                 label = "Bug / idea",
                 subtitle = "Tell us what broke or what you would like.",
                 icon = PenLabIcons.Idea,
+                horizontalPadding = 0.dp,
                 showChevron = true,
                 onClick = onReport,
               )

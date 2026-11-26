@@ -252,3 +252,35 @@ fun paperDefaultsFor(folder: String, lookup: (String) -> String?): PaperDefaults
       .firstNotNullOfOrNull { lookup(paperPrefKey(it)) }
   return stored?.let(::decodePaperDefaults) ?: FallbackPaperDefaults
 }
+
+// ---- Card titles and covers ----------------------------------------------------------------
+
+private const val ZERO_WIDTH_SPACE = '\u200B'
+
+/**
+ * [title] with a line-break opportunity after every '-' and '_' that sits inside a word, so a long
+ * name such as "MoM-Assignment2-Solutions" wraps at a separator before it would split a word. Only
+ * for drawing: semantics, rename and search keep the real title.
+ */
+fun breakableTitle(title: String): String = buildString {
+  for ((i, c) in title.withIndex()) {
+    append(c)
+    val next = title.getOrNull(i + 1)
+    if ((c == '-' || c == '_') && next != null && !next.isWhitespace() && next != '-' && next != '_') append(ZERO_WIDTH_SPACE)
+  }
+}
+
+/** Width over height of the box every library cover sits in: a portrait A4 sheet. */
+const val COVER_BOX_ASPECT = 210f / 297f
+
+/**
+ * Whether a cover of shape [aspect] (width over height) fills the box's width (landscape and
+ * squarer covers, letterboxed top and bottom) or its height (taller than the box, pillarboxed).
+ */
+fun coverFillsBoxWidth(aspect: Float): Boolean = aspect >= COVER_BOX_ASPECT
+
+/**
+ * Whether the "Notebook titles" heading is drawn in library search. With titles alone the summary
+ * line already says it, so the heading would repeat it; it only tells two sections apart.
+ */
+fun showTitlesHeading(titleHits: Int, handwritingLines: Int): Boolean = titleHits > 0 && handwritingLines > 0

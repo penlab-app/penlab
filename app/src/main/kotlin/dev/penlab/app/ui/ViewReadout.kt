@@ -108,6 +108,7 @@ fun ViewPanel(
       icon = PenLabIcons.Hand,
       // The menu rows pad by md, the switch row by xs: add the difference so icons and labels line up.
       modifier = Modifier.padding(horizontal = PenLabSpacing.sm),
+      menuStyle = true, // same label style and icon size as "Fit page to width" and "Settings"
       checked = settings.drawWithFinger,
       onCheckedChange = settings::setDrawWithFinger,
     )

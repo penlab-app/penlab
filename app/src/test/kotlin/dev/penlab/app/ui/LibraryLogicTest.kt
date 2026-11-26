@@ -242,4 +242,30 @@ class LibraryLogicTest {
     assertEquals("/", paperPrefKey(""))
     assertEquals("A/B", paperPrefKey("A/B"))
   }
+
+  // ---- card titles, covers, search heading
+  @Test
+  fun longTitlesGetBreakOpportunitiesAfterSeparators() {
+    val z = "\u200B"
+    assertEquals("MoM-${z}Assignment2-${z}Solutions", breakableTitle("MoM-Assignment2-Solutions"))
+    assertEquals("a_${z}b", breakableTitle("a_b"))
+    assertEquals("Diff. Eq", breakableTitle("Diff. Eq")) // plain words are untouched
+    assertEquals("trailing-", breakableTitle("trailing-")) // nothing follows: no break needed
+    assertEquals("a - b", breakableTitle("a - b")) // already next to a space
+    assertEquals("a--${z}b", breakableTitle("a--b")) // one break per run, after the last separator
+  }
+
+  @Test
+  fun landscapeCoversFillTheBoxWidthAndTallOnesItsHeight() {
+    assertTrue(coverFillsBoxWidth(297f / 210f))
+    assertTrue(coverFillsBoxWidth(COVER_BOX_ASPECT))
+    assertFalse(coverFillsBoxWidth(0.5f))
+  }
+
+  @Test
+  fun titlesHeadingOnlyWhenTwoSectionsHaveResults() {
+    assertFalse(showTitlesHeading(titleHits = 1, handwritingLines = 0))
+    assertFalse(showTitlesHeading(titleHits = 0, handwritingLines = 3))
+    assertTrue(showTitlesHeading(titleHits = 2, handwritingLines = 3))
+  }
 }

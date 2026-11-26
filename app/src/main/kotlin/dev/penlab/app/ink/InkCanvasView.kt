@@ -125,6 +125,9 @@ class InkCanvasView(
     selectionView.invalidate()
     eraserCursor.invalidate()
     onPicturesUpdated()
+    // The projector's strokes carry their screen colour, so rebuild them and send the new paper/desk/ink colours.
+    projectorHistoryVersion++
+    requestProjectorPublish()
   }
 
   // ---- Photos and text boxes ---------------------------------------------------------------
@@ -1486,89 +1489,11 @@ class InkCanvasView(
     )
   }
 
-  private val projectorItemPainter by lazy { ItemPainter(imagesDir) }
-  private val projectorBackground by lazy {
-    PageBackground(if (pageLayout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP, darkPage).apply {
-      pageWidth = pageLayout?.pageWidth ?: 0f
-      pageHeight = pageLayout?.pageHeight ?: 0f
-    }
-  }
-  private val projectorPages = ProjectorPages()
   private val pageToProjector = Matrix()
   private val projectorInverse = Matrix()
   private val projectorSource = RectF()
   private val projectorTarget = RectF()
   private val projectorVisible = RectF()
-  private val projectorIsPdfPage = { page: Int -> pdf != null && pageLayout?.backgroundOf(page).let { it != null && it >= 0 } }
-  private var projectorZoom = 1f
-  private val projectorSlide = { page: Int ->
-    val layout = pageLayout
-    val pdfPage = layout?.backgroundOf(page) ?: -1
-    val still = SystemClock.uptimeMillis() - lastPanZoomTime >= PAN_ZOOM_SETTLE_MS
-    if (pdfPage >= 0) pdf?.bitmapFor(pdfPage, ((layout?.pageWidth ?: 0f) * projectorZoom).toInt(), mayRender = still) else null
-  }
-
-  /**
-   * Draws what the tablet shows, for the projector's follower view: the part of the page between
-   * the toolbars, widened to the projector's shape ([widthPx] x [heightPx], via fitToAspect, never
-   * cropped), with no toolbar, selection box, handles or other interface. Main thread.
-   *
-   * It reads the same objects as the tablet's own frame: the page layout, items, PDF pictures, the
-   * stroke recordings in [chunkCache] (replayed, never rebuilt per frame), the zoomed-out page and
-   * tile pictures, and the live stroke ([liveMirror]). Per frame it does: one matrix, the paper and
-   * ruling of the visible pages, the visible items, a replay of the visible chunk recordings (a
-   * few dozen draw calls), and one incremental update of the live stroke. It builds no paths for
-   * committed ink and starts no work of its own except a missing PDF picture. Returns true while
-   * a stroke is being drawn: the follower then asks for its next frame itself.
-   */
-  fun drawForProjector(canvas: Canvas, widthPx: Int, heightPx: Int): Boolean {
-    val layout = pageLayout
-    canvas.drawColor(if (layout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage))
-    if (width == 0 || height == 0 || widthPx <= 0 || heightPx <= 0) return false
-    val free = width - leftInset - rightInset
-    val shown = if (free > 0f) dev.penlab.app.projector.Box(leftInset, 0f, width - rightInset, height.toFloat())
-    else dev.penlab.app.projector.Box(0f, 0f, width.toFloat(), height.toFloat())
-    val fitted = dev.penlab.app.projector.fitToAspect(shown, widthPx.toFloat() / heightPx)
-    projectorSource.set(fitted.left, fitted.top, fitted.right, fitted.bottom)
-    projectorTarget.set(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
-    pageToProjector.setRectToRect(projectorSource, projectorTarget, Matrix.ScaleToFit.FILL)
-    pageToProjector.preConcat(pageToScreen)
-    if (!pageToProjector.invert(projectorInverse)) return false
-    projectorVisible.set(projectorTarget)
-    projectorInverse.mapRect(projectorVisible)
-    val zoom = pageToProjector.mapRadius(1f)
-    projectorZoom = zoom
-    val tabletZoom = pageToScreen.mapRadius(1f)
-
-    canvas.save()
-    canvas.concat(pageToProjector)
-    if (layout == null) {
-      projectorBackground.spacingMm = rulingMm
-      projectorBackground.draw(canvas, pageStyle, projectorVisible, zoom)
-    } else {
-      val accent = pageEdgeAccent
-      val edgePx = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * zoom / tabletZoom.coerceAtLeast(1e-6f)
-      projectorBackground.spacingMm = rulingMm
-      projectorPages.draw(
-        canvas, layout, projectorVisible, zoom, pageStyle, projectorBackground, InkColors.pageOnScreen(darkPage),
-        accent ?: InkColors.pageEdgeOnScreen(darkPage), edgePx.coerceAtLeast(1f), projectorIsPdfPage, projectorSlide,
-      )
-    }
-    for (item in items) {
-      if (item.id in hiddenItems || !RectF.intersects(item.bounds(itemBox), projectorVisible)) continue
-      projectorItemPainter.draw(canvas, item) { itemTextColor(item, it) }
-    }
-    canvas.restore()
-
-    if (canvas.isHardwareAccelerated) finishedView.drawInkForProjector(canvas, layout, pageToProjector, projectorVisible)
-    if (liveMirror.active) {
-      canvas.save()
-      canvas.concat(pageToProjector)
-      liveMirror.draw(canvas, pageToProjector)
-      canvas.restore()
-    }
-    return liveMirror.active
-  }
 
   /** Zooms so a page fills the width of the screen, with a margin, and shows the top of page 1. */
   /**
@@ -2749,25 +2674,6 @@ class InkCanvasView(
         }
       }
       canvas.restore()
-    }
-
-    /**
-     * The ink for the projector's follower view, the same way [drawFrame] chooses it (page
-     * pictures when zoomed out of a notebook, square pictures over a big drawing, otherwise the
-     * stroke recordings), but through [toView] and over [visible]. Starts nothing of its own.
-     */
-    fun drawInkForProjector(canvas: Canvas, layout: PageLayout?, toView: Matrix, visible: RectF) {
-      if (layout != null && layout.pageWidth * pageToScreen.mapRadius(1f) < PageRasters.RASTER_BELOW_PX && abs(angleDegrees) < 0.5f) {
-        drawPagePictures(canvas, layout, toView, visible, margin = 0)
-      } else if (layout == null && tileMode) {
-        canvas.save()
-        canvas.concat(toView)
-        val current = tiles.draw(canvas, visible, pageToScreen.mapRadius(1f), { area -> chunkCache.strokesIn(area, hiddenFromRasters).filter { !isHiddenLayer(it) } }, ::buildForPicture, bitmapPaint)
-        if (!current) for (stroke in freshTileInk) if (stroke !in hiddenFromRasters && !isHiddenLayer(stroke)) freshRenderer.draw(canvas, screenVersion(stroke), toView)
-        canvas.restore()
-      } else {
-        chunkCache.drawShared(canvas, toView, visible, pageToScreen)
-      }
     }
 
     private val freshRenderer = CanvasStrokeRenderer.create()

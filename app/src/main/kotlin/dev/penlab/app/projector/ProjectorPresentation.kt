@@ -7,8 +7,8 @@ import android.view.WindowManager
 import dev.penlab.app.ink.InkCanvasView
 
 /**
- * The window on the projector: one [ProjectorFollowerView] that draws the open notebook's page
- * live. All the drawing logic is in InkCanvasView.drawForProjector; this only owns the window.
+ * The window on the projector: one [ProjectorSurfaceView] that draws the open notebook's page from
+ * the snapshots InkCanvasView publishes ([InkCanvasView.projectorSink]); this only owns the window.
  *
  * It cannot be unit-tested (it needs a real second display); it was checked on a tablet with an
  * external monitor.

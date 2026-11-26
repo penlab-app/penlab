@@ -17,10 +17,10 @@ import dev.penlab.app.ink.InkCanvasView
  *
  * One controller lives with the activity ([start] and [stop] follow onStart and onStop). It
  * watches for a presentation display, offers the feature once per connection, and, while on,
- * points the presentation's live follower view at the open notebook's canvas. The follower draws
- * the same scene as the tablet every frame (see [ProjectorFollowerView]); this class only asks it
- * to redraw when something changes ([markDirty], one cheap call, coalesced to once per frame by
- * Android) and never renders anything itself.
+ * points the presentation's surface at the open notebook's canvas. The canvas publishes immutable
+ * snapshots to the surface's own render thread (see [ProjectorSurfaceView]); this class only asks
+ * for a new snapshot when something changes ([markDirty], one cheap call, coalesced to once per
+ * frame) and never renders anything itself.
  *
  * All methods are for the main thread.
  *

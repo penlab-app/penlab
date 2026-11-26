@@ -1,13 +1,6 @@
 package dev.penlab.app.ink
 
-import android.graphics.Canvas
-import android.graphics.Matrix
 import androidx.ink.brush.Brush
-import androidx.ink.brush.InputToolType
-import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
-import androidx.ink.strokes.InProgressStroke
-import androidx.ink.strokes.MutableStrokeInputBatch
-import androidx.ink.strokes.StrokeInput
 
 /**
  * A stroke whose pen has lifted but whose committed version has not reached the projector yet.
@@ -28,7 +21,7 @@ class PendingLine(
 
 
 /**
- * The stroke under the pen right now, as the projector's follower view draws it.
+ * The stroke under the pen right now, as the projector shows it.
  *
  * PERFORMANCE CONTRACT. The pen's own path (InkCanvasView.onTouchEvent -> Jetpack Ink's front
  * buffer) is the app's first priority and this class must never slow it. So the pen side does
@@ -36,21 +29,14 @@ class PendingLine(
  *  - [begin] and [end] set a couple of fields;
  *  - [add] stores one pressure and one time into arrays that are already allocated (they grow by
  *    doubling, so a long stroke allocates a handful of times, never per event);
- *  - the points themselves are NOT copied: the tablet already keeps them for shape recognition
- *    (InkCanvasView.strokePoints, page units) and this class only reads that list.
- * Everything else (turning points into a stroke shape and drawing it) happens in [draw], which
- * runs from the follower view's onDraw, once per projector frame, after the pen's own frame work.
- * The follower asks for its next frame itself while [active], so the pen path never invalidates
- * anything on the projector.
+ *  - the points themselves are NOT copied while the pen is down: the tablet already keeps them for
+ *    shape recognition (InkCanvasView.strokePoints, page units) and this class only reads that list.
+ * The canvas copies them with [copyPoints] into each projector snapshot (at most once per frame)
+ * and the projector's render thread draws the line; nothing here draws.
  *
- * [draw] feeds only the points that arrived since the last frame into an [InProgressStroke]
- * (Ink's incremental stroke builder), so a long stroke does not cost more per frame than a short
- * one. Everything here runs on the main thread, which is also where the pen's events are handled,
- * so nothing needs locking.
- *
- * It uses the brush the tablet draws the live stroke with (screen colours), so the live stroke
- * looks like the tablet's. Tilt and orientation are not carried over, so a brush that reacts to
- * them could differ slightly until the pen lifts and the committed stroke takes over.
+ * Everything here runs on the main thread, which is also where the pen's events are handled, so
+ * nothing needs locking. The line is drawn in the brush colour the tablet shows the live stroke
+ * with (screen colours); tilt and orientation are not carried over.
  */
 internal class LiveStrokeMirror(
   /** The current stroke's points in page units, appended by the tablet; read-only here. */
@@ -72,24 +58,11 @@ internal class LiveStrokeMirror(
   private var times = LongArray(INITIAL)
   private var count = 0
 
-  /** Bumped by [begin]; [draw] restarts its stroke when it sees a new one. */
-  private var generation = 0
-  private var drawnGeneration = -1
-  private var fed = 0
-
-  // Made on first use, in [draw], never on the pen's path.
-  private var stroke: InProgressStroke? = null
-  private var batch: MutableStrokeInputBatch? = null
-  private var noPredicted: MutableStrokeInputBatch? = null
-  private var renderer: CanvasStrokeRenderer? = null
-  private var lastTime = 0L
-
   /** A stroke started; [id] identifies it for [end]. Pen path: only sets fields. */
   fun begin(id: Any, liveBrush: Brush) {
     owner = id
     brush = liveBrush
     count = 0
-    generation++
     active = true
   }
 
@@ -169,47 +142,6 @@ internal class LiveStrokeMirror(
   fun endAll() {
     active = false
     pending.clear()
-  }
-
-  /**
-   * Draws the stroke so far onto [canvas], which already maps page units to the projector through
-   * [pageToProjector]. Does nothing when no stroke is live.
-   */
-  fun draw(canvas: Canvas, pageToProjector: Matrix) {
-    val liveBrush = brush ?: return
-    if (!active) return
-    // Drawn as a plain round-capped line in the brush's colour and size (page units; the canvas
-    // already maps page units to the projector). Jetpack Ink's InProgressStroke drew nothing on
-    // the Presentation's canvas (verified on a Tab S9, 23 Nov), so the projector shows this
-    // preview while the pen is down and the real stroke from pen-up on. Only the points that
-    // arrived since the last frame are appended, so a long stroke costs no more per frame.
-    if (drawnGeneration != generation) {
-      path.rewind()
-      drawnGeneration = generation
-      fed = 0
-    }
-    val available = minOf(points.size, count)
-    for (i in fed until available) {
-      val p = points[i]
-      if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
-    }
-    fed = available
-    if (available == 0) return
-    linePaint.color = liveBrush.colorIntArgb
-    linePaint.strokeWidth = liveBrush.size
-    if (available == 1) {
-      val p = points[0]
-      canvas.drawPoint(p.x, p.y, linePaint)
-    } else {
-      canvas.drawPath(path, linePaint)
-    }
-  }
-
-  private val path = android.graphics.Path()
-  private val linePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-    style = android.graphics.Paint.Style.STROKE
-    strokeCap = android.graphics.Paint.Cap.ROUND
-    strokeJoin = android.graphics.Paint.Join.ROUND
   }
 
   private companion object {

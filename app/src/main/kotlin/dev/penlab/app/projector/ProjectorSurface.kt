@@ -7,8 +7,6 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.SystemClock
-import android.util.Log
 import android.view.Choreographer
 import android.view.Surface
 import android.view.SurfaceHolder
@@ -89,7 +87,6 @@ internal class ProjectorSurfaceView(context: Context) : SurfaceView(context), Su
   private var surface: Surface? = null // render thread only
   private var scheduled = false // render thread only
   private var lastDrawn: ProjectorSnapshot? = null // render thread only
-  private var lastFrameAt = 0L // render thread only
 
   // Render thread only: one Path per committed stroke, built once.
   private val pathCache = IdentityHashMap<InkStroke, android.graphics.Path>()
@@ -165,14 +162,7 @@ internal class ProjectorSurfaceView(context: Context) : SurfaceView(context), Su
     val s = snapshot ?: return@FrameCallback
     val surf = surface ?: return@FrameCallback
     val live = s.livePoints != null
-    if (!live && s === lastDrawn) {
-      lastFrameAt = 0
-      return@FrameCallback
-    }
-    val now = SystemClock.uptimeMillis()
-    // TEMP timing
-    if (live && lastFrameAt > 0 && now - lastFrameAt > 25) Log.d("PenLabTime", "projector gap=${now - lastFrameAt}ms")
-    lastFrameAt = if (live) now else 0
+    if (!live && s === lastDrawn) return@FrameCallback
     draw(surf, s)
     lastDrawn = s
     if (live) schedule()

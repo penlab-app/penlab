@@ -166,10 +166,17 @@ class StrokeHistory<T> {
     if (group == null) group = mutableListOf()
   }
 
-  fun endGroup() {
-    val edits = group ?: return
+  /**
+   * Ends the group. Returns true if it recorded something: only now does [canUndo] become true,
+   * so the caller must tell the toolbar (a change reported while the group was still open saw an
+   * empty undo stack: the Undo button stayed grey after an eraser drag).
+   */
+  fun endGroup(): Boolean {
+    val edits = group ?: return false
     group = null
-    if (edits.isNotEmpty()) push(Edit.Group(edits))
+    if (edits.isEmpty()) return false
+    push(Edit.Group(edits))
+    return true
   }
 
   /**

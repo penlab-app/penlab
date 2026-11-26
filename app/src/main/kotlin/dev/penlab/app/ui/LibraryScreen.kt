@@ -108,8 +108,10 @@ fun LibraryScreen(
   onOpen: (NotebookInfo) -> Unit,
   onCreate: (title: String, folder: String, kind: NotebookKind, style: PageStyle, landscape: Boolean) -> Unit,
   onCreateFolder: (String) -> Unit,
-  /** Opens the system file picker for PDFs; they are imported into [current]. */
+  /** Opens the system file picker for importable files; they are imported into [current]. */
   onImportPdf: () -> Unit,
+  /** Labels of the importers that exist (the registry's): the Import menu names these formats. */
+  importFormats: List<String> = emptyList(),
   onRenameFolder: (from: String, to: String) -> Unit,
   /** Folder colours by path (see [folderColor] for inheritance). */
   folderColors: Map<String, Int>,
@@ -153,6 +155,7 @@ fun LibraryScreen(
         onSearchQuery = onSearchQuery,
         searchReading = searchReading,
         onImportPdf = onImportPdf,
+        importFormats = importFormats,
         onImportFolder = onImportFolder,
         onNewFolder = { creatingFolder = true },
         onOpenSettings = onOpenSettings,
@@ -282,6 +285,7 @@ private fun LibraryHeader(
   onSearchQuery: (String) -> Unit,
   searchReading: Pair<Int, Int>?,
   onImportPdf: () -> Unit,
+  importFormats: List<String>,
   onImportFolder: () -> Unit,
   onNewFolder: () -> Unit,
   onOpenSettings: () -> Unit,
@@ -291,7 +295,7 @@ private fun LibraryHeader(
   BoxWithConstraints(Modifier.fillMaxWidth()) {
     val narrow = maxWidth < PenLabLayout.headerNarrowBreakpoint
     val actions: @Composable () -> Unit = {
-      ImportMenuButton(current, onImportPdf, onImportFolder)
+      ImportMenuButton(current, importFormats, onImportPdf, onImportFolder)
       PenLabIconButton(icon = PenLabIcons.FolderPlus, contentDescription = "New folder", onClick = onNewFolder)
       PenLabIconButton(icon = PenLabIcons.Settings, contentDescription = "Settings", onClick = onOpenSettings)
       Spacer(Modifier.width(PenLabSpacing.sm))
@@ -344,7 +348,7 @@ private fun LibraryHeader(
 
 /** One "Import" pill that opens a menu: PDF files or a whole folder (see [importMenuEntries]). */
 @Composable
-private fun ImportMenuButton(current: String, onImportPdf: () -> Unit, onImportFolder: () -> Unit) {
+private fun ImportMenuButton(current: String, formats: List<String>, onImportPdf: () -> Unit, onImportFolder: () -> Unit) {
   var open by remember { mutableStateOf(false) }
   val scheme = MaterialTheme.colorScheme
   Box {
@@ -362,7 +366,7 @@ private fun ImportMenuButton(current: String, onImportPdf: () -> Unit, onImportF
       Icon(PenLabIcons.ChevronDown, contentDescription = null, modifier = Modifier.padding(start = PenLabSpacing.xs).size(PenLabLayout.iconSmall))
     }
     LibraryMenu(open, onDismiss = { open = false }) {
-      for (entry in importMenuEntries(current)) {
+      for (entry in importMenuEntries(current, formats)) {
         PenLabMenuItem(
           label = entry.label,
           subtitle = entry.subtitle,

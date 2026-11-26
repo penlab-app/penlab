@@ -94,6 +94,8 @@ import dev.penlab.app.notes.cleanFolder
 import dev.penlab.app.notes.IncomingPdf
 import dev.penlab.app.ui.BarHeight
 import dev.penlab.app.ui.FileChromePill
+import dev.penlab.app.ui.ImportFailure
+import dev.penlab.app.ui.importFailureMessage
 import dev.penlab.app.ui.FileOptionsPopover
 import dev.penlab.app.ui.FileQuickMenuPopover
 import dev.penlab.app.ui.MORE_CELL
@@ -491,8 +493,8 @@ class MainActivity : ComponentActivity() {
           // Exports started from the library menu report here (the notebook screen has its own).
           LaunchedEffect(exportMessage) { showExportMessage(exportMessage, messages) { exportMessage = null } }
           val pickPdfs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            importPdfs(uris, libraryFolder) { failed ->
-              if (failed > 0) scope.launch { messages.showSnackbar(if (failed == 1) "One file could not be read as a PDF." else "$failed files could not be read as PDFs.") }
+            importPdfs(uris, libraryFolder) { failures ->
+              if (failures.isNotEmpty()) scope.launch { messages.showSnackbar(importFailureMessage(failures)) }
             }
           }
           // While the library is on screen, read any notebook whose handwriting isn't read yet.
@@ -548,6 +550,7 @@ class MainActivity : ComponentActivity() {
             onCreate = { title, folder, kind, style, landscape -> createNotebook(title, folder, kind, style, landscape) },
             onCreateFolder = { path -> inBackground { notebooks.createFolder(path) } },
             onImportPdf = { pickPdfs.launch(arrayOf(*plugins.importMimeTypes().toTypedArray(), "*/*")) },
+            importFormats = plugins.importers().map { it.capability.label },
             onRenameFolder = { from, to -> inBackground { notebooks.renameFolder(from, to) } },
             folderColors = folderColors,
             onFolderColor = { path, color -> inBackground { notebooks.setFolderColor(path, color) } },
@@ -758,15 +761,17 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Makes a notebook from each PDF, named after the file, in [folder]. [onDone] gets how many
-   * could not be read.
+   * Makes a notebook from each picked file (a PDF, or whatever an importer plugin reads), named
+   * after the file, in [folder]. [onDone] gets the files that could not be read.
    */
-  private fun importPdfs(uris: List<Uri>, folder: String, onDone: (failed: Int) -> Unit) {
+  private fun importPdfs(uris: List<Uri>, folder: String, onDone: (failed: List<ImportFailure>) -> Unit) {
     if (uris.isEmpty()) return
     io.execute {
-      var failed = 0
+      val failed = ArrayList<ImportFailure>()
       for (uri in uris) {
-        if (importFile(uri, displayName(uri) ?: "Imported", folder) == null) failed++
+        val name = displayName(uri) ?: "Imported"
+        val tried = ArrayList<String>()
+        if (importFile(uri, name, folder, tried) == null) failed += ImportFailure(name, tried)
       }
       refreshLibrary()
       main.post { onDone(failed) }
@@ -812,9 +817,11 @@ class MainActivity : ComponentActivity() {
     }
     val folder = libraryFolder
     io.execute {
-      val info = importFile(uri, IncomingPdf.fileName(displayName(uri)), folder)
+      val name = IncomingPdf.fileName(displayName(uri))
+      val tried = ArrayList<String>()
+      val info = importFile(uri, name, folder, tried)
       if (info == null) {
-        main.post { exportMessage = "That file could not be read as a PDF." }
+        main.post { exportMessage = importFailureMessage(listOf(ImportFailure(name, tried))) }
       } else {
         refreshLibrary()
         main.post { openNotebook(info) }
@@ -829,21 +836,24 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Imports one file into [folder] (on the io thread) with the importer for its type (a PDF today).
-   * If no importer claims the file's type, every importer gets a try. Null if it couldn't be read.
+   * Imports one file into [folder] (on the io thread) with the importer for its type (a PDF, or a
+   * plugin's format). If no importer claims the file's type, the built-in importers get a try.
+   * Null if it couldn't be read; [tried] then holds the labels of the importers that were asked.
+   * The library cover is drawn here, before the library lists the notebook, so its card is never blank.
    */
-  private fun importFile(uri: Uri, fileName: String, folder: String): NotebookInfo? {
+  private fun importFile(uri: Uri, fileName: String, folder: String, tried: MutableList<String> = ArrayList()): NotebookInfo? {
     val name = notebookTitle(fileName)
     return try {
       val mime = mimeOf(fileName, contentResolver.getType(uri))
       // By type or extension; a file nobody claims is tried with the built-in importers only (never sent to a plugin app).
       val candidates = plugins.importersFor(mime, fileName).ifEmpty { plugins.builtInImporters() }
       for (entry in candidates) {
+        tried += entry.capability.label
         val work = File(cacheDir, "imports/${java.util.UUID.randomUUID()}").apply { mkdirs() }
         try {
           val source = ImportSource(fileName, mime, { contentResolver.openInputStream(uri) ?: throw java.io.FileNotFoundException(fileName) }, work, name)
           val imported = (plugins.guardedBlocking(entry.plugin) { entry.capability.import(source) } as? PluginRegistry.Call.Ok)?.value ?: continue
-          return notebooks.createFromImport(imported, folder)
+          return notebooks.createFromImport(imported, folder)?.also { writeCover(it) }
         } finally {
           work.deleteRecursively()
         }
@@ -1330,9 +1340,11 @@ class MainActivity : ComponentActivity() {
     open?.let(::saveCover)
     exportMessage = "Importing PDF…"
     io.execute {
-      val info = importFile(uri, IncomingPdf.fileName(displayName(uri)), folder)
+      val name = IncomingPdf.fileName(displayName(uri))
+      val tried = ArrayList<String>()
+      val info = importFile(uri, name, folder, tried)
       if (info == null) {
-        main.post { exportMessage = "That file could not be read as a PDF." }
+        main.post { exportMessage = importFailureMessage(listOf(ImportFailure(name, tried))) }
       } else {
         refreshLibrary()
         main.post {
@@ -1388,6 +1400,20 @@ class MainActivity : ComponentActivity() {
 
   private fun refreshLibraryQuietly() = io.execute { refreshLibrary() }
 
+  /**
+   * Draws a closed notebook's cover from its files and writes `cover.jpg`. False if there is
+   * nothing to show yet. Background thread only (see [dev.penlab.app.notes.CoverMaker]).
+   */
+  private fun writeCover(info: NotebookInfo): Boolean {
+    val bitmap = dev.penlab.app.notes.CoverMaker.make(info, notebooks.pageStore(info), notebooks.pdfFile(info), notebooks.imagesDir(info)) ?: return false
+    val file = File(notebooks.imagesDir(info).parentFile, COVER_FILE)
+    val tmp = File(file.parentFile, "$COVER_FILE.tmp")
+    tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+    tmp.renameTo(file)
+    dev.penlab.app.ui.Covers.forget(info.id)
+    return true
+  }
+
   /** Covers for notebooks that have none (drawn once, at low priority, newest notebooks first). */
   private var coversRunning = false
   private val coversTried = HashSet<String>()
@@ -1403,12 +1429,7 @@ class MainActivity : ComponentActivity() {
       for (info in todo) {
         if (open?.info?.id == info.id) continue
         try {
-          val bitmap = dev.penlab.app.notes.CoverMaker.make(info, notebooks.pageStore(info), notebooks.pdfFile(info), notebooks.imagesDir(info)) ?: continue
-          val file = File(notebooks.imagesDir(info).parentFile, COVER_FILE)
-          val tmp = File(file.parentFile, "$COVER_FILE.tmp")
-          tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-          tmp.renameTo(file)
-          dev.penlab.app.ui.Covers.forget(info.id)
+          if (!writeCover(info)) continue
           made++
           if (made % 6 == 0) main.post { refreshLibraryQuietly() }
         } catch (e: Throwable) {

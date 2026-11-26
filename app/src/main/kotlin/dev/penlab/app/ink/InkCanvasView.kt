@@ -2273,7 +2273,9 @@ class InkCanvasView(
 
   private fun endPenGesture(event: MotionEvent) {
     erasingGesture = false
-    history.endGroup()
+    // The erase drag becomes an undo step only here, after the last report of the drag saw an empty
+    // undo stack: report again, or the Undo button stays grey until the next action.
+    if (history.endGroup()) onHistoryChanged()
     rulerInstrument = null
     // A finger stroke is no "pen nearby": the next finger must pan at once.
     if (penPointerId != MotionEvent.INVALID_POINTER_ID && !runningFingerPenCopy) {
@@ -3251,11 +3253,16 @@ class InkCanvasView(
   private fun handleAt(screenX: Float, screenY: Float): ResizeHandle? {
     var best: ResizeHandle? = null
     var bestDistance = HANDLE_GRAB_DP * density
+    // Inside the drawn box a handle's reach shrinks with the box, so a small selection still moves
+    // from its middle (see handleClaimsTouch).
+    val inside = isInDrawnBox(screenX, screenY)
+    val zoom = pageToScreen.mapRadius(1f)
+    val shortSide = minOf(selectionBounds.width(), selectionBounds.height()) * zoom + 2 * SELECTION_PAD_DP * density
     for (handle in ResizeHandle.entries) {
       if (!visibleHandle(handle)) continue
       boxPoint(handle.fx, handle.fy, pageToScreen, handlePoint)
       val d = hypot(screenX - handlePoint[0], screenY - handlePoint[1])
-      if (d < bestDistance) {
+      if (d < bestDistance && handleClaimsTouch(d, inside, shortSide, HANDLE_GRAB_DP * density)) {
         best = handle
         bestDistance = d
       }
@@ -3266,6 +3273,16 @@ class InkCanvasView(
   private fun isOnRotateHandle(screenX: Float, screenY: Float): Boolean {
     rotateHandlePoint(pageToScreen, handlePoint)
     return hypot(screenX - handlePoint[0], screenY - handlePoint[1]) < HANDLE_GRAB_DP * density
+  }
+
+  /** Inside the box as drawn (its margin included, without the extra grab margin of [isInSelectionBox]). */
+  private fun isInDrawnBox(screenX: Float, screenY: Float): Boolean {
+    boxCheck[0] = screenX
+    boxCheck[1] = screenY
+    screenToPage.mapPoints(boxCheck)
+    val pad = SELECTION_PAD_DP * density / pageToScreen.mapRadius(1f)
+    return boxCheck[0] in (selectionBounds.left - pad)..(selectionBounds.right + pad) &&
+      boxCheck[1] in (selectionBounds.top - pad)..(selectionBounds.bottom + pad)
   }
 
   /** Inside the selection's box, margin included. */

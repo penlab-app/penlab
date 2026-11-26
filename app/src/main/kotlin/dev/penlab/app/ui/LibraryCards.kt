@@ -132,7 +132,7 @@ internal fun NotebookCard(
       val fit = if (coverFillsBoxWidth(aspect)) Modifier.fillMaxWidth() else Modifier.fillMaxHeight()
       Box(fit.aspectRatio(aspect)) {
         // The real first page once there is a cover; the paper style until then.
-        val cover by produceState(Covers.cached(notebook.id), notebook.id, notebook.modified) {
+        val cover by produceState(Covers.cached(notebook.id), notebook.id, notebook.modified, Covers.revision(notebook.id)) {
           value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Covers.load(notebook.id, coverFile) }
         }
         val image = cover

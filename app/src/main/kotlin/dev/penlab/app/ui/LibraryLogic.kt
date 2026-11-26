@@ -39,13 +39,47 @@ data class ImportMenuEntry(val option: ImportOption, val label: String, val subt
 fun importDestination(current: String): String =
   if (current.isEmpty()) "Notebooks" else current.substringAfterLast("/")
 
-/** The single Import menu that replaces the two wide header buttons. Order is the order shown. */
-fun importMenuEntries(current: String): List<ImportMenuEntry> {
+/** The formats the importers read, as the Import menu names them: distinct, in registry order, PDF if none. */
+fun importFormatNames(labels: List<String>): List<String> =
+  labels.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.ifEmpty { listOf(PDF_FORMAT) }
+
+const val PDF_FORMAT = "PDF"
+
+/**
+ * The single Import menu that replaces the two wide header buttons. Order is the order shown.
+ * [formats] are the importers' labels from the plugin registry: with PDF alone the wording stays
+ * "Import PDF files"; once another importer exists it is format-neutral and lists them.
+ */
+fun importMenuEntries(current: String, formats: List<String> = emptyList()): List<ImportMenuEntry> {
   val where = importDestination(current)
-  return listOf(
-    ImportMenuEntry(ImportOption.PDF_FILES, "Import PDF files", "Each file becomes a notebook in $where"),
-    ImportMenuEntry(ImportOption.FOLDER, "Import folder", "Every PDF inside, subfolders included, into $where"),
-  )
+  val names = importFormatNames(formats)
+  val pdfOnly = names.size == 1 && names[0].equals(PDF_FORMAT, ignoreCase = true)
+  return if (pdfOnly) {
+    listOf(
+      ImportMenuEntry(ImportOption.PDF_FILES, "Import PDF files", "Each file becomes a notebook in $where"),
+      ImportMenuEntry(ImportOption.FOLDER, "Import folder", "Every PDF inside, subfolders included, into $where"),
+    )
+  } else {
+    listOf(
+      ImportMenuEntry(ImportOption.PDF_FILES, "Import files", "${names.joinToString(", ")}. One notebook per file, in $where"),
+      ImportMenuEntry(ImportOption.FOLDER, "Import folder", "Every file it can read inside, subfolders included, into $where"),
+    )
+  }
+}
+
+/** A file that could not be imported, and the importers that tried it (empty: none claimed it). */
+data class ImportFailure(val fileName: String, val importers: List<String>)
+
+/** What the snackbar says after [failures]: names the file and the importer that could not read it. */
+fun importFailureMessage(failures: List<ImportFailure>): String {
+  val first = failures.firstOrNull() ?: return ""
+  if (failures.size == 1) {
+    val by = first.importers.distinct().joinToString(" / ").ifEmpty { PDF_FORMAT }
+    return "\u201C${first.fileName}\u201D could not be read by the $by importer."
+  }
+  val shown = failures.take(2).joinToString(", ") { "\u201C${it.fileName}\u201D" }
+  val more = failures.size - 2
+  return "${failures.size} files could not be imported: $shown" + if (more > 0) " and $more more." else "."
 }
 
 // ---- Continue strip and dates --------------------------------------------------------------

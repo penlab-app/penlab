@@ -2,6 +2,7 @@ package dev.penlab.app.ui
 
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import java.io.File
@@ -24,7 +25,15 @@ object Covers {
     return bitmap.asImageBitmap().also { cache.put(id, it) }
   }
 
+  // Bumped whenever a cover is rewritten: a card that already looked for it and found none (the
+  // cover is drawn after the library lists a new notebook) must look again, not wait to be reopened.
+  private val revisions = mutableStateMapOf<String, Int>()
+
+  /** Read in composition: changes when [id]'s cover file was written. */
+  fun revision(id: String): Int = revisions[id] ?: 0
+
   fun forget(id: String) {
     cache.remove(id)
+    revisions[id] = (revisions[id] ?: 0) + 1
   }
 }

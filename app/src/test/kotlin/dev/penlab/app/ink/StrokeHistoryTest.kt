@@ -44,6 +44,25 @@ class StrokeHistoryTest {
   }
 
   @Test
+  fun anEraseInsideAGroupCanBeUndoneOnlyOnceTheGroupEnds() {
+    // The first erase of a drag, as the canvas does it: the group is open until the pen lifts.
+    val fresh = StrokeHistory<String>()
+    fresh.load(listOf("a", "b"))
+    fresh.beginGroup()
+    fresh.removeAll { it == "a" }
+    assertFalse(fresh.canUndo) // why the canvas must report again when the group ends
+    assertTrue(fresh.endGroup())
+    assertTrue(fresh.canUndo)
+  }
+
+  @Test
+  fun endingAnEmptyOrMissingGroupReportsNothing() {
+    assertFalse(history.endGroup()) // no group open
+    history.beginGroup()
+    assertFalse(history.endGroup()) // nothing recorded
+  }
+
+  @Test
   fun oneEraserDragIsOneUndoStep() {
     add("a", "b", "c", "d")
 

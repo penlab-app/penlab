@@ -44,6 +44,28 @@ class LibraryLogicTest {
   }
 
   @Test
+  fun importMenuIsFormatNeutralOnceAnotherImporterExists() {
+    val entries = importMenuEntries("Fall", listOf("PDF", "Samsung Notes (.sdocx)", "pdf"))
+    assertEquals(listOf("Import files", "Import folder"), entries.map { it.label })
+    assertTrue(entries[0].subtitle.startsWith("PDF, Samsung Notes (.sdocx)."))
+    assertTrue(entries.all { it.subtitle.endsWith("Fall") })
+    assertEquals(listOf("Import PDF files", "Import folder"), importMenuEntries("", listOf("PDF")).map { it.label })
+    assertEquals(listOf("Import PDF files", "Import folder"), importMenuEntries("", listOf(" ")).map { it.label })
+  }
+
+  @Test
+  fun importFailureNamesTheFileAndTheImporter() {
+    assertEquals(
+      "\u201CNote.sdocx\u201D could not be read by the Samsung Notes (.sdocx) importer.",
+      importFailureMessage(listOf(ImportFailure("Note.sdocx", listOf("Samsung Notes (.sdocx)")))),
+    )
+    assertEquals("\u201Cx.pdf\u201D could not be read by the PDF importer.", importFailureMessage(listOf(ImportFailure("x.pdf", emptyList()))))
+    val many = importFailureMessage(listOf("a", "b", "c").map { ImportFailure(it, listOf("PDF")) })
+    assertEquals("3 files could not be imported: \u201Ca\u201D, \u201Cb\u201D and 1 more.", many)
+    assertEquals("2 files could not be imported: \u201Ca\u201D, \u201Cb\u201D.", importFailureMessage(listOf("a", "b").map { ImportFailure(it, emptyList()) }))
+  }
+
+  @Test
   fun importMenuNamesTheDestination() {
     assertTrue(importMenuEntries("").all { it.subtitle.endsWith("Notebooks") })
     assertTrue(importMenuEntries("Fall/Circuits").all { it.subtitle.endsWith("Circuits") })

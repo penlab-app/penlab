@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,6 +53,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -108,11 +110,12 @@ import kotlin.math.sin
  * Dragging the grip shrinks the tools into a ball that follows the finger; letting go turns it
  * into the shape for wherever it was dropped.
  */
-enum class DockSide(val isCorner: Boolean = false, val isVertical: Boolean = false) {
+enum class DockSide(val isCorner: Boolean = false, val isVertical: Boolean = false, val isFloating: Boolean = false) {
   LEFT(isVertical = true),
   RIGHT(isVertical = true),
   TOP,
   BOTTOM,
+  FLOATING(isFloating = true),
   TOP_LEFT(isCorner = true),
   TOP_RIGHT(isCorner = true),
   BOTTOM_LEFT(isCorner = true),
@@ -153,6 +156,12 @@ const val LAYERS_CELL = -3
 /** Stands for the "More" toolbar button (Add from PDF, Add image, Highlighter, Text, Layers, Clear). */
 const val MORE_CELL = -4
 
+/** Essential tools kept visible when the toolbar is collapsed: pens + eraser. */
+internal fun collapsedToolbarItems(items: List<DockItem>, tools: List<InkTool>): List<DockItem> =
+  items.filter { item ->
+    item is DockItem.Tool && tools.getOrNull(item.index)?.let { it.kind == InkTool.Kind.PEN || it.isEraser } == true
+  }
+
 /**
  * The dock's state: where it is (kept between launches), whether it is being dragged, and
  * where each cell is on screen (so an options panel can open next to the cell it belongs to).
@@ -164,19 +173,49 @@ class ToolDock(context: Context) {
   var side by mutableStateOf(DockSide.entries.firstOrNull { it.name == prefs.getString("side", null) } ?: DockSide.TOP)
     private set
 
+  /** Top and bottom bars: where the bar's middle is, 0 = left edge, 1 = right edge. */
+  var along by mutableFloatStateOf(prefs.getFloat("along", 0.5f))
+    private set
+
+  /** Free-floating bar: normalised screen position (0..1) of its centre. */
+  var floatX by mutableFloatStateOf(prefs.getFloat("float_x", 0.5f))
+    private set
+  var floatY by mutableFloatStateOf(prefs.getFloat("float_y", 0.16f))
+    private set
+
+  // Backing field avoids a JVM setter name clash with setCollapsed(Boolean).
+  private var _collapsed by mutableStateOf(prefs.getBoolean("collapsed", false))
+  val collapsed: Boolean
+    get() = _collapsed
+
+  fun setCollapsed(on: Boolean) {
+    _collapsed = on
+    prefs.edit().putBoolean("collapsed", on).apply()
+  }
+
+  fun toggleCollapsed() {
+    setCollapsed(!_collapsed)
+  }
+
   /** Programmatically docks the toolbar to [newSide] (e.g. from Settings). */
   fun dockTo(newSide: DockSide) {
     side = newSide
     wheelOpen = false
-    if (!newSide.isVertical && !newSide.isCorner) {
+    if (!newSide.isVertical && !newSide.isCorner && !newSide.isFloating) {
       along = 0.5f
     }
-    prefs.edit().putString("side", side.name).putFloat("along", along).apply()
+    if (newSide.isFloating) {
+      floatX = floatX.coerceIn(0.08f, 0.92f)
+      floatY = floatY.coerceIn(0.08f, 0.92f)
+    }
+    prefs
+      .edit()
+      .putString("side", side.name)
+      .putFloat("along", along)
+      .putFloat("float_x", floatX)
+      .putFloat("float_y", floatY)
+      .apply()
   }
-
-  /** Top and bottom bars: where the bar's middle is, 0 = left edge, 1 = right edge. */
-  var along by mutableFloatStateOf(prefs.getFloat("along", 0.5f))
-    private set
 
   /** Corner wheel: open (tools fanned out) or just the round button. */
   var wheelOpen by mutableStateOf(false)
@@ -296,10 +335,6 @@ class ToolDock(context: Context) {
       val c = cornerLayout(side)
       if (WheelGeometry.inDisc(p, Offset(c.hubX, c.hubY), wheelRadiusPx + 8f)) return true
     }
-    if (side.isVertical) {
-      val railEdge = if (side == DockSide.LEFT) cellReachPx * 2.2f else screenWidth - cellReachPx * 2.2f
-      if (if (side == DockSide.LEFT) p.x < railEdge else p.x > railEdge) return true
-    }
     return false
   }
 
@@ -318,6 +353,7 @@ class ToolDock(context: Context) {
   internal var screenWidth = 0
   internal var screenHeight = 0
   internal var cornerReachPx = 0f
+  internal var edgeSnapPx = 0f
 
   /** Release speed (px/s) from which a drop counts as a throw. */
   internal var flickMinSpeedPx = 0f
@@ -356,13 +392,21 @@ class ToolDock(context: Context) {
     // flick carries it further.
     val projected = DockDrop.landingPoint(ball.value, release, w, h, flickMinSpeedPx)
     val target = targetFor(projected)
-    val newAlong = if (!target.isCorner && !target.isVertical) (projected.x / w.coerceAtLeast(1f)).coerceIn(0.05f, 0.95f) else along
+    val newAlong =
+      if (!target.isCorner && !target.isVertical && !target.isFloating) {
+        (projected.x / w.coerceAtLeast(1f)).coerceIn(0.05f, 0.95f)
+      } else {
+        along
+      }
+    val newFloatX = if (target.isFloating) (projected.x / w.coerceAtLeast(1f)).coerceIn(0.06f, 0.94f) else floatX
+    val newFloatY = if (target.isFloating) (projected.y / h.coerceAtLeast(1f)).coerceIn(0.06f, 0.94f) else floatY
     val home =
       when (target) {
-        DockSide.LEFT -> Offset(railHalfPx, ball.value.y.coerceIn(0f, h))
-        DockSide.RIGHT -> Offset(w - railHalfPx, ball.value.y.coerceIn(0f, h))
+        DockSide.LEFT -> Offset(edgeGapPx + railHalfPx, ball.value.y.coerceIn(0f, h))
+        DockSide.RIGHT -> Offset(w - edgeGapPx - railHalfPx, ball.value.y.coerceIn(0f, h))
         DockSide.TOP -> Offset(newAlong * w, topBarY)
         DockSide.BOTTOM -> Offset(newAlong * w, bottomBarY)
+        DockSide.FLOATING -> Offset(newFloatX * w, newFloatY * h)
         DockSide.TOP_LEFT, DockSide.TOP_RIGHT, DockSide.BOTTOM_LEFT, DockSide.BOTTOM_RIGHT ->
           cornerLayout(target).let { Offset(it.hubX, it.hubY) } // where the button will sit, clear of the gesture zones
       }
@@ -370,36 +414,67 @@ class ToolDock(context: Context) {
     ball.animateTo(home, Motion.spring(dampingRatio = 0.8f, stiffness = 380f), initialVelocity = release)
     side = target
     along = newAlong
+    floatX = newFloatX
+    floatY = newFloatY
     dragging = false
-    prefs.edit().putString("side", side.name).putFloat("along", along).apply()
+    prefs
+      .edit()
+      .putString("side", side.name)
+      .putFloat("along", along)
+      .putFloat("float_x", floatX)
+      .putFloat("float_y", floatY)
+      .apply()
   }
 
-  /** Which shape a drop at [p] makes: a corner if close to two edges, else the nearest edge. */
-  internal fun targetFor(p: Offset): DockSide {
-    val w = screenWidth.toFloat()
-    val h = screenHeight.toFloat()
-    val r = cornerReachPx
-    val left = p.x < r
-    val right = p.x > w - r
-    val top = p.y < r
-    val bottom = p.y > h - r
-    return when {
-      left && top -> DockSide.TOP_LEFT
-      right && top -> DockSide.TOP_RIGHT
-      left && bottom -> DockSide.BOTTOM_LEFT
-      right && bottom -> DockSide.BOTTOM_RIGHT
-      else -> {
-        val distances = listOf(DockSide.LEFT to p.x, DockSide.RIGHT to w - p.x, DockSide.TOP to p.y, DockSide.BOTTOM to h - p.y)
-        distances.minBy { it.second }.first
-      }
-    }
-  }
+  /** Which shape a drop at [p] makes: a corner if close to two edges, an edge if near one, else floating. */
+  internal fun targetFor(p: Offset): DockSide =
+    DockDrop.resolveTarget(
+      x = p.x,
+      y = p.y,
+      width = screenWidth.toFloat(),
+      height = screenHeight.toFloat(),
+      cornerReachPx = cornerReachPx,
+      edgeSnapPx = edgeSnapPx,
+    )
 }
 
 /** Pure rules for where a dropped toolbar lands (unit-tested). */
 internal object DockDrop {
   /** A release slower than this (dp per second) is a placement, not a throw. */
   const val FLICK_MIN_SPEED_DP = 700f
+
+  /** Distance from screen edges within which a dropped bar snaps to an edge instead of floating. */
+  const val EDGE_SNAP_DP = 76f
+
+  /** Resolves where a drop at ([x], [y]) lands: corner wheel, edge pill/bar, or free-floating pill. */
+  fun resolveTarget(
+    x: Float,
+    y: Float,
+    width: Float,
+    height: Float,
+    cornerReachPx: Float,
+    edgeSnapPx: Float,
+  ): DockSide {
+    val left = x < cornerReachPx
+    val right = x > width - cornerReachPx
+    val top = y < cornerReachPx
+    val bottom = y > height - cornerReachPx
+    when {
+      left && top -> return DockSide.TOP_LEFT
+      right && top -> return DockSide.TOP_RIGHT
+      left && bottom -> return DockSide.BOTTOM_LEFT
+      right && bottom -> return DockSide.BOTTOM_RIGHT
+    }
+    val distances =
+      listOf(
+        DockSide.LEFT to x,
+        DockSide.RIGHT to width - x,
+        DockSide.TOP to y,
+        DockSide.BOTTOM to height - y,
+      )
+    val nearest = distances.minBy { it.second }
+    return if (nearest.second <= edgeSnapPx) nearest.first else DockSide.FLOATING
+  }
 
   /** How far a throw glides: the same deceleration as a scrolled list (0.998 per ms). */
   fun project(velocityPerSecond: Float): Float = velocityPerSecond / 1000f * 0.998f / (1f - 0.998f) * 0.6f
@@ -488,6 +563,7 @@ fun DockedToolbar(
       DockSide.RIGHT -> TransformOrigin(1f, 0.5f)
       DockSide.TOP -> TransformOrigin(0.5f, 0f)
       DockSide.BOTTOM -> TransformOrigin(0.5f, 1f)
+      DockSide.FLOATING -> TransformOrigin(0.5f, 0.5f)
       DockSide.TOP_LEFT -> TransformOrigin(0f, 0f)
       DockSide.TOP_RIGHT -> TransformOrigin(1f, 0f)
       DockSide.BOTTOM_LEFT -> TransformOrigin(0f, 1f)
@@ -502,8 +578,9 @@ fun DockedToolbar(
       transformOrigin = origin
     }
   val isHorizontalBar = !side.isVertical && !side.isCorner
+  val shownItems = if (!side.isCorner && dock.collapsed) collapsedToolbarItems(items, tools).ifEmpty { items } else items
   // A tool picked from More (highlighter, text box...) has no cell on the bar: More shows it as active.
-  val moreHoldsTool = toolHiddenFromBar(items, selectedIndex)
+  val moreHoldsTool = toolHiddenFromBar(if (side.isCorner) items else shownItems, selectedIndex)
   val cell: @Composable (DockItem, Boolean) -> Unit = { item, round ->
     DockCell(
       item = item,
@@ -528,7 +605,7 @@ fun DockedToolbar(
 
   val density = androidx.compose.ui.platform.LocalDensity.current
   androidx.compose.runtime.SideEffect {
-    val rail = with(density) { (RailWidth + 8.dp).toPx() }
+    val rail = with(density) { (RailWidth + EdgeGap + 8.dp).toPx() }
     when {
       dock.dragging -> Unit
       side == DockSide.LEFT -> onSidesCovered(rail, 0f)
@@ -556,6 +633,7 @@ fun DockedToolbar(
       dock.screenHeight = it.size.height
       with(density) {
         dock.cornerReachPx = CornerReach.toPx()
+        dock.edgeSnapPx = DockDrop.EDGE_SNAP_DP.dp.toPx()
         dock.flickMinSpeedPx = DockDrop.FLICK_MIN_SPEED_DP.dp.toPx()
         dock.cellReachPx = 26.dp.toPx()
         dock.applyWheelMetrics(density, insets, side)
@@ -566,9 +644,9 @@ fun DockedToolbar(
     }
   ) {
     when {
-      side.isVertical -> Rail(dock, side, items, tools, insets, startGrip, endGrip, isPalm, cell, shapeLayer.align(if (side == DockSide.LEFT) Alignment.CenterStart else Alignment.CenterEnd))
+      side.isVertical -> Rail(dock, side, shownItems, tools, insets, startGrip, endGrip, onDragStart, isPalm, cell, shapeLayer.align(if (side == DockSide.LEFT) Alignment.CenterStart else Alignment.CenterEnd))
       side.isCorner -> Wheel(dock, side, items, tools, selectedIndex, darkPage, mmPerDp, insets, scope, onDragStart, onItem, isPalm, cell, shapeLayer)
-      else -> Bar(dock, side, items, tools, insets, startGrip, endGrip, isPalm, cell, shapeLayer)
+      else -> Bar(dock, side, shownItems, tools, insets, startGrip, endGrip, onDragStart, isPalm, cell, shapeLayer)
     }
     if (dock.dragging) DragBall(dock, tools.getOrNull(selectedIndex), darkPage, mmPerDp)
 
@@ -600,7 +678,7 @@ data class DockInsets(
   val immersive: Boolean = false,
 )
 
-/** Left or right: a rail filling the whole edge, tools centred on it, with handles at both ends. */
+/** Left or right: a floating vertical capsule pill centred along the edge, with handles at both ends. */
 @Composable
 private fun Rail(
   dock: ToolDock,
@@ -610,22 +688,29 @@ private fun Rail(
   insets: DockInsets,
   startGrip: Modifier,
   endGrip: Modifier,
+  onDragStart: () -> Unit,
   isPalm: () -> Boolean,
   cell: @Composable (DockItem, Boolean) -> Unit,
   modifier: Modifier,
 ) {
-  val edgeInset = if (side == DockSide.LEFT) insets.left else insets.right
+  val topPad = insets.top + (if (insets.topChromeVisible) insets.topButtons else EdgeGap)
+  val bottomPad = insets.bottom + EdgeGap
+  val startPad = if (side == DockSide.LEFT) insets.left + EdgeGap else 0.dp
+  val endPad = if (side == DockSide.RIGHT) insets.right + EdgeGap else 0.dp
+  val shape = RoundedCornerShape(28.dp)
+  val isDark = LocalPenLabColors.current.isDark
   // Dragging a grip goes inward from the screen edge, which the system would take as Back (and leave
   // the notebook). So keep a window round each grip out of the Back gesture, like the open wheel.
-  // measured = [rail width, screen height, start grip centre y, end grip centre y] in root pixels.
+  // measured = [edge-to-pill reach, screen height, start grip centre y, end grip centre y] in root pixels.
   val view = androidx.compose.ui.platform.LocalView.current
   val measured = remember { floatArrayOf(0f, 0f, Float.NaN, Float.NaN) }
   val refreshExclusion = {
     val screenW = if (dock.screenWidth > 0) dock.screenWidth.toFloat() else view.width.toFloat()
+    val screenH = if (dock.screenHeight > 0) dock.screenHeight.toFloat() else view.height.toFloat()
     setGestureExclusion(
       view,
       WheelGeometry.railExclusionRects(
-        side == DockSide.LEFT, screenW, measured[1], measured[0],
+        side == DockSide.LEFT, screenW, screenH, measured[0],
         listOf(measured[2], measured[3]), MaxExclusionHeight.value * view.resources.displayMetrics.density,
       ),
     )
@@ -637,43 +722,45 @@ private fun Rail(
   }
   Box(
     modifier
-      .fillMaxHeight()
-      .width(RailWidth + edgeInset)
+      .padding(start = startPad, end = endPad, top = topPad, bottom = bottomPad)
+      .width(RailWidth)
       .onGloballyPositioned {
-        dock.barBounds = it.boundsInRoot()
-        measured[0] = it.size.width.toFloat()
+        val bounds = it.boundsInRoot()
+        dock.barBounds = bounds
+        val screenW = if (dock.screenWidth > 0) dock.screenWidth.toFloat() else view.width.toFloat()
+        measured[0] = if (side == DockSide.LEFT) bounds.right else (screenW - bounds.left).coerceAtLeast(0f)
         measured[1] = it.size.height.toFloat()
         refreshExclusion()
       }
-      .background(PenLabComponentTokens.chromePillBg)
-      .drawInnerEdge(side)
+      .floatingChromeSurface(
+        shape = shape,
+        background = PenLabComponentTokens.chromePillBg,
+        elevation = 8.dp,
+        subtleLightHairline = true,
+        borderColor = PenLabComponentTokens.chromePillBorder,
+        isDark = isDark,
+      )
       .ignorePalm(isPalm)
       .semantics { contentDescription = "Drawing tools" },
   ) {
     Column(
-      Modifier.fillMaxHeight()
-        .padding(top = insets.top, bottom = insets.bottom, start = if (side == DockSide.LEFT) edgeInset else 0.dp)
+      Modifier
         .width(RailWidth)
-        .verticalScroll(rememberScrollState()),
+        .verticalScroll(rememberScrollState())
+        .padding(vertical = 2.dp),
       verticalArrangement = Arrangement.Center,
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       Grip(vertical = true, modifier = startGrip.trackGrip(0))
       DockCells(items, tools, vertical = true, cell)
+      CollapseCell(dock = dock, vertical = true, onDragStart = onDragStart)
       Grip(vertical = true, modifier = endGrip.trackGrip(1))
     }
   }
 }
 
-/** A hairline on the rail's page side, so it reads as a panel set into the edge. */
-private fun Modifier.drawInnerEdge(side: DockSide): Modifier =
-  drawBehind {
-    val x = if (side == DockSide.LEFT) size.width - 0.5f else 0.5f
-    drawLine(PenLabColors.hairline, Offset(x, 0f), Offset(x, size.height), 1f)
-  }
-
 /**
- * Top or bottom: a floating capsule pill (`48.dp` tall) with `||` drag handles on both ends.
+ * Top, bottom, or free-floating: a floating capsule pill (`48.dp` tall) with `||` drag handles on both ends.
  *
  * When [side] is [DockSide.TOP] on wide landscape (`>= 1060.dp`) and the pill fits cleanly between
  * the left and right floating top islands, it sits inline on the exact same top row (`statusBar + 12dp`)
@@ -689,6 +776,7 @@ private fun Bar(
   insets: DockInsets,
   startGrip: Modifier,
   endGrip: Modifier,
+  onDragStart: () -> Unit,
   isPalm: () -> Boolean,
   cell: @Composable (DockItem, Boolean) -> Unit,
   modifier: Modifier,
@@ -717,6 +805,7 @@ private fun Bar(
       ) {
         Grip(vertical = false, modifier = startGrip)
         DockCells(items, tools, vertical = false, cell)
+        CollapseCell(dock = dock, vertical = false, onDragStart = onDragStart)
         Grip(vertical = false, modifier = endGrip)
       }
     }
@@ -724,6 +813,8 @@ private fun Bar(
     val gap = EdgeGap.roundToPx()
     val left = insets.left.roundToPx() + gap
     val right = constraints.maxWidth - insets.right.roundToPx() - gap
+    val topSafe = insets.top.roundToPx() + gap
+    val bottomSafe = constraints.maxHeight - insets.bottom.roundToPx() - gap
     val bar = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = (right - left).coerceAtLeast(0)))
     layout(constraints.maxWidth, constraints.maxHeight) {
       // A bar dropped near the middle snaps to it (also for older saved positions), so it sits
@@ -735,26 +826,34 @@ private fun Bar(
       val row2Y = (insets.top + insets.topButtons).roundToPx()
 
       val (x, y) =
-        if (side == DockSide.TOP) {
-          if (!insets.topChromeVisible) {
-            val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
-            bx to topRowY
-          } else {
-            val inlineLeft = left + insets.topRowLeftClearance.roundToPx() + gap
-            val inlineRight = right - insets.topRowRightClearance.roundToPx() - gap
-            val fitsInline = screenWidthDp >= INLINE_TOP_ROW_MIN_WIDTH && (inlineRight - inlineLeft) >= bar.width
-            if (fitsInline) {
-              val bx = inlineToolbarX(centre, bar.width, inlineLeft, inlineRight, centreInGap = along == 0.5f)
+        when (side) {
+          DockSide.TOP -> {
+            if (!insets.topChromeVisible) {
+              val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
               bx to topRowY
             } else {
-              val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
-              bx to row2Y
+              val inlineLeft = left + insets.topRowLeftClearance.roundToPx() + gap
+              val inlineRight = right - insets.topRowRightClearance.roundToPx() - gap
+              val fitsInline = screenWidthDp >= INLINE_TOP_ROW_MIN_WIDTH && (inlineRight - inlineLeft) >= bar.width
+              if (fitsInline) {
+                val bx = inlineToolbarX(centre, bar.width, inlineLeft, inlineRight, centreInGap = along == 0.5f)
+                bx to topRowY
+              } else {
+                val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
+                bx to row2Y
+              }
             }
           }
-        } else {
-          val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
-          val by = constraints.maxHeight - insets.bottom.roundToPx() - gap - bar.height
-          bx to by
+          DockSide.FLOATING -> {
+            val bx = (dock.floatX * constraints.maxWidth - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
+            val by = (dock.floatY * constraints.maxHeight - bar.height / 2f).roundToInt().coerceIn(topSafe, maxOf(topSafe, bottomSafe - bar.height))
+            bx to by
+          }
+          else -> {
+            val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
+            val by = constraints.maxHeight - insets.bottom.roundToPx() - gap - bar.height
+            bx to by
+          }
         }
       if (side == DockSide.TOP) {
         dock.topBarY = y + bar.height / 2f
@@ -1314,6 +1413,13 @@ private fun DragBall(dock: ToolDock, tool: InkTool?, darkPage: Boolean, mmPerDp:
       DockSide.RIGHT -> drawRect(hint, Offset(size.width - t, 0f), androidx.compose.ui.geometry.Size(t, size.height))
       DockSide.TOP -> drawRect(hint, Offset(0f, 0f), androidx.compose.ui.geometry.Size(size.width, t))
       DockSide.BOTTOM -> drawRect(hint, Offset(0f, size.height - t), androidx.compose.ui.geometry.Size(size.width, t))
+      DockSide.FLOATING ->
+        drawCircle(
+          color = PenLabColors.icon.copy(alpha = 0.28f),
+          radius = BallSize.toPx() * 0.85f,
+          center = dock.ball.value,
+          style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)),
+        )
       DockSide.TOP_LEFT -> drawCircle(hint, r, Offset(0f, 0f))
       DockSide.TOP_RIGHT -> drawCircle(hint, r, Offset(size.width, 0f))
       DockSide.BOTTOM_LEFT -> drawCircle(hint, r, Offset(0f, size.height))
@@ -1364,6 +1470,7 @@ private fun PanelBeside(dock: ToolDock, side: DockSide, key: Int, panel: @Compos
       DockSide.RIGHT, DockSide.TOP_RIGHT, DockSide.BOTTOM_RIGHT -> TransformOrigin(1f, 0.5f)
       DockSide.TOP -> TransformOrigin(0.5f, 0f)
       DockSide.BOTTOM -> TransformOrigin(0.5f, 1f)
+      DockSide.FLOATING -> TransformOrigin(0.5f, if (dock.floatY < 0.55f) 0f else 1f)
     }
   androidx.compose.runtime.DisposableEffect(key) { onDispose { dock.panelBounds = androidx.compose.ui.geometry.Rect.Zero } }
   val content: @Composable () -> Unit = {
@@ -1394,6 +1501,9 @@ private fun PanelBeside(dock: ToolDock, side: DockSide, key: Int, panel: @Compos
           DockSide.RIGHT -> anchor.x - reach - w to anchor.y - h / 2f
           DockSide.TOP -> anchor.x - w / 2f to anchor.y + reach
           DockSide.BOTTOM -> anchor.x - w / 2f to anchor.y - reach - h
+          DockSide.FLOATING ->
+            if (anchor.y < constraints.maxHeight * 0.55f) anchor.x - w / 2f to anchor.y + reach
+            else anchor.x - w / 2f to anchor.y - reach - h
           // From the wheel: the wheel has folded away, so the panel opens beside the round button,
           // where the wheel was, level with the button's outer edge.
           DockSide.TOP_LEFT -> dock.gripCenter.x + reach to dock.gripCenter.y - reach
@@ -1593,6 +1703,25 @@ private fun ActionCell(
       )
     }
   }
+}
+
+@Composable
+private fun CollapseCell(dock: ToolDock, vertical: Boolean, onDragStart: () -> Unit) {
+  val collapsed = dock.collapsed
+  ActionCell(
+    icon = if (collapsed) PenLabIcons.FullScreen else PenLabIcons.FullScreenExit,
+    label = if (collapsed) "Expand toolbar" else "Collapse toolbar",
+    enabled = true,
+    active = false,
+    showActiveDot = false,
+    round = false,
+    compactHorizontal = !vertical,
+    modifier = Modifier,
+    onClick = {
+      onDragStart()
+      dock.toggleCollapsed()
+    },
+  )
 }
 
 /**

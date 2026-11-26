@@ -562,6 +562,7 @@ private enum class DockPositionOption(val label: String) {
   BOTTOM("Bottom"),
   LEFT("Left"),
   RIGHT("Right"),
+  FLOATING("Float"),
   CORNER("Corner");
 
   fun toDockSide(currentSide: DockSide): DockSide =
@@ -570,6 +571,7 @@ private enum class DockPositionOption(val label: String) {
       BOTTOM -> DockSide.BOTTOM
       LEFT -> DockSide.LEFT
       RIGHT -> DockSide.RIGHT
+      FLOATING -> DockSide.FLOATING
       CORNER -> if (currentSide.isCorner) currentSide else DockSide.BOTTOM_RIGHT
     }
 
@@ -580,6 +582,7 @@ private enum class DockPositionOption(val label: String) {
         side == DockSide.BOTTOM -> BOTTOM
         side == DockSide.LEFT -> LEFT
         side == DockSide.RIGHT -> RIGHT
+        side == DockSide.FLOATING -> FLOATING
         else -> CORNER
       }
   }

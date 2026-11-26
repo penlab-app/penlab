@@ -2582,8 +2582,8 @@ private fun NoteScreen(
       }
     }
 
-    val railLeft = if (dock.side == DockSide.LEFT) RailWidth else 0.dp
-    val railRight = if (dock.side == DockSide.RIGHT) RailWidth else 0.dp
+    val railLeft = if (dock.side == DockSide.LEFT) RailWidth + 12.dp else 0.dp
+    val railRight = if (dock.side == DockSide.RIGHT) RailWidth + 12.dp else 0.dp
     val selectionTopClearancePx =
       with(density) {
         if (chrome.topBar) statusTopPx + (TOP_BUTTONS_HEIGHT + 4.dp).roundToPx()

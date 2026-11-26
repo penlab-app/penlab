@@ -1,5 +1,6 @@
 package dev.penlab.app.ui
 
+import dev.penlab.app.ink.InkTool
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -40,5 +41,70 @@ class ToolbarPlacementTest {
     assertEquals(0.2f, snappedAlong(0.2f), 0f)
     assertEquals(0.5f, snappedAlong(0.62f), 0f)
     assertEquals(0.5f, snappedAlong(0.5f), 0f)
+  }
+
+  @Test
+  fun dropInInteriorLandsFloating() {
+    val target = DockDrop.resolveTarget(
+      x = 640f,
+      y = 400f,
+      width = 1280f,
+      height = 800f,
+      cornerReachPx = 110f,
+      edgeSnapPx = 76f,
+    )
+    assertEquals(DockSide.FLOATING, target)
+  }
+
+  @Test
+  fun dropNearEdgesSnapsToEdgeAndCornersSnapToWheel() {
+    val w = 1280f
+    val h = 800f
+    val corner = 110f
+    val edge = 76f
+
+    assertEquals(DockSide.LEFT, DockDrop.resolveTarget(40f, 400f, w, h, corner, edge))
+    assertEquals(DockSide.RIGHT, DockDrop.resolveTarget(w - 40f, 400f, w, h, corner, edge))
+    assertEquals(DockSide.TOP, DockDrop.resolveTarget(640f, 40f, w, h, corner, edge))
+    assertEquals(DockSide.BOTTOM, DockDrop.resolveTarget(640f, h - 40f, w, h, corner, edge))
+
+    assertEquals(DockSide.TOP_LEFT, DockDrop.resolveTarget(80f, 80f, w, h, corner, edge))
+    assertEquals(DockSide.TOP_RIGHT, DockDrop.resolveTarget(w - 80f, 80f, w, h, corner, edge))
+    assertEquals(DockSide.BOTTOM_LEFT, DockDrop.resolveTarget(80f, h - 80f, w, h, corner, edge))
+    assertEquals(DockSide.BOTTOM_RIGHT, DockDrop.resolveTarget(w - 80f, h - 80f, w, h, corner, edge))
+  }
+
+  @Test
+  fun collapsedToolbarKeepsOnlyPensAndEraser() {
+    val tools =
+      listOf(
+        InkTool(InkTool.Kind.PEN, 0xFF111111.toInt(), 2.2f),
+        InkTool(InkTool.Kind.PEN, 0xFF1565C0.toInt(), 2.2f),
+        InkTool(InkTool.Kind.HIGHLIGHTER, 0xFFFDD835.toInt(), 14f),
+        InkTool(InkTool.Kind.ERASER, 0, 14f),
+        InkTool(InkTool.Kind.LASSO, 0, 0f),
+        InkTool(InkTool.Kind.TEXT, 0xFF111111.toInt(), 4f),
+      )
+    val items =
+      listOf(
+        DockItem.Tool(0),
+        DockItem.Tool(1),
+        DockItem.Tool(2),
+        DockItem.Tool(3),
+        DockItem.Tool(4),
+        DockItem.Tool(5),
+        DockItem.Instruments,
+        DockItem.Paper,
+        DockItem.Layers,
+        DockItem.Undo,
+        DockItem.Redo,
+        DockItem.Clear,
+        DockItem.More,
+      )
+
+    assertEquals(
+      listOf(DockItem.Tool(0), DockItem.Tool(1), DockItem.Tool(3)),
+      collapsedToolbarItems(items, tools),
+    )
   }
 }

@@ -75,6 +75,13 @@
 - Clamped tall snippets cleanly in `InkCanvasView.addImage` (`h <= visible.height() * 0.72f`) and rewired `MainActivity.kt` canvas `onAddFromPdf` (`pickPdfFromCanvas`) away from `importPdfAndOpen` while keeping Library PDF import untouched.
 - Verified `:app:testDebugUnitTest` (`55` suites, `497` tests, `0` failures — including 6 `PdfCropGeometryTest` tests & `TypographyDisciplineTest`) and Tab S9 end-to-end R8 release QA.
 
+### Stage 3 (Round 2) — Movable, Collapsible Toolbar & Floating Side-Snap Pills (26 Nov 2026, QA-Verified on Tab S9)
+- Added `DockSide.FLOATING` (`floatX`/`floatY` persistence) and `DockDrop.resolveTarget` (`EDGE_SNAP_DP = 76f`, corner-first -> edge snap -> interior free-floating drop) in `ToolDock.kt`.
+- Added persisted `ToolDock.collapsed` state + `collapsedToolbarItems(items, tools)` keeping only `PEN` slots and `ERASER` plus a `CollapseCell` expand/collapse toggle on `Bar` and `Rail`.
+- Converted `LEFT`/`RIGHT` docked `Rail` from full-height bezel-flush slabs into centered, edge-inset floating vertical capsule pills (`RoundedCornerShape(28.dp)`, `floatingChromeSurface`, `EdgeGap = 12.dp`) while preserving `setGestureExclusion`, updated `isOnDock`, and kept Corner Wheel untouched.
+- Added `DockPositionOption.FLOATING("Float")` in `SettingsSheet.kt` and updated `MainActivity.kt` selection clearance (`RailWidth + 12.dp`).
+- Verified `:app:testDebugUnitTest` (`500` tests, `0` failures — including 9 `ToolbarPlacementTest`, 34 `WheelGeometryTest`, and `TypographyDisciplineTest`) and Tab S9 R8 release QA.
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)

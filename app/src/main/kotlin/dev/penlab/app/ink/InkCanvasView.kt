@@ -26,6 +26,8 @@ import androidx.ink.geometry.ImmutableVec
 import androidx.ink.geometry.Intersection.intersects
 import androidx.ink.rendering.android.canvas.CanvasStrokeRenderer
 import androidx.ink.strokes.Stroke
+import dev.penlab.app.projector.ProjectorItem
+import dev.penlab.app.projector.ProjectorPage
 import dev.penlab.app.projector.ProjectorSnapshot
 import androidx.input.motionprediction.MotionEventPredictor
 import androidx.ink.brush.InputToolType
@@ -127,7 +129,7 @@ class InkCanvasView(
     onPicturesUpdated()
     // The projector's strokes carry their screen colour, so rebuild them and send the new paper/desk/ink colours.
     projectorHistoryVersion++
-    requestProjectorPublish()
+    invalidateProjectorContent()
   }
 
   // ---- Photos and text boxes ---------------------------------------------------------------
@@ -188,6 +190,7 @@ class InkCanvasView(
   private fun itemsChanged() {
     clearThumbnails()
     finishedView.invalidate()
+    invalidateProjectorContent()
     onHistoryChanged()
   }
 
@@ -225,6 +228,7 @@ class InkCanvasView(
       if (field == value) return
       field = value
       finishedView.invalidate()
+      invalidateProjectorContent()
     }
 
   /** A short message for the user (shown as a snackbar), e.g. why a fill didn't happen. */
@@ -454,6 +458,7 @@ class InkCanvasView(
     for (page in thumbnailsMissingPdf) thumbnails.remove(page)
     thumbnailsMissingPdf.clear()
     finishedView.invalidate()
+    invalidateProjectorContent()
     onPicturesUpdated()
   }
 
@@ -519,6 +524,7 @@ class InkCanvasView(
     set(value) {
       field = value
       finishedView.invalidate()
+      invalidateProjectorContent()
       onHistoryChanged() // worth saving too
     }
 
@@ -529,6 +535,7 @@ class InkCanvasView(
       pageBackground.spacingMm = value
       clearThumbnails()
       finishedView.invalidate()
+      invalidateProjectorContent()
       onHistoryChanged() // worth saving
     }
 
@@ -835,6 +842,7 @@ class InkCanvasView(
     // A view saved in landscape is too wide for portrait: fit the width instead.
     else if (pageLayout != null) post { if (height > width && pageOverflows()) fitToWidth() }
     pageStyle = page.pageStyle
+    invalidateProjectorContent()
     pageChanged()
     viewMoved()
     // Saved while pulled past the last page: settle back to the end.
@@ -1504,12 +1512,23 @@ class InkCanvasView(
 
   /** Bumped when strokes are added/removed, so the visible-stroke list is rebuilt only then or when the view moves. */
   private var projectorHistoryVersion = 0
+  private var projectorContentVersion = 0L
+  private var projectorSceneVersion = 0L
   private var projectorBuiltVersion = -1
+  private var projectorBuiltContentVersion = -1L
   private var projectorBuiltHidden: Set<Int>? = null
   private val projectorBuiltMatrix = FloatArray(9)
   private val projectorMatrixValues = FloatArray(9)
   private var projectorStrokes: List<dev.penlab.app.projector.ProjectorInk> = emptyList()
-  private var projectorPageRects: FloatArray? = null
+  private var projectorPages: List<ProjectorPage> = emptyList()
+  private var projectorItems: List<ProjectorItem> = emptyList()
+  private var projectorBuiltPdfBitmaps: List<Bitmap?> = emptyList()
+  private val projectorPageRect = RectF()
+
+  private fun invalidateProjectorContent() {
+    projectorContentVersion++
+    requestProjectorPublish()
+  }
 
   private fun publishProjector() {
     val sink = projectorSink ?: return
@@ -1518,7 +1537,7 @@ class InkCanvasView(
     val layout = pageLayout
     val desk = if (layout == null) InkColors.pageOnScreen(darkPage) else InkColors.deskOnScreen(darkPage)
     if (width == 0 || height == 0 || widthPx <= 0 || heightPx <= 0) {
-      sink.onSnapshot(ProjectorSnapshot(null, desk, 0, null, emptyList(), null, 0, 0, 1f))
+      sink.onSnapshot(ProjectorSnapshot(null, desk, 0, emptyList(), emptyList(), emptyList(), imagesDir, null, 0, 0, 1f))
       return
     }
     val free = width - leftInset - rightInset
@@ -1534,45 +1553,102 @@ class InkCanvasView(
     projectorInverse.mapRect(projectorVisible)
     pageToProjector.getValues(projectorMatrixValues)
 
+    val zoom = pageToProjector.mapRadius(1f)
     val hidden = layers.hidden
-    val changed = projectorBuiltVersion != projectorHistoryVersion || projectorBuiltHidden != hidden ||
+    val pdfDoc = pdf
+    val mayRenderPdf = SystemClock.uptimeMillis() - lastPanZoomTime >= PAN_ZOOM_SETTLE_MS
+    val wantedPdfWidth = if (layout != null) (layout.pageWidth * zoom).toInt().coerceAtLeast(1) else 0
+    var changed = projectorBuiltVersion != projectorHistoryVersion ||
+      projectorBuiltContentVersion != projectorContentVersion ||
+      projectorBuiltHidden != hidden ||
       !projectorMatrixValues.contentEquals(projectorBuiltMatrix)
+    if (!changed && pdfDoc != null && layout != null) {
+      val first = layout.pageAt(projectorVisible.top)
+      val last = layout.pageAt(projectorVisible.bottom)
+      var pdfIdx = 0
+      for (i in first..last) {
+        layout.rect(i, projectorPageRect)
+        if (!RectF.intersects(projectorPageRect, projectorVisible)) continue
+        val pdfPage = layout.backgroundOf(i)
+        if (pdfPage >= 0) {
+          val bmp = pdfDoc.bitmapFor(pdfPage, wantedPdfWidth, mayRenderPdf)
+          if (pdfIdx >= projectorBuiltPdfBitmaps.size || projectorBuiltPdfBitmaps[pdfIdx] !== bmp) {
+            changed = true
+            break
+          }
+          pdfIdx++
+        }
+      }
+      if (!changed && pdfIdx != projectorBuiltPdfBitmaps.size) changed = true
+    }
     if (changed) {
       projectorBuiltVersion = projectorHistoryVersion
+      projectorBuiltContentVersion = projectorContentVersion
       projectorBuiltHidden = hidden
       System.arraycopy(projectorMatrixValues, 0, projectorBuiltMatrix, 0, 9)
       val visible = chunkCache.strokesIn(projectorVisible).filter { !isHiddenLayer(it) }
       // Highlighters sit under the ink.
       projectorStrokes = (visible.filter { it.isHighlighter } + visible.filter { !it.isHighlighter }).map(::projectorInk)
-      projectorPageRects = if (layout == null) null else {
+      if (layout == null) {
+        projectorPages = emptyList()
+        projectorBuiltPdfBitmaps = emptyList()
+      } else {
         val first = layout.pageAt(projectorVisible.top)
         val last = layout.pageAt(projectorVisible.bottom)
-        val out = ArrayList<Float>()
-        val r = RectF()
+        val pages = ArrayList<ProjectorPage>()
+        val bitmaps = ArrayList<Bitmap?>()
         for (i in first..last) {
-          layout.rect(i, r)
-          if (RectF.intersects(r, projectorVisible)) { out += r.left; out += r.top; out += r.right; out += r.bottom }
+          layout.rect(i, projectorPageRect)
+          if (!RectF.intersects(projectorPageRect, projectorVisible)) continue
+          val pdfPage = if (pdfDoc != null) layout.backgroundOf(i) else -1
+          val isPdf = pdfPage >= 0
+          val bmp = if (isPdf) pdfDoc?.bitmapFor(pdfPage, wantedPdfWidth, mayRenderPdf) else null
+          if (isPdf) bitmaps += bmp
+          pages += ProjectorPage(projectorPageRect.left, projectorPageRect.top, projectorPageRect.right, projectorPageRect.bottom, isPdf, bmp)
         }
-        out.toFloatArray()
+        projectorPages = pages
+        projectorBuiltPdfBitmaps = bitmaps
       }
+      projectorItems = items.mapNotNull { item ->
+        if (item.id in hiddenItems || !RectF.intersects(item.bounds(itemBox), projectorVisible)) return@mapNotNull null
+        val light = layout?.let { isLightPage(it.pageAt(item.cy)) } ?: false
+        ProjectorItem(item, onDarkPage = darkPage && !light)
+      }
+      projectorSceneVersion++
     }
     val live = liveMirror.active
     val livePts = if (live) liveMirror.copyPoints() else null
     // Lines waiting for their committed stroke go out with every snapshot until one built from
     // history at or after their commit has been published (that snapshot carries the real stroke).
     val pendingLines = liveMirror.dropCommitted(projectorBuiltVersion, SystemClock.uptimeMillis())
-    val zoom = pageToProjector.mapRadius(1f)
     val accent = pageEdgeAccent
     val edgePx = (if (accent != null) 1.5f * resources.displayMetrics.density else 1f) * zoom /
       pageToScreen.mapRadius(1f).coerceAtLeast(1e-6f)
     sink.onSnapshot(
       ProjectorSnapshot(
-        projectorMatrixValues.copyOf(), desk, if (layout == null) 0 else InkColors.pageOnScreen(darkPage), projectorPageRects,
-        projectorStrokes, livePts, livePts?.size?.div(2) ?: 0, liveMirror.colorArgb, liveMirror.size, pendingLines,
-        pageStyle, rulingMm, if (layout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP, darkPage,
-        layout?.pageWidth ?: 0f, layout?.pageHeight ?: 0f,
-        floatArrayOf(projectorVisible.left, projectorVisible.top, projectorVisible.right, projectorVisible.bottom), zoom,
-        if (layout == null) 0 else (accent ?: InkColors.pageEdgeOnScreen(darkPage)), edgePx.coerceAtLeast(1f),
+        matrix = projectorMatrixValues.copyOf(),
+        deskColor = desk,
+        pageColor = if (layout == null) 0 else InkColors.pageOnScreen(darkPage),
+        pages = projectorPages,
+        strokes = projectorStrokes,
+        items = projectorItems,
+        imagesDir = imagesDir,
+        livePoints = livePts,
+        liveCount = livePts?.size?.div(2) ?: 0,
+        liveColor = liveMirror.colorArgb,
+        liveSize = liveMirror.size,
+        pendingLines = pendingLines,
+        pageStyle = pageStyle,
+        spacingMm = rulingMm,
+        unitsPerDp = if (layout == null) resources.displayMetrics.density else PAPER_UNITS_PER_DP,
+        darkPage = darkPage,
+        pageWidth = layout?.pageWidth ?: 0f,
+        pageHeight = layout?.pageHeight ?: 0f,
+        visible = floatArrayOf(projectorVisible.left, projectorVisible.top, projectorVisible.right, projectorVisible.bottom),
+        zoom = zoom,
+        edgeColor = if (layout == null) 0 else (accent ?: InkColors.pageEdgeOnScreen(darkPage)),
+        edgeWidthPx = edgePx.coerceAtLeast(1f),
+        sceneVersion = projectorSceneVersion,
       ),
     )
   }
@@ -3524,8 +3600,10 @@ class InkCanvasView(
     hiddenFromRasters.clear()
     if (hide) hiddenFromRasters += selection
     pages.forEach(rasters::invalidate)
+    val hadHiddenItems = hiddenItems.isNotEmpty()
     hiddenItems.clear()
     if (hide) hiddenItems += selectedItems
+    if (hadHiddenItems || hiddenItems.isNotEmpty()) invalidateProjectorContent()
   }
 
   /** Commits a resize: the selection is replaced by scaled copies, in one undo step. */

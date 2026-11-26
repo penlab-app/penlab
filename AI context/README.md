@@ -50,6 +50,9 @@
 - **`.trash/` library migration fixed:** `LibraryMigration.run` now also migrates private `.trash/` notebooks into `Documents/PenLab/.trash/` with `sameContents` verification and ID-clash handling (`LibraryMigrationTest` expanded to 13 tests).
 - **Opt-in single-ABI build filter:** `app/build.gradle.kts` supports `-Ppenlab.abi=arm64-v8a` for compact ~13.3 MiB non-`testOnly` release builds without affecting universal default builds.
 
+### Phase 2 — Projector View Full Content & Committed-Scene Caching (26 Nov 2026, QA-Verified on Tab S9)
+- **Projector View full content & caching:** `ProjectorSnapshot` / `ProjectorSurfaceView` / `InkCanvasView.publishProjector` now render PDF pages (`PdfBackground`), `ImageItem` photos, `TextItem` text boxes (using thread-safe `ThreadLocal<TextPaint>` in `TextItems`), and `PluginPageItem` placeholders alongside ruling & committed ink, backed by hybrid `StaticCacheTracker` committed-scene bitmap caching on the projector render thread (`ProjectorLogic.kt`, 11 tests in `ProjectorLogicTest.kt`), QA-verified on Tab S9 with a simulated secondary display.
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)
@@ -172,7 +175,8 @@ done
 | **Popovers & Pickers** | `app/src/main/kotlin/dev/penlab/app/ui/{ColorWheel.kt, MarkerWheel.kt, PagesPanel.kt, ViewReadout.kt, ViewSettings.kt, SearchUi.kt}` |
 | **Dialogs, Settings & Modes** | `app/src/main/kotlin/dev/penlab/app/ui/{SettingsSheet.kt, PresentMode.kt, ExportLookDialog.kt, RequestDialog.kt, Motion.kt}` |
 | **Library** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, LibraryCards.kt, Covers.kt}`, `app/src/main/kotlin/dev/penlab/app/notes/{CoverMaker.kt, LibraryMigration.kt}` |
-| **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, StrokeChunkCache.kt}` |
+| **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, PageItems.kt, StrokeChunkCache.kt}` |
+| **Projector View** | `app/src/main/kotlin/dev/penlab/app/projector/{ProjectorLogic.kt, ProjectorSurface.kt}`, `app/src/test/kotlin/dev/penlab/app/projector/ProjectorLogicTest.kt` |
 | **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt}` |
 
 ## Notes from the 25–26 Nov review + plugin work (`AI context/notes/`)

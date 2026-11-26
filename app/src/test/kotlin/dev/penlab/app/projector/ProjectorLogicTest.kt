@@ -72,4 +72,74 @@ class ProjectorLogicTest {
     assertFalse(shouldOfferProjector(true, true, false, alreadyOffered = true))
     assertFalse(shouldOfferProjector(true, true, active = true, alreadyOffered = false))
   }
+
+  // ---- static cache tracker ---------------------------------------------------------------
+
+  @Test
+  fun maxCacheDimensionOkAcceptsReasonableBoundsAndRejectsDegenerateOrHuge() {
+    assertTrue(maxCacheDimensionOk(1, 1))
+    assertTrue(maxCacheDimensionOk(1920, 1080))
+    assertTrue(maxCacheDimensionOk(4096, 4096))
+    assertFalse(maxCacheDimensionOk(0, 1080))
+    assertFalse(maxCacheDimensionOk(1920, 0))
+    assertFalse(maxCacheDimensionOk(-10, 1080))
+    assertFalse(maxCacheDimensionOk(4097, 1080))
+    assertFalse(maxCacheDimensionOk(1920, 4097))
+  }
+
+  @Test
+  fun staticCacheTrackerTransitionsThroughDirectRebuildAndUseCache() {
+    val tracker = StaticCacheTracker()
+    val m1 = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
+
+    // Null or invalid dimensions always draw direct.
+    assertEquals(ProjectorDrawMode.DIRECT, tracker.decide(1920, 1080, 1L, null, hasLiveOverlay = true))
+    assertEquals(ProjectorDrawMode.DIRECT, tracker.decide(0, 1080, 1L, m1, hasLiveOverlay = true))
+    assertEquals(ProjectorDrawMode.DIRECT, tracker.decide(1920, 0, 1L, m1, hasLiveOverlay = true))
+
+    // Without a live overlay and no valid cache, pan/idle frames draw direct.
+    assertEquals(ProjectorDrawMode.DIRECT, tracker.decide(1920, 1080, 1L, m1, hasLiveOverlay = false))
+
+    // Once a live stroke starts with no valid cache, rebuild once.
+    assertEquals(ProjectorDrawMode.REBUILD_CACHE, tracker.decide(1920, 1080, 1L, m1, hasLiveOverlay = true))
+    tracker.markBuilt(1920, 1080, 1L, m1)
+
+    // Subsequent frames with identical state hit the cache (both live and right after pen-up).
+    assertEquals(ProjectorDrawMode.USE_CACHE, tracker.decide(1920, 1080, 1L, m1.copyOf(), hasLiveOverlay = true))
+    assertEquals(ProjectorDrawMode.USE_CACHE, tracker.decide(1920, 1080, 1L, m1.copyOf(), hasLiveOverlay = false))
+
+    // Caller mutating the passed matrix after markBuilt must not corrupt the cached snapshot matrix.
+    val aliased = floatArrayOf(2f, 0f, 10f, 0f, 2f, 20f, 0f, 0f, 1f)
+    tracker.markBuilt(1920, 1080, 2L, aliased)
+    aliased[2] = 999f
+    assertEquals(ProjectorDrawMode.REBUILD_CACHE, tracker.decide(1920, 1080, 2L, aliased, hasLiveOverlay = true))
+  }
+
+  @Test
+  fun staticCacheTrackerInvalidatesOnSceneMatrixSizeAndExplicitInvalidate() {
+    val tracker = StaticCacheTracker()
+    val m1 = floatArrayOf(1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 1f)
+    val m2 = floatArrayOf(1f, 0f, 5f, 0f, 1f, 0f, 0f, 0f, 1f)
+
+    tracker.markBuilt(1920, 1080, 10L, m1)
+    assertEquals(ProjectorDrawMode.USE_CACHE, tracker.decide(1920, 1080, 10L, m1, hasLiveOverlay = true))
+
+    // Scene version bump forces rebuild when live, or direct+invalidate when idle.
+    assertEquals(ProjectorDrawMode.REBUILD_CACHE, tracker.decide(1920, 1080, 11L, m1, hasLiveOverlay = true))
+    assertEquals(ProjectorDrawMode.USE_CACHE, tracker.decide(1920, 1080, 10L, m1, hasLiveOverlay = true))
+
+    // Pan/zoom (matrix change) with no live stroke invalidates and returns DIRECT so pan frames don't allocate.
+    assertEquals(ProjectorDrawMode.DIRECT, tracker.decide(1920, 1080, 10L, m2, hasLiveOverlay = false))
+    // Because pan invalidated the old cache, even returning to m1 now requires rebuilding when live.
+    assertEquals(ProjectorDrawMode.REBUILD_CACHE, tracker.decide(1920, 1080, 10L, m1, hasLiveOverlay = true))
+
+    // Size change invalidates.
+    tracker.markBuilt(1920, 1080, 10L, m1)
+    assertEquals(ProjectorDrawMode.REBUILD_CACHE, tracker.decide(1280, 720, 10L, m1, hasLiveOverlay = true))
+
+    // Explicit invalidate forces rebuild.
+    tracker.markBuilt(1920, 1080, 10L, m1)
+    tracker.invalidate()
+    assertEquals(ProjectorDrawMode.REBUILD_CACHE, tracker.decide(1920, 1080, 10L, m1, hasLiveOverlay = true))
+  }
 }

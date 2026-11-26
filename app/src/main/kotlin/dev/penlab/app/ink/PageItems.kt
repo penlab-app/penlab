@@ -160,12 +160,13 @@ data class PluginPageItem(
 
 /** Laying out and drawing text boxes. */
 object TextItems {
-  private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+  private val paint = ThreadLocal.withInitial { TextPaint(Paint.ANTI_ALIAS_FLAG) }
 
   fun layout(item: TextItem, color: Int): StaticLayout {
-    paint.textSize = item.textSize
-    paint.color = color
-    return StaticLayout.Builder.obtain(item.text, 0, item.text.length, paint, item.width.toInt().coerceAtLeast(1))
+    val p = paint.get()!!
+    p.textSize = item.textSize
+    p.color = color
+    return StaticLayout.Builder.obtain(item.text, 0, item.text.length, p, item.width.toInt().coerceAtLeast(1))
       .setAlignment(Layout.Alignment.ALIGN_NORMAL)
       .setIncludePad(false)
       .build()

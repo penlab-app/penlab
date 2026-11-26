@@ -36,3 +36,59 @@ fun fitToAspect(view: Box, aspect: Float): Box {
  */
 fun shouldOfferProjector(hasDisplay: Boolean, notebookOpen: Boolean, active: Boolean, alreadyOffered: Boolean): Boolean =
   hasDisplay && notebookOpen && !active && !alreadyOffered
+
+/** How the projector render thread draws the committed static scene for a frame. */
+enum class ProjectorDrawMode { DIRECT, USE_CACHE, REBUILD_CACHE }
+
+/** Guards offscreen static-scene bitmap allocation against degenerate or oversized surfaces. */
+fun maxCacheDimensionOk(width: Int, height: Int, maxDim: Int = 4096): Boolean =
+  width in 1..maxDim && height in 1..maxDim
+
+/**
+ * Pure policy for deciding when the projector render thread can reuse a cached offscreen bitmap
+ * of the committed static scene instead of redrawing every path, item, and page ruling each
+ * live-stroke frame.
+ */
+class StaticCacheTracker {
+  private var cachedWidth = 0
+  private var cachedHeight = 0
+  private var cachedSceneVersion = -1L
+  private var cachedMatrix: FloatArray? = null
+  private var valid = false
+
+  fun decide(
+    width: Int,
+    height: Int,
+    sceneVersion: Long,
+    matrix: FloatArray?,
+    hasLiveOverlay: Boolean,
+  ): ProjectorDrawMode {
+    if (matrix == null || width <= 0 || height <= 0) return ProjectorDrawMode.DIRECT
+    val prevMatrix = cachedMatrix
+    if (valid &&
+      width == cachedWidth &&
+      height == cachedHeight &&
+      sceneVersion == cachedSceneVersion &&
+      prevMatrix != null &&
+      matrix.contentEquals(prevMatrix)
+    ) {
+      return ProjectorDrawMode.USE_CACHE
+    }
+    if (hasLiveOverlay) return ProjectorDrawMode.REBUILD_CACHE
+    invalidate()
+    return ProjectorDrawMode.DIRECT
+  }
+
+  fun markBuilt(width: Int, height: Int, sceneVersion: Long, matrix: FloatArray) {
+    cachedWidth = width
+    cachedHeight = height
+    cachedSceneVersion = sceneVersion
+    cachedMatrix = matrix.copyOf()
+    valid = true
+  }
+
+  fun invalidate() {
+    valid = false
+    cachedMatrix = null
+  }
+}

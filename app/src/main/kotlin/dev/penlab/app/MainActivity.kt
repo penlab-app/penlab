@@ -2218,6 +2218,13 @@ private fun NoteScreen(
     }
 
     val topChromeZ = if (topBarOverlayOpen()) 3f else 2f
+    // The colour/marker wheel fans out under the top islands, so while it is open they fade away
+    // (and the wheel sits above them, see below): every visible swatch is then tappable.
+    val topChromeAlpha by androidx.compose.animation.core.animateFloatAsState(
+      targetValue = if (colorWheelFor != null) 0f else 1f,
+      animationSpec = Motion.tween(120),
+      label = "topChromeAlpha",
+    )
 
     if (chrome.topBar) {
       // ---- Left Floating Island + Popovers ----
@@ -2226,6 +2233,7 @@ private fun NoteScreen(
           Modifier
             .align(Alignment.TopStart)
             .zIndex(topChromeZ)
+            .graphicsLayer { alpha = topChromeAlpha }
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(top = PenLabSpacing.md, start = PenLabSpacing.md + railLeft),
         horizontalAlignment = Alignment.Start,
@@ -2332,6 +2340,7 @@ private fun NoteScreen(
           Modifier
             .align(Alignment.TopEnd)
             .zIndex(topChromeZ)
+            .graphicsLayer { alpha = topChromeAlpha }
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(top = PenLabSpacing.md, end = PenLabSpacing.md + railRight),
         horizontalAlignment = Alignment.End,
@@ -2579,25 +2588,28 @@ private fun NoteScreen(
     colorWheelFor?.let { slot ->
       val tool = tools.getOrNull(slot)
       if (tool != null) {
-        ColorWheel(
-          initial = tool.paperColor,
-          darkPage = darkPage,
-          recent = toolSettings.recentColors,
-          onPicked = { color, done ->
-            tools[slot] = tools[slot].copy(paperColor = color)
-            sendToolsToCanvas()
-            if (done) {
-              toolSettings.addRecentColor(color)
+        // Above the dock and the top islands (z 3 at most) so it takes every tap in its area.
+        Box(Modifier.fillMaxSize().zIndex(4f)) {
+          ColorWheel(
+            initial = tool.paperColor,
+            darkPage = darkPage,
+            recent = toolSettings.recentColors,
+            onPicked = { color, done ->
+              tools[slot] = tools[slot].copy(paperColor = color)
+              sendToolsToCanvas()
+              if (done) {
+                toolSettings.addRecentColor(color)
+                colorWheelFor = null
+              }
+            },
+            onEyedropper = { startEyedropper(slot) },
+            onDismiss = {
+              toolSettings.addRecentColor(tools[slot].paperColor)
               colorWheelFor = null
-            }
-          },
-          onEyedropper = { startEyedropper(slot) },
-          onDismiss = {
-            toolSettings.addRecentColor(tools[slot].paperColor)
-            colorWheelFor = null
-          },
-          hub = if (dock.side.isCorner) dock.wheelHub else null,
-        )
+            },
+            hub = if (dock.side.isCorner) dock.wheelHub else null,
+          )
+        }
       }
     }
 

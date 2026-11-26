@@ -89,6 +89,7 @@ import dev.penlab.app.ui.theme.softShadow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -641,7 +642,7 @@ private fun Bar(
             val inlineRight = right - insets.topRowRightClearance.roundToPx() - gap
             val fitsInline = screenWidthDp >= INLINE_TOP_ROW_MIN_WIDTH && (inlineRight - inlineLeft) >= bar.width
             if (fitsInline) {
-              val bx = (centre - bar.width / 2f).roundToInt().coerceIn(inlineLeft, maxOf(inlineLeft, inlineRight - bar.width))
+              val bx = inlineToolbarX(centre, bar.width, inlineLeft, inlineRight, centreInGap = abs(dock.along - 0.5f) < 0.02f)
               bx to topRowY
             } else {
               val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
@@ -659,6 +660,20 @@ private fun Bar(
       bar.place(x, y)
     }
   }
+}
+
+/**
+ * Left edge of the toolbar island in the top row, between the side pills. [gapLeft] and [gapRight]
+ * are the free space with the 12 dp clearance already taken off each end. The island sits on the
+ * screen's centre ([desiredCentre]) whenever that leaves the clearance on both sides; otherwise it
+ * is centred in the gap ([centreInGap], the default spot) or, if the user dropped it elsewhere,
+ * pushed just far enough to fit. The caller has checked the bar fits the gap.
+ */
+internal fun inlineToolbarX(desiredCentre: Float, barWidth: Int, gapLeft: Int, gapRight: Int, centreInGap: Boolean): Int {
+  val wanted = (desiredCentre - barWidth / 2f).roundToInt()
+  val maxX = maxOf(gapLeft, gapRight - barWidth)
+  if (wanted in gapLeft..maxX) return wanted
+  return if (centreInGap) ((gapLeft + gapRight - barWidth) / 2f).roundToInt().coerceIn(gapLeft, maxX) else wanted.coerceIn(gapLeft, maxX)
 }
 
 /**

@@ -15,6 +15,11 @@ data class ScreenChrome(
   val present: Boolean = false,
   /** Present mode only: the toolbar is shown (toggled by the pencil corner button). */
   val toolsPeeking: Boolean = false,
+  /**
+   * The tool dock is the corner wheel. The wheel sits in the real screen corner, where a swipe
+   * for Home or Back would start, so the system bars hide (a swipe only reveals them).
+   */
+  val wheelDocked: Boolean = false,
 ) {
   /** The row of buttons along the top, with the page counter and the tabs in it. */
   val topBar: Boolean get() = !fullScreen && !present
@@ -40,8 +45,13 @@ data class ScreenChrome(
   /** The faint corner buttons of present mode: pen tools and the exit cross. */
   val presentButtons: Boolean get() = present
 
-  /** The system status and navigation bars hide in both modes. */
-  val systemBarsHidden: Boolean get() = fullScreen || present
+  /**
+   * The system status and navigation bars hide in full screen, in present mode and while the
+   * corner wheel is docked and showing (wheel immersive: the same state as full screen's bars,
+   * without hiding the top bar). Leaving the wheel brings the bars back unless full screen or
+   * present still holds them hidden.
+   */
+  val systemBarsHidden: Boolean get() = fullScreen || present || (wheelDocked && toolbar)
 
   /** The screen must not go to sleep: the class is looking at it. */
   val keepScreenOn: Boolean get() = present

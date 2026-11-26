@@ -48,4 +48,25 @@ class ScreenChromeTest {
     assertTrue(ScreenChrome(toolsPeeking = true).toolbar)
     assertFalse(ScreenChrome(toolsPeeking = true).presentButtons)
   }
+
+  @Test
+  fun dockedWheelHidesOnlyTheSystemBars() {
+    val c = ScreenChrome(wheelDocked = true)
+    assertTrue(c.systemBarsHidden)
+    assertTrue(c.topBar && c.toolbar && c.messages && c.selectionUi)
+    assertFalse(c.leaveFullScreenButton || c.keepScreenOn)
+  }
+
+  @Test
+  fun leavingTheWheelBringsTheBarsBackUnlessFullScreenHoldsThem() {
+    assertFalse(ScreenChrome(wheelDocked = false).systemBarsHidden)
+    assertTrue(ScreenChrome(wheelDocked = false, fullScreen = true).systemBarsHidden)
+    assertTrue(ScreenChrome(wheelDocked = true, fullScreen = true).systemBarsHidden)
+  }
+
+  @Test
+  fun wheelWithTheToolbarHiddenInPresentDoesNotChangeTheBars() {
+    // Present hides the bars itself; the wheel flag adds nothing and removes nothing.
+    assertTrue(ScreenChrome(present = true, wheelDocked = true).systemBarsHidden)
+  }
 }

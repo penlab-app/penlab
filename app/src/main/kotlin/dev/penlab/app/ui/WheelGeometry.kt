@@ -50,15 +50,23 @@ internal object WheelGeometry {
   /** A reported inset may never take more than this fraction of the screen's extent. */
   const val MAX_INSET_FRACTION = 0.2f
 
+  /**
+   * Immersive mode (system bars hidden): the cells keep only this much from a screen edge, so the
+   * rounded screen corner (about 28 px on the Tab S9) never clips them.
+   */
+  const val CORNER_MARGIN_DP = 8f
+
   // ---- Edge safety ----
 
   /**
    * How far the wheel is kept from a screen edge: the larger of the system gesture inset there and
    * whatever else already covers that edge (cutout, bars), never negative and never more than
    * [MAX_INSET_FRACTION] of [extent], so an odd value from the system cannot push it off-screen.
+   * With [immersive] (system bars hidden, so a swipe from the edge only reveals them) the gesture
+   * inset is ignored and only what physically covers the edge (a cutout) counts.
    */
-  fun edgeInset(gesture: Float, covered: Float, extent: Float): Float =
-    maxOf(gesture, covered, 0f).coerceAtMost((extent * MAX_INSET_FRACTION).coerceAtLeast(0f))
+  fun edgeInset(gesture: Float, covered: Float, extent: Float, immersive: Boolean = false): Float =
+    maxOf(if (immersive) 0f else gesture, covered, 0f).coerceAtMost((extent * MAX_INSET_FRACTION).coerceAtLeast(0f))
 
   /**
    * The wheel's centre (the real screen corner, where the disc is drawn from) and its round
@@ -224,6 +232,20 @@ internal object WheelGeometry {
       bottom = top + maxHeight
     }
     return listOf(PxRect(x0.toInt(), top.toInt(), x1.toInt(), bottom.toInt()))
+  }
+
+  /**
+   * The folded wheel: just its round button. With the system bars hidden the button sits close to
+   * the side edge, inside the Back gesture strip, so this rectangle (the side edge to the button's
+   * far side, as tall as the button plus [gap] each way) keeps a press on it from starting Back.
+   */
+  fun hubExclusionRects(onLeft: Boolean, width: Float, height: Float, corner: Corner, hubHalf: Float, gap: Float): List<PxRect> {
+    val x0 = if (onLeft) 0f else (corner.hubX - hubHalf - gap).coerceIn(0f, width)
+    val x1 = if (onLeft) (corner.hubX + hubHalf + gap).coerceIn(0f, width) else width
+    val y0 = (corner.hubY - hubHalf - gap).coerceIn(0f, height)
+    val y1 = (corner.hubY + hubHalf + gap).coerceIn(0f, height)
+    if (x1 <= x0 || y1 <= y0) return emptyList()
+    return listOf(PxRect(x0.toInt(), y0.toInt(), x1.toInt(), y1.toInt()))
   }
 
   /**

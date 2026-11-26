@@ -1933,7 +1933,7 @@ private fun NoteScreen(
   var present by remember { mutableStateOf(false) }
   var toolsPeeking by remember { mutableStateOf(false) }
   var presentHintVisible by remember { mutableStateOf(false) }
-  val chrome = ScreenChrome(fullScreen = fullScreen, present = present, toolsPeeking = toolsPeeking)
+  val chrome = ScreenChrome(fullScreen = fullScreen, present = present, toolsPeeking = toolsPeeking, wheelDocked = dock.side.isCorner)
   val view = androidx.compose.ui.platform.LocalView.current
   // Present mode and Projector view both keep the screen on: the class is looking at it.
   DisposableEffect(chrome.keepScreenOn || projector.active) {
@@ -2281,6 +2281,7 @@ private fun NoteScreen(
           gestureLeft = gestureZones.getLeft(density, layoutDirection).toDp(),
           gestureRight = gestureZones.getRight(density, layoutDirection).toDp(),
           gestureBottom = gestureZones.getBottom(density).toDp(),
+          immersive = chrome.systemBarsHidden,
         )
       }
 

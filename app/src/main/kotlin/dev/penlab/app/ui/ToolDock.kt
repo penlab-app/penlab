@@ -228,9 +228,11 @@ class ToolDock(context: Context) {
     with(density) {
       hubHalfPx = (HubSize / 2).toPx()
       edgeGapPx = EdgeGap.toPx()
-      gestureLeftPx = WheelGeometry.edgeInset(insets.gestureLeft.toPx(), insets.left.toPx(), screenWidth.toFloat())
-      gestureRightPx = WheelGeometry.edgeInset(insets.gestureRight.toPx(), insets.right.toPx(), screenWidth.toFloat())
-      gestureBottomPx = WheelGeometry.edgeInset(insets.gestureBottom.toPx(), insets.bottom.toPx(), screenHeight.toFloat())
+      val imm = insets.immersive
+      gestureLeftPx = WheelGeometry.edgeInset(insets.gestureLeft.toPx(), insets.left.toPx(), screenWidth.toFloat(), imm)
+      gestureRightPx = WheelGeometry.edgeInset(insets.gestureRight.toPx(), insets.right.toPx(), screenWidth.toFloat(), imm)
+      gestureBottomPx = WheelGeometry.edgeInset(insets.gestureBottom.toPx(), insets.bottom.toPx(), screenHeight.toFloat(), imm)
+      val margin = if (imm) WheelGeometry.CORNER_MARGIN_DP.dp.toPx() else 0f
       topReservePx = (insets.top + (if (insets.topChromeVisible) insets.topButtons else 0.dp)).toPx()
       // The ring: cells fully on screen and clear of the strips, spaced evenly along the visible arc.
       val onLeft = corner == DockSide.TOP_LEFT || corner == DockSide.BOTTOM_LEFT
@@ -240,8 +242,8 @@ class ToolDock(context: Context) {
         minRadius = WheelGeometry.RING_RADIUS_DP.dp.toPx(),
         cell = WheelGeometry.CELL_DP.dp.toPx(),
         discMargin = WheelGeometry.DISC_MARGIN_DP.dp.toPx(),
-        insetU = if (onLeft) gestureLeftPx else gestureRightPx,
-        insetV = if (onTop) topReservePx else gestureBottomPx,
+        insetU = maxOf(if (onLeft) gestureLeftPx else gestureRightPx, margin),
+        insetV = maxOf(if (onTop) topReservePx else gestureBottomPx, margin),
         hubU = c.hubU,
         hubV = c.hubV,
         hubHalf = hubHalfPx,
@@ -269,6 +271,12 @@ class ToolDock(context: Context) {
 
   /** Rectangles kept out of the Back gesture while the wheel is open (root pixels); empty otherwise. */
   internal var wheelExclusion: List<WheelGeometry.PxRect> = emptyList()
+
+  /** The same for the folded wheel: just the button's neighbourhood at the side edge. */
+  internal var hubExclusion: List<WheelGeometry.PxRect> = emptyList()
+
+  /** What to keep out of the Back gesture right now: the open wheel, or the folded button. */
+  internal fun gestureRects(): List<WheelGeometry.PxRect> = if (wheelOpen) wheelExclusion else hubExclusion
 
   /**
    * True if a press at [p] (root pixels) is on the toolbar or its panel, so it must not close
@@ -582,6 +590,12 @@ data class DockInsets(
   val gestureLeft: Dp = 0.dp,
   val gestureRight: Dp = 0.dp,
   val gestureBottom: Dp = 0.dp,
+  /**
+   * The system bars are hidden (wheel immersive, full screen or present): a swipe from the bottom
+   * only reveals them, so the wheel sits in the real corner. Only the side (Back) strips remain,
+   * covered by the exclusion rects.
+   */
+  val immersive: Boolean = false,
 )
 
 /** Left or right: a rail filling the whole edge, tools centred on it, with handles at both ends. */
@@ -836,16 +850,16 @@ private fun Wheel(
     androidx.compose.runtime.snapshotFlow { kotlin.math.round(scroll.value / dock.wheelRing.stepDeg.coerceAtLeast(1f)).toInt() }
       .collect { if (dock.wheelOpen) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
   }
-  // While the wheel is open its area is kept out of the system Back gesture, so dragging on it near
-  // a side edge never navigates away. Cleared when it folds, and when it leaves (docked elsewhere).
+  // While the wheel is open its area (folded: its button) is kept out of the system Back gesture, so
+  // dragging on it near a side edge never navigates away. Cleared when it leaves (docked elsewhere).
   androidx.compose.runtime.DisposableEffect(dock.wheelOpen, side) {
-    setGestureExclusion(view, if (dock.wheelOpen) dock.wheelExclusion else emptyList())
+    setGestureExclusion(view, dock.gestureRects())
     onDispose { setGestureExclusion(view, emptyList()) }
   }
 
   Layout(
     // After every layout (the wheel moved, the screen turned), refresh the rectangles if open.
-    modifier = modifier.onGloballyPositioned { if (dock.wheelOpen) setGestureExclusion(view, dock.wheelExclusion) },
+    modifier = modifier.onGloballyPositioned { setGestureExclusion(view, dock.gestureRects()) },
     content = {
       // The wheel: a disc turning round the real screen corner, so the screen edges cut it to a true
       // quarter circle. Everything inside is clipped to the circle. Its size comes from the ring
@@ -1159,6 +1173,9 @@ private fun Wheel(
       dock.wheelExclusion = WheelGeometry.exclusionRects(
         onLeft, onTop, constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), c,
         dock.wheelRadiusPx, MaxExclusionHeight.roundToPx().toFloat(),
+      )
+      dock.hubExclusion = WheelGeometry.hubExclusionRects(
+        onLeft, constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat(), c, hubHalf.toFloat(), dock.edgeGapPx,
       )
       wheel.place((origin.x - wheel.width / 2f).roundToInt(), (origin.y - wheel.height / 2f).roundToInt())
       hub.place((c.hubX - hubHalf).roundToInt(), (c.hubY - hubHalf).roundToInt()) // on top of the disc

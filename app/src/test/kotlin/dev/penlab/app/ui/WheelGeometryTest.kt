@@ -79,6 +79,57 @@ class WheelGeometryTest {
     assertFalse(inside(c.originX + 300f, c.originY - 300f)) // past the rim
   }
 
+  // ---- Immersive (system bars hidden): the wheel sits in the real corner ----
+
+  @Test
+  fun immersiveIgnoresGestureInsetButKeepsACoveringCutout() {
+    assertEquals(0f, WheelGeometry.edgeInset(60f, 0f, 1600f, immersive = true), 0f)
+    assertEquals(30f, WheelGeometry.edgeInset(60f, 30f, 1600f, immersive = true), 0f)
+    assertEquals(60f, WheelGeometry.edgeInset(60f, 0f, 1600f, immersive = false), 0f)
+  }
+
+  @Test
+  fun immersiveHubAndCellsSitAtTheNaturalCornerAndStayOnScreen() {
+    val half = WheelGeometry.CELL_DP * density / 2f
+    val margin = WheelGeometry.CORNER_MARGIN_DP * density
+    val hubHalf = WheelGeometry.HUB_DP * density / 2f
+    val gap = WheelGeometry.EDGE_GAP_DP * density
+    for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
+      // No gesture pull-in: the hub is just EDGE_GAP from the side and from the bottom (or top buttons).
+      val topReserve = 200f
+      val c = WheelGeometry.corner(onLeft, onTop, w, h, 0f, 0f, 0f, topReserve, gap, hubHalf)
+      assertEquals(gap + hubHalf, c.hubU, 0.01f)
+      assertEquals(if (onTop) topReserve + gap + hubHalf else gap + hubHalf, c.hubV, 0.01f)
+      val ring = WheelGeometry.ring(
+        minRadius = WheelGeometry.RING_RADIUS_DP * density, cell = WheelGeometry.CELL_DP * density,
+        discMargin = WheelGeometry.DISC_MARGIN_DP * density, insetU = margin,
+        insetV = if (onTop) maxOf(topReserve, margin) else margin,
+        hubU = c.hubU, hubV = c.hubV, hubHalf = hubHalf,
+        cellGap = WheelGeometry.CELL_GAP_DP * density, hubClearance = WheelGeometry.HUB_CLEARANCE_DP * density,
+      )
+      for (p in cells(c, ring, onLeft, onTop)) {
+        assertTrue("cell $p fully on screen", p.x - half >= margin - 0.01f && p.x + half <= w - margin + 0.01f)
+        assertTrue("cell $p fully on screen", p.y - half >= margin - 0.01f && p.y + half <= h - margin + 0.01f)
+      }
+      // The cells sit nearer the real corner than they would behind a 30 dp gesture strip.
+      val strip = ringFor(onLeft, onTop, insetSide = 60f, insetBottom = 60f, topReserve = topReserve).second
+      assertTrue(ring.startDeg < strip.startDeg || onTop)
+    }
+  }
+
+  @Test
+  fun foldedHubExclusionRunsFromTheSideEdgeOverTheButton() {
+    val hubHalf = 72f
+    val c = WheelGeometry.corner(true, false, w, h, 0f, 0f, 0f, 200f, 24f, hubHalf)
+    val r = WheelGeometry.hubExclusionRects(true, w, h, c, hubHalf, 24f).single()
+    assertEquals(0, r.left)
+    assertTrue(r.right >= (c.hubX + hubHalf).toInt())
+    assertTrue(c.hubY >= r.top && c.hubY <= r.bottom && r.bottom <= h.toInt())
+    val rr = WheelGeometry.hubExclusionRects(false, w, h, WheelGeometry.corner(false, false, w, h, 0f, 0f, 0f, 200f, 24f, hubHalf), hubHalf, 24f).single()
+    assertEquals(w.toInt(), rr.right)
+    assertTrue(WheelGeometry.hubExclusionRects(true, 0f, 0f, c, hubHalf, 24f).isEmpty())
+  }
+
   // ---- Exclusion rects ----
 
   @Test

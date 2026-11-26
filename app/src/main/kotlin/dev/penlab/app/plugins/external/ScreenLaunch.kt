@@ -27,7 +27,7 @@ object ScreenLaunch {
   fun stage(context: Context, screen: ExternalScreen, page: PageRef, darkPage: Boolean, selection: Selection, ioRoot: File, theme: ScreenTheme): StagedScreen {
     val session = IoSession.create(ioRoot)
     try {
-      val info = RequestFiles.writeSelection(session.dir, selection)
+      val info = RequestFiles.writeSelection(session.dir, selection, withItems = false)
       val intent =
         Intent().setComponent(screen.component)
           .putExtra(PenLabScreenContract.EXTRA_CAPABILITY_ID, screen.id)

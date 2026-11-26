@@ -11,6 +11,22 @@ object PenLabBridge {
   /** The bridge version. PenLab and a plugin must agree on it exactly. */
   const val API_VERSION = 2
 
+  /**
+   * Items format 1: the request lists the selected page items ([SelectionItem], with the original pictures as request files)
+   * and a result item may name one it replaces ([ResultItem.replaces]). Sent as `itemsFormat` in the request; the bridge
+   * version stays [API_VERSION] because everything is additive.
+   */
+  const val ITEMS_FORMAT = 1
+
+  /** The most picture files PenLab sends with one call; further selected pictures are listed without a file. */
+  const val MAX_ITEM_FILES = 8
+
+  /** The largest picture file PenLab sends (bytes). */
+  const val MAX_ITEM_FILE_BYTES = 32L * 1024 * 1024
+
+  /** A picture PenLab sends is scaled down to this many pixels on its long side (smaller ones are sent as they are). */
+  const val ITEM_PICTURE_MAX_SIDE = 2048
+
   /** The only app allowed to call a plugin's service. */
   const val HOST_PACKAGE = "dev.penlab.app"
 
@@ -34,6 +50,9 @@ object PenLabBridge {
 
   /** Result file holding real strokes ([StrokesBinary]); the result JSON names it in `strokesFile`. */
   const val FILE_RESULT_STROKES = "strokes.bin"
+
+  /** Request files of the selected pictures are named `item-0`, `item-1`, ...; [SelectionItem.file] says which is which. */
+  fun itemFileName(n: Int): String = "item-$n"
 
   /** Request file of an importer: the file the user picked. */
   const val FILE_SOURCE = "source"

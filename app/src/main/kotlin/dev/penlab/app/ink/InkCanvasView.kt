@@ -289,6 +289,8 @@ class InkCanvasView(
       chosenItems.map { dev.penlab.app.plugins.PluginConvert.item(it, k) },
       bounds,
       picture,
+      // The photos' original files (paths only: nothing is read on the main thread).
+      imagesDir?.let { dir -> chosenItems.filterIsInstance<ImageItem>().associate { it.id to java.io.File(dir, it.fileName) } }.orEmpty(),
     )
   }
 
@@ -297,7 +299,9 @@ class InkCanvasView(
    * `PluginItemMaterialiser.stage` (pictures already saved in the notebook's `images/`), [strokes] are
    * real ink in millimetres (they become ordinary strokes, on their own layer or the current one). With
    * nothing selected when the action ran ([wasEmpty]) everything is centred as one group on the visible
-   * page; otherwise it goes where its bounds say.
+   * page; otherwise it goes where its bounds say. A staged item with `replaces` (an id the registry already checked against the
+   * call's selection) takes the place of that page item, if it is still there, in the same undo step; the new item stays
+   * selected in its stead.
    */
   fun placePluginItems(items: List<dev.penlab.app.plugins.StagedItem>, strokes: List<dev.penlab.plugin.PluginStroke>, wasEmpty: Boolean) {
     if (items.isEmpty() && strokes.isEmpty()) return
@@ -319,14 +323,29 @@ class InkCanvasView(
       dx = visible.centerX() - (union.centerX() * k)
       dy = visible.centerY() - (union.centerY() * k)
     }
-    val made = items.map { dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, k, dx, dy) }
+    val byId = this.items.associateBy { it.id }
+    val made = items.map { dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, k, dx, dy, it.item.replaces?.let(byId::get)) }
     val ink = dev.penlab.app.plugins.PluginStrokes.inDrawOrder(strokes.mapNotNull { dev.penlab.app.plugins.PluginStrokes.toInk(it, k, dx, dy, layers.current, layers.names.size) })
     if (made.isEmpty() && ink.isEmpty()) return
+    var swapped = emptyMap<String, String>()
     history.grouped {
-      if (made.isNotEmpty()) changeItems { it += made }
+      if (made.isNotEmpty()) {
+        val placement = dev.penlab.app.plugins.PluginItemMaterialiser.place(this.items, made.zip(items.map { it.item.replaces }))
+        swapped = placement.swapped
+        changeItems { list ->
+          list.clear()
+          list.addAll(placement.items)
+        }
+      }
       for (stroke in ink) history.add(stroke, insertIndexFor(stroke))
     }
     if (ink.isNotEmpty()) pageChanged()
+    if (swapped.isNotEmpty()) {
+      for ((old, new) in swapped) if (selectedItems.remove(old)) selectedItems += new
+      updateSelectionBounds()
+      selectionView.invalidate()
+      reportSelection()
+    }
   }
 
   /** The folder the notebook's pictures live in (null for a stress test, which must not write). */

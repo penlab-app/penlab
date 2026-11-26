@@ -20,7 +20,8 @@ class PageInfo(val notebookId: String, val pageIndex: Int, val widthMm: Float, v
 /**
  * What the user selected with the lasso. [boundsMm] is left, top, right, bottom. [imageFile] and
  * [strokesFile] name request files ([PenLabBridge.FILE_SELECTION_IMAGE], [PenLabBridge.FILE_STROKES]),
- * or are null when there is no such file.
+ * or are null when there is no such file. [items] lists the selected page items (see [SelectionItem]); it is
+ * empty from a PenLab older than [PenLabBridge.ITEMS_FORMAT] (check [PluginRequest.itemsFormat]).
  */
 class SelectionInfo(
   val boundsMm: FloatArray,
@@ -28,7 +29,35 @@ class SelectionInfo(
   val itemCount: Int,
   val imageFile: String? = null,
   val strokesFile: String? = null,
+  val items: List<SelectionItem> = emptyList(),
 )
+
+/**
+ * One selected page item (items format 1). [id] is the page item's id, which a result item names in
+ * [ResultItem.replaces]. [boundsMm] is the item's UNROTATED box (left, top, right, bottom, notebook millimetres):
+ * the rectangle before it is turned about its centre by [rotationDeg] degrees. [typeId] is [PenLabBridge.TYPE_TEXT],
+ * [PenLabBridge.TYPE_IMAGE], [PenLabBridge.TYPE_INK_IMAGE] or a plugin's own id.
+ *
+ * Pictures: [file] names the request file holding the original picture ([PluginCall.itemBytes] reads it), at most
+ * [PenLabBridge.ITEM_PICTURE_MAX_SIDE] px on the long side, and [mimeType] says what it is. [file] is null for a picture
+ * PenLab did not send (more than [PenLabBridge.MAX_ITEM_FILES] in one call, or too large). Text items carry [text].
+ */
+class SelectionItem(
+  val id: String,
+  val typeId: String,
+  val boundsMm: FloatArray,
+  val rotationDeg: Float = 0f,
+  val file: String? = null,
+  val mimeType: String? = null,
+  val text: String? = null,
+) {
+  init {
+    require(boundsMm.size == 4) { "boundsMm is left, top, right, bottom" }
+  }
+
+  /** True for a photo or an ink picture. */
+  val isPicture: Boolean get() = typeId == PenLabBridge.TYPE_IMAGE || typeId == PenLabBridge.TYPE_INK_IMAGE
+}
 
 /** The file an importer is asked to read; it is the request file named [file]. */
 class SourceInfo(val displayName: String, val mimeType: String, val suggestedTitle: String, val file: String)
@@ -44,17 +73,31 @@ class PluginRequest(
    * which would ignore `strokesFile` and place no ink). A plugin that returns strokes checks this first.
    */
   val strokesFormat: Int = 0,
+  /**
+   * The newest items format the host speaks ([PenLabBridge.ITEMS_FORMAT]; 0 = an older PenLab, which sends no
+   * [SelectionInfo.items] and ignores [ResultItem.replaces], so a plugin that wants to replace a selected item checks this first).
+   */
+  val itemsFormat: Int = 0,
 ) {
+  /** The selected page items (empty when nothing is selected or the host is older than items format 1). */
+  val selectionItems: List<SelectionItem> get() = selection?.items.orEmpty()
+
+  /** True if the host sends [selectionItems] and honours [ResultItem.replaces]. */
+  val canReplaceItems: Boolean get() = itemsFormat >= PenLabBridge.ITEMS_FORMAT
+
   fun toJson(): String =
     JSONObject().apply {
       put("apiVersion", PenLabBridge.API_VERSION)
       put("strokesFormat", strokesFormat)
+      put("itemsFormat", itemsFormat)
       put("capabilityId", capabilityId)
       page?.let {
         put("page", JSONObject().put("notebookId", it.notebookId).put("pageIndex", it.pageIndex).put("widthMm", it.widthMm.toDouble()).put("heightMm", it.heightMm.toDouble()).put("darkPage", it.darkPage))
       }
       selection?.let {
-        put("selection", JSONObject().put("boundsMm", floats(it.boundsMm)).put("strokeCount", it.strokeCount).put("itemCount", it.itemCount).putOpt("imageFile", it.imageFile).putOpt("strokesFile", it.strokesFile))
+        val selectionJson = JSONObject().put("boundsMm", floats(it.boundsMm)).put("strokeCount", it.strokeCount).put("itemCount", it.itemCount).putOpt("imageFile", it.imageFile).putOpt("strokesFile", it.strokesFile)
+        if (it.items.isNotEmpty()) selectionJson.put("items", JSONArray().also { array -> it.items.forEach { item -> array.put(itemJson(item)) } })
+        put("selection", selectionJson)
       }
       source?.let {
         put("source", JSONObject().put("displayName", it.displayName).put("mimeType", it.mimeType).put("suggestedTitle", it.suggestedTitle).put("file", it.file))
@@ -70,12 +113,30 @@ class PluginRequest(
           o.getString("capabilityId"),
           o.optJSONObject("page")?.let { PageInfo(it.getString("notebookId"), it.getInt("pageIndex"), it.getDouble("widthMm").toFloat(), it.getDouble("heightMm").toFloat(), it.optBoolean("darkPage")) },
           o.optJSONObject("selection")?.let {
-            SelectionInfo(readFloats(it.getJSONArray("boundsMm"), 4), it.getInt("strokeCount"), it.getInt("itemCount"), it.optString("imageFile").ifEmpty { null }, it.optString("strokesFile").ifEmpty { null })
+            SelectionInfo(readFloats(it.getJSONArray("boundsMm"), 4), it.getInt("strokeCount"), it.getInt("itemCount"), it.optString("imageFile").ifEmpty { null }, it.optString("strokesFile").ifEmpty { null }, readSelectionItems(it.optJSONArray("items")))
           },
           o.optJSONObject("source")?.let { SourceInfo(it.getString("displayName"), it.getString("mimeType"), it.getString("suggestedTitle"), it.getString("file")) },
           o.optInt("strokesFormat", 0),
+          o.optInt("itemsFormat", 0),
         )
       }
+
+    private fun itemJson(item: SelectionItem): JSONObject =
+      JSONObject().put("id", item.id).put("typeId", item.typeId).put("boundsMm", floats(item.boundsMm)).put("rotationDeg", finite(item.rotationDeg)).putOpt("file", item.file).putOpt("mimeType", item.mimeType).putOpt("text", item.text)
+
+    /** Items this SDK cannot read (no id, type or box: a kind from a newer PenLab) are skipped rather than failing the call. */
+    private fun readSelectionItems(array: JSONArray?): List<SelectionItem> {
+      if (array == null) return emptyList()
+      val items = ArrayList<SelectionItem>()
+      for (i in 0 until array.length()) {
+        val o = array.optJSONObject(i) ?: continue
+        val id = o.optString("id").ifEmpty { null } ?: continue
+        val typeId = o.optString("typeId").ifEmpty { null } ?: continue
+        val box = o.optJSONArray("boundsMm")?.takeIf { it.length() == 4 } ?: continue
+        items += SelectionItem(id, typeId, readFloats(box), finite(o.optDouble("rotationDeg", 0.0).toFloat()), o.optString("file").ifEmpty { null }, o.optString("mimeType").ifEmpty { null }, if (o.has("text")) o.optString("text") else null)
+      }
+      return items
+    }
   }
 }
 
@@ -143,8 +204,15 @@ object StrokesJson {
 /**
  * One thing a plugin asks PenLab to put on the page. [typeId] is [PenLabBridge.TYPE_TEXT],
  * [PenLabBridge.TYPE_IMAGE], [PenLabBridge.TYPE_INK_IMAGE], or a plugin's own id (shown as a grey box
- * if PenLab has no drawing for it). [boundsMm] is left, top, right, bottom. A plugin sets [text] or [data]
+ * if PenLab has no drawing for it). [boundsMm] is left, top, right, bottom: the UNROTATED box, which PenLab turns about its
+ * centre by [rotationDeg] degrees (the same convention as [SelectionItem]). A plugin sets [text] or [data]
  * (picture bytes); when PenLab reads a result, [file] names the result file that holds the data.
+ *
+ * [replaces] (items format 1, see [PluginRequest.canReplaceItems]) is the [SelectionItem.id] of a selected item this one
+ * takes the place of: PenLab removes that item and puts this one in the same spot of the stacking order, in the same
+ * undo step as the rest of the result. It only works for ids listed in this call's request, each at most once; any other
+ * value is ignored and the item is simply added. An empty box (right <= left or bottom <= top) with [replaces] keeps the
+ * replaced item's position and turn and fits the new picture inside its old box.
  */
 class ResultItem(
   val typeId: String,
@@ -152,6 +220,8 @@ class ResultItem(
   val text: String? = null,
   val data: ByteArray? = null,
   val file: String? = null,
+  val replaces: String? = null,
+  val rotationDeg: Float = 0f,
 ) {
   init {
     require(boundsMm.size == 4) { "boundsMm is left, top, right, bottom" }
@@ -159,11 +229,15 @@ class ResultItem(
 
   companion object {
     /** A text box of [text] over [boundsMm]. */
-    fun text(text: String, left: Float, top: Float, right: Float, bottom: Float) = ResultItem(PenLabBridge.TYPE_TEXT, floatArrayOf(left, top, right, bottom), text = text)
+    fun text(text: String, left: Float, top: Float, right: Float, bottom: Float, rotationDeg: Float = 0f, replaces: String? = null) =
+      ResultItem(PenLabBridge.TYPE_TEXT, floatArrayOf(left, top, right, bottom), text = text, replaces = replaces, rotationDeg = rotationDeg)
 
-    /** A picture ([png] or JPEG bytes) over [boundsMm]; [ink] makes it ink (dark on transparent) instead of a photo. */
-    fun image(png: ByteArray, left: Float, top: Float, right: Float, bottom: Float, ink: Boolean = false) =
-      ResultItem(if (ink) PenLabBridge.TYPE_INK_IMAGE else PenLabBridge.TYPE_IMAGE, floatArrayOf(left, top, right, bottom), data = png)
+    /**
+     * A picture ([png] or JPEG bytes) over [boundsMm], turned by [rotationDeg]; [ink] makes it ink (dark on transparent)
+     * instead of a photo; [replaces] swaps it for the selected item with that id.
+     */
+    fun image(png: ByteArray, left: Float, top: Float, right: Float, bottom: Float, ink: Boolean = false, rotationDeg: Float = 0f, replaces: String? = null) =
+      ResultItem(if (ink) PenLabBridge.TYPE_INK_IMAGE else PenLabBridge.TYPE_IMAGE, floatArrayOf(left, top, right, bottom), data = png, replaces = replaces, rotationDeg = rotationDeg)
   }
 }
 
@@ -296,6 +370,8 @@ object ResultCodec {
     items.forEach { item ->
       val o = JSONObject().put("typeId", item.typeId).put("boundsMm", floats(item.boundsMm))
       item.text?.let { o.put("text", it) }
+      item.replaces?.let { o.put("replaces", it) }
+      if (item.rotationDeg != 0f && item.rotationDeg.isFinite()) o.put("rotationDeg", item.rotationDeg.toDouble())
       val data = item.data
       if (data != null) {
         val name = "$prefix${files.size}"
@@ -310,9 +386,15 @@ object ResultCodec {
   private fun readItems(array: JSONArray): List<ResultItem> =
     List(array.length()) { i ->
       val o = array.getJSONObject(i)
-      ResultItem(o.getString("typeId"), readFloats(o.getJSONArray("boundsMm"), 4), o.optString("text").ifEmpty { null }, null, o.optString("file").ifEmpty { null })
+      ResultItem(
+        o.getString("typeId"), readFloats(o.getJSONArray("boundsMm"), 4), o.optString("text").ifEmpty { null }, null, o.optString("file").ifEmpty { null },
+        o.optString("replaces").ifEmpty { null }, finite(o.optDouble("rotationDeg", 0.0).toFloat()),
+      )
     }
 }
+
+/** JSON has no NaN or Infinity, and a turn of "not a number" means no turn. */
+private fun finite(v: Float): Float = if (v.isFinite()) v else 0f
 
 private fun floats(a: FloatArray): JSONArray = JSONArray().also { array -> a.forEach { array.put(if (it.isFinite()) it.toDouble() else 0.0) } }
 

@@ -63,6 +63,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -187,8 +188,11 @@ class ToolDock(context: Context) {
   internal var wheelTargets: Map<Int, Offset> = emptyMap()
   internal var wheelLocalTargets: Map<Int, Offset> = emptyMap()
 
-  /** The wheel circle's centre (the screen corner), root pixels. */
+  /** The wheel circle's centre (the real screen corner), root pixels. */
   internal var wheelOrigin = Offset.Zero
+
+  /** How the tools sit on the arc for the current corner and screen (see [WheelGeometry.ring]). */
+  internal var wheelRing = WheelGeometry.Ring(0f, 0f, 0f, 1f, 0f)
   internal var pull by mutableStateOf(Offset.Zero)
 
   /** Page actions shown in the top bar (with the corner wheel): their centres, by key. */
@@ -210,7 +214,7 @@ class ToolDock(context: Context) {
 
   internal var cellReachPx = 0f
 
-  /** The wheel disc's radius (px), and how far the gesture zones and the top buttons keep it from the screen's edges. */
+  /** The wheel disc's radius (px), and how far the gesture zones and the top buttons keep the interactive parts from the screen's edges. */
   internal var wheelRadiusPx = 0f
   internal var gestureLeftPx = 0f
   internal var gestureRightPx = 0f
@@ -220,15 +224,31 @@ class ToolDock(context: Context) {
   internal var edgeGapPx = 0f
 
   /** Works out the wheel's sizes and how far the edges are kept clear (needs [screenWidth] and [screenHeight]). */
-  internal fun applyWheelMetrics(density: androidx.compose.ui.unit.Density, insets: DockInsets) {
+  internal fun applyWheelMetrics(density: androidx.compose.ui.unit.Density, insets: DockInsets, corner: DockSide) {
     with(density) {
-      wheelRadiusPx = DiscRadius.toPx()
       hubHalfPx = (HubSize / 2).toPx()
       edgeGapPx = EdgeGap.toPx()
       gestureLeftPx = WheelGeometry.edgeInset(insets.gestureLeft.toPx(), insets.left.toPx(), screenWidth.toFloat())
       gestureRightPx = WheelGeometry.edgeInset(insets.gestureRight.toPx(), insets.right.toPx(), screenWidth.toFloat())
       gestureBottomPx = WheelGeometry.edgeInset(insets.gestureBottom.toPx(), insets.bottom.toPx(), screenHeight.toFloat())
       topReservePx = (insets.top + (if (insets.topChromeVisible) insets.topButtons else 0.dp)).toPx()
+      // The ring: cells fully on screen and clear of the strips, spaced evenly along the visible arc.
+      val onLeft = corner == DockSide.TOP_LEFT || corner == DockSide.BOTTOM_LEFT
+      val onTop = corner == DockSide.TOP_LEFT || corner == DockSide.TOP_RIGHT
+      val c = cornerLayout(corner)
+      wheelRing = WheelGeometry.ring(
+        minRadius = WheelGeometry.RING_RADIUS_DP.dp.toPx(),
+        cell = WheelGeometry.CELL_DP.dp.toPx(),
+        discMargin = WheelGeometry.DISC_MARGIN_DP.dp.toPx(),
+        insetU = if (onLeft) gestureLeftPx else gestureRightPx,
+        insetV = if (onTop) topReservePx else gestureBottomPx,
+        hubU = c.hubU,
+        hubV = c.hubV,
+        hubHalf = hubHalfPx,
+        cellGap = WheelGeometry.CELL_GAP_DP.dp.toPx(),
+        hubClearance = WheelGeometry.HUB_CLEARANCE_DP.dp.toPx(),
+      )
+      wheelRadiusPx = wheelRing.disc
     }
   }
 
@@ -510,7 +530,7 @@ fun DockedToolbar(
     }
   }
   // Keep the wheel's edge clearances current when insets change without the screen resizing.
-  androidx.compose.runtime.SideEffect { if (dock.screenWidth > 0) dock.applyWheelMetrics(density, insets) }
+  androidx.compose.runtime.SideEffect { if (dock.screenWidth > 0) dock.applyWheelMetrics(density, insets, side) }
   androidx.compose.runtime.DisposableEffect(side) {
     if (side.isCorner) dock.barBounds = androidx.compose.ui.geometry.Rect.Zero
     onDispose {}
@@ -528,7 +548,7 @@ fun DockedToolbar(
         dock.cornerReachPx = CornerReach.toPx()
         dock.flickMinSpeedPx = DockDrop.FLICK_MIN_SPEED_DP.dp.toPx()
         dock.cellReachPx = 26.dp.toPx()
-        dock.applyWheelMetrics(density, insets)
+        dock.applyWheelMetrics(density, insets, side)
         dock.railHalfPx = (RailWidth / 2).toPx()
         dock.topBarY = (insets.top + EdgeGap + BarHeight / 2).toPx()
         dock.bottomBarY = it.size.height - (insets.bottom + EdgeGap + BarHeight / 2).toPx()
@@ -795,13 +815,16 @@ private fun Wheel(
   // How far the tool ring is scrolled along the arc, in degrees.
   val scroll = remember { Animatable(0f) }
   // How far it can scroll: until the last tool reaches the last fully visible spot.
-  val span = ((ringItems.size - 1) * RingStepDeg - (RingEndDeg - RingStartDeg)).coerceAtLeast(0f)
-  val spanState = androidx.compose.runtime.rememberUpdatedState(span)
+  // (the ring's step comes from dock.wheelRing, which depends on the screen and its gesture zones;
+  // it is read where it is used, never captured, so a rotation or inset change is picked up)
+  val ringCount = androidx.compose.runtime.rememberUpdatedState(ringItems.size)
+  fun spanNow() = ((ringCount.value - 1) * dock.wheelRing.stepDeg - (dock.wheelRing.endDeg - dock.wheelRing.startDeg)).coerceAtLeast(0f)
   val highlighted = dock.wheelHighlight
   val lifted = remember { Animatable(1f) }
   val onLeft = side == DockSide.TOP_LEFT || side == DockSide.BOTTOM_LEFT
   val onTop = side == DockSide.TOP_LEFT || side == DockSide.TOP_RIGHT
-  // The disc is cut to its quarter at the gesture-safe lines (not by the screen edge any more).
+  // The disc is centred on the real screen corner, so the screen edges cut it to its quarter;
+  // the shape just drops the half that is off screen.
   val shape = remember(onLeft, onTop) { QuarterShape(onLeft, onTop) }
   // The press-and-pull handler below lives for the whole gesture. Whatever it reads that can change
   // while it runs comes through these, so a recomposition never has to restart it.
@@ -810,7 +833,7 @@ private fun Wheel(
   val currentOnDragStart by androidx.compose.runtime.rememberUpdatedState(onDragStart)
   // A dial, not a list: a light tick each time a tool passes a slot (15 Nov wheel redesign).
   androidx.compose.runtime.LaunchedEffect(Unit) {
-    androidx.compose.runtime.snapshotFlow { kotlin.math.round(scroll.value / RingStepDeg).toInt() }
+    androidx.compose.runtime.snapshotFlow { kotlin.math.round(scroll.value / dock.wheelRing.stepDeg.coerceAtLeast(1f)).toInt() }
       .collect { if (dock.wheelOpen) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
   }
   // While the wheel is open its area is kept out of the system Back gesture, so dragging on it near
@@ -824,10 +847,15 @@ private fun Wheel(
     // After every layout (the wheel moved, the screen turned), refresh the rectangles if open.
     modifier = modifier.onGloballyPositioned { if (dock.wheelOpen) setGestureExclusion(view, dock.wheelExclusion) },
     content = {
-      // The wheel: a quarter disc turning round the (gesture-safe) corner, so the screen edges cut it to a
-      // quarter. Everything inside is clipped to the circle.
+      // The wheel: a disc turning round the real screen corner, so the screen edges cut it to a true
+      // quarter circle. Everything inside is clipped to the circle. Its size comes from the ring
+      // layout (dock.wheelRing), worked out in the outer layout just before this is measured.
       Box(
-        Modifier.size(DiscRadius * 2)
+        Modifier.layout { m, _ ->
+          val d = (dock.wheelRing.disc * 2f).roundToInt().coerceAtLeast(1)
+          val p = m.measure(androidx.compose.ui.unit.Constraints.fixed(d, d))
+          layout(p.width, p.height) { p.place(0, 0) }
+        }
           // Touches are read before the opening animation's scale (positions stay real numbers),
           // and only while open, so the folded wheel never blocks the pen.
           .then(if (!dock.wheelOpen) Modifier else Modifier.pointerInput(onLeft, onTop) {
@@ -864,7 +892,7 @@ private fun Wheel(
                 turned += d
                 tracker.addPosition(change.uptimeMillis, Offset(0f, turned))
                 // Past the ends it follows only part way, then springs back on release.
-                val max = spanState.value
+                val max = spanNow()
                 val next = scroll.value + d
                 val resisted = if (next > 0f || next < -max) scroll.value + d * 0.35f else next
                 scope.launch { scroll.snapTo(resisted) }
@@ -873,8 +901,9 @@ private fun Wheel(
                 val velocity = tracker.calculateVelocity().y
                 scope.launch {
                   // Lands with a tool exactly in a slot (or at the end), like a dial's detent.
-                  val free = (scroll.value + velocity * 0.25f).coerceIn(-spanState.value, 0f)
-                  val target = (kotlin.math.round(free / RingStepDeg) * RingStepDeg).coerceIn(-spanState.value, 0f)
+                  val free = (scroll.value + velocity * 0.25f).coerceIn(-spanNow(), 0f)
+                  val step = dock.wheelRing.stepDeg.coerceAtLeast(1f)
+                  val target = (kotlin.math.round(free / step) * step).coerceIn(-spanNow(), 0f)
                   scroll.animateTo(target, Motion.spring(dampingRatio = 0.8f, stiffness = 200f), initialVelocity = velocity)
                 }
               }
@@ -899,7 +928,7 @@ private fun Wheel(
                 0f to wheelCore, 1f to PenLabColors.toolbar, center = c, radius = size.width / 2f,
               ),
             )
-            val ring = RingRadius.toPx()
+            val ring = dock.wheelRing.radius
             val band = WheelCell.toPx() + 10.dp.toPx()
             drawCircle(wheelGroove, radius = ring, center = c, style = Stroke(band))
             drawCircle(PenLabColors.hairline, radius = ring + band / 2f, center = c, style = Stroke(1.dp.toPx()))
@@ -922,31 +951,34 @@ private fun Wheel(
         }) { measurables, constraints ->
           val loose = constraints.copy(minWidth = 0, minHeight = 0)
           val placeables = measurables.map { it.measure(loose) }
-          val r = DiscRadius.toPx()
+          val ringLayout = dock.wheelRing
+          val r = ringLayout.disc
           layout((2 * r).roundToInt(), (2 * r).roundToInt()) {
             // (u, v): from the circle's centre (the screen corner) along the bottom/top edge and
             // along the side edge, into the screen.
-            fun place(index: Int, u: Float, v: Float) {
+            fun place(index: Int, u: Float, v: Float, alpha: Float) {
               val p = placeables[index]
               val x = r + if (onLeft) u else -u
               val y = r + if (onTop) v else -v
-              p.place((x - p.width / 2f).roundToInt(), (y - p.height / 2f).roundToInt())
+              // Placed with a layer so a tool spinning past either end of the arc fades out
+              // instead of showing half cut by the screen edge or sitting in a gesture strip.
+              p.placeWithLayer((x - p.width / 2f).roundToInt(), (y - p.height / 2f).roundToInt()) { this.alpha = alpha }
             }
             val targets = HashMap<Int, Offset>()
             fun polar(index: Int, item: DockItem, radius: Float, angleDeg: Float) {
               val (u, v) = WheelGeometry.ringSlot(radius, angleDeg)
               // Fan-out: each tool trails the one before it out along its spoke while opening.
               // Pull targets use the settled spot, so a quick pull during the animation still hits.
-              val k = (index - (-scroll.value / RingStepDeg)).coerceIn(0f, 3f) * FAN_LAG
+              val k = (index - (-scroll.value / ringLayout.stepDeg.coerceAtLeast(1f))).coerceIn(0f, 3f) * FAN_LAG
               val lag = ((open.value - k) / (1f - k)).coerceIn(0f, 1.06f) // 1 at rest; the spring's overshoot shows
               val f = 0.55f + 0.45f * lag
-              place(index, u * f, v * f)
-              if (WheelGeometry.slotOnScreen(angleDeg)) targets[item.key] = Offset(u, v) // on screen
+              place(index, u * f, v * f, WheelGeometry.ringAlpha(angleDeg, ringLayout))
+              if (WheelGeometry.slotOnScreen(angleDeg, ringLayout)) targets[item.key] = Offset(u, v) // visible on the arc
             }
             // Tool ring: the first tool along the bottom edge, the rest climbing towards the side
             // edge, shifted by the scroll.
             // Tools past either end are round the circle, behind the screen edge, until spun in.
-            ringItems.forEachIndexed { i, item -> polar(i, item, RingRadius.toPx(), RingStartDeg + i * RingStepDeg + scroll.value) } // tools move with the finger
+            ringItems.forEachIndexed { i, item -> polar(i, item, ringLayout.radius, ringLayout.startDeg + i * ringLayout.stepDeg + scroll.value) } // tools move with the finger
             // Pull targets in screen terms, refreshed whenever the ring moves.
             val o = dock.wheelOrigin
             dock.wheelTargets = targets.mapValues { (_, uv) -> Offset(o.x + if (onLeft) uv.x else -uv.x, o.y + if (onTop) uv.y else -uv.y) }
@@ -1025,7 +1057,11 @@ private fun Wheel(
               val hub = dock.wheelHub
               val dead = with(density) { PullDeadZone.toPx() }
               val reach = with(density) { PullReach.toPx() }
-              val ringPx = with(density) { RingRadius.toPx() }
+              val ringPx = dock.wheelRing.radius
+              // Auto-scroll zone: beyond the outermost visible cell's angular extent, by the edges.
+              val edgeZone = (dock.wheelRing.startDeg -
+                Math.toDegrees(kotlin.math.asin((WheelGeometry.CELL_DP * density.density / 2f / ringPx).toDouble().coerceAtMost(1.0)))
+                  .toFloat()).coerceAtLeast(2f)
               var at = hub
               var released = false
               while (!released) {
@@ -1047,12 +1083,12 @@ private fun Wheel(
                   if (kotlin.math.hypot(u, v) > ringPx * 0.6f) {
                     val phi = Math.toDegrees(kotlin.math.atan2(v.toDouble(), u.toDouble())).toFloat()
                     val step = when {
-                      phi < EDGE_ZONE_DEG -> (EDGE_ZONE_DEG - phi) / EDGE_ZONE_DEG // near the bottom/top edge: tools come up
-                      phi > 90f - EDGE_ZONE_DEG -> -(phi - (90f - EDGE_ZONE_DEG)) / EDGE_ZONE_DEG // near the side edge: tools come down
+                      phi < edgeZone -> (edgeZone - phi) / edgeZone // near the bottom/top edge: tools come up
+                      phi > 90f - edgeZone -> -(phi - (90f - edgeZone)) / edgeZone // near the side edge: tools come down
                       else -> 0f
                     } * AUTO_SCROLL_DEG_PER_FRAME
                     if (step != 0f) {
-                      val next = (scroll.value + step).coerceIn(-spanState.value, 0f)
+                      val next = (scroll.value + step).coerceIn(-spanNow(), 0f)
                       if (next != scroll.value) scope.launch { scroll.snapTo(next) }
                     }
                   }
@@ -1104,15 +1140,17 @@ private fun Wheel(
     },
   ) { measurables, constraints ->
     val loose = constraints.copy(minWidth = 0, minHeight = 0)
+    // The ring layout (and so the disc's size) is worked out first: the wheel is measured from it.
+    dock.screenWidth = constraints.maxWidth
+    dock.screenHeight = constraints.maxHeight
+    dock.applyWheelMetrics(this, insets, side)
     val wheel = measurables[0].measure(loose)
     val hub = measurables[1].measure(loose)
     layout(constraints.maxWidth, constraints.maxHeight) {
-      // The wheel turns round a point pulled in from the screen corner by the system gesture zones
-      // (Back on the sides, Home at the bottom) or, at the top, by the top buttons; the button sits
-      // the same distance from both of that point's axes. Nothing interactive is in a gesture zone.
-      dock.screenWidth = constraints.maxWidth
-      dock.screenHeight = constraints.maxHeight
-      dock.applyWheelMetrics(this, insets)
+      // The disc turns round the real screen corner and runs off both screen edges. Only what is
+      // interactive keeps out of the system gesture zones (Back on the sides, Home at the bottom)
+      // and, at the top, out from under the top buttons: the button's centre, and the ring cells,
+      // whose arc and radius are chosen for that (WheelGeometry.ring).
       val c = dock.cornerLayout(side)
       val hubHalf = HubSize.roundToPx() / 2
       dock.wheelHub = Offset(c.hubX, c.hubY)
@@ -1133,12 +1171,6 @@ private fun Wheel(
 // Sizes live in WheelGeometry so they are unit-tested: about 25% bigger than the first wheel, with
 // ring cells of 50 dp (the touch-target minimum is 48 dp) about 59 dp apart.
 private val WheelCell = WheelGeometry.CELL_DP.dp
-
-/** The tool ring's radius round the wheel's centre: clear of the round button. */
-private val RingRadius = WheelGeometry.RING_RADIUS_DP.dp
-
-/** The disc: the ring plus half a tool plus a small margin. */
-private val DiscRadius = WheelGeometry.DISC_RADIUS_DP.dp
 
 /** Press-and-pull: no cell is pointed at within [PullDeadZone] of the button; a cell counts within [PullReach]. */
 private val PullDeadZone = 55.dp
@@ -1176,14 +1208,8 @@ private class QuarterShape(private val onLeft: Boolean, private val onTop: Boole
   }
 }
 
-/** Tools sit between these angles (0° = along the bottom edge), four at a time, fully inside. */
-private const val RingStartDeg = 12f
-
-/** Press-and-pull: within this many degrees of a screen edge the ring scrolls by itself. */
-private const val EDGE_ZONE_DEG = 8f // only right at the edge, past the outermost tools (12° and 78°)
+/** Press-and-pull: near a screen edge, past the outermost visible tools, the ring scrolls by itself. */
 private const val AUTO_SCROLL_DEG_PER_FRAME = 2.5f
-private const val RingEndDeg = 78f
-private const val RingStepDeg = (RingEndDeg - RingStartDeg) / 3f
 
 /** Fan-out: how far (in opening progress) each tool trails the one before it. */
 private const val FAN_LAG = 0.08f

@@ -82,6 +82,11 @@
 - Added `DockPositionOption.FLOATING("Float")` in `SettingsSheet.kt` and updated `MainActivity.kt` selection clearance (`RailWidth + 12.dp`).
 - Verified `:app:testDebugUnitTest` (`500` tests, `0` failures — including 9 `ToolbarPlacementTest`, 34 `WheelGeometryTest`, and `TypographyDisciplineTest`) and Tab S9 R8 release QA.
 
+### Stage 4 (Round 2) — Final Audit & Multi-Theme QA Sign-off (26 Nov 2026, QA-Verified on Tab S9)
+- Full multi-module unit tests (`./gradlew testDebugUnitTest`): **59 suites, 554 tests, 0 skipped, 0 failures, 0 errors** (`:app` 500, `:plugin-api` 7, `:plugin-sdk` 47, `:sample-plugin` 0).
+- `:app:lintRelease`: **0 errors** (`94` pre-existing warnings; `0` warnings in `PressureCurve.kt`, `PenBrushes.kt`, `SettingsSheet.kt`, and `PdfCropGeometry.kt`; remaining hits in `ToolDock.kt`/`InkCanvasView.kt`/`MainActivity.kt`/`PdfCropDialog.kt`/`ViewSettings.kt` are pre-existing style hints such as `UseKtx` / `ModifierParameter` / `VisibleForTests` / `DrawAllocation`).
+- Tab S9 hardware multi-theme QA (`Light + Copper` left floating capsule pill and `Dark + Blueprint` collapsed free-floating bar verified read-only on `DSU Sheet`, all original settings restored, `0` logcat errors).
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)

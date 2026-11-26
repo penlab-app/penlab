@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import androidx.compose.ui.graphics.ImageBitmap
 import dev.penlab.app.plugins.ExtensionImporter
 import dev.penlab.app.plugins.PluginConvert
 import dev.penlab.app.plugins.ScreenPageAction
@@ -135,6 +136,7 @@ class ExternalPlugin(
   private val packageName: String,
   private val transport: PluginTransport,
   private val env: ExternalEnv,
+  private val icons: Map<String, ImageBitmap> = emptyMap(),
 ) : Plugin {
   override val id get() = manifest.id
   override val name get() = manifest.name
@@ -142,11 +144,12 @@ class ExternalPlugin(
 
   override fun capabilities(): List<Capability> =
     manifest.capabilities.mapNotNull { decl ->
+      val icon = decl.icon?.let(icons::get)
       when (decl) {
-        is CapabilityDecl.PageActionDecl -> ExternalPageAction(name, decl, transport, env)
+        is CapabilityDecl.PageActionDecl -> ExternalPageAction(name, decl, transport, env, icon)
         is CapabilityDecl.ImporterDecl -> ExternalImporter(name, decl, transport, env)
-        is CapabilityDecl.ScreenDecl -> ExternalScreen(name, ComponentName(packageName, className(decl.activity, packageName)), decl.id, decl.label, decl.placement)
-        is CapabilityDecl.MediaDecl -> ExternalMedia(name, packageName, decl, transport)
+        is CapabilityDecl.ScreenDecl -> ExternalScreen(name, ComponentName(packageName, className(decl.activity, packageName)), decl.id, decl.label, decl.placement, icon)
+        is CapabilityDecl.MediaDecl -> ExternalMedia(name, packageName, decl, transport, icon)
         is CapabilityDecl.RecogniserDecl -> null // read, not hosted yet
       }
     }
@@ -168,7 +171,8 @@ class ExternalPageAction(
   private val decl: CapabilityDecl.PageActionDecl,
   private val transport: PluginTransport,
   private val env: ExternalEnv,
-) : PageAction {
+  override val externalIcon: ImageBitmap? = null,
+) : PageAction, HasExternalIcon {
   override val id get() = decl.id
   override val label get() = decl.label
   override val enabledWhen: EnabledWhen =
@@ -177,6 +181,9 @@ class ExternalPageAction(
       SelectionRule.NONE -> EnabledWhen.SELECTION_EMPTY
       SelectionRule.ANY -> EnabledWhen.ALWAYS
     }
+
+  /** Asks the plugin transport to cancel an in-flight call for this capability. */
+  fun cancel() = transport.cancel(decl.id)
 
   override suspend fun run(selection: Selection, page: PageRef): PluginResult =
     withContext(Dispatchers.IO) {
@@ -210,6 +217,9 @@ class ExternalImporter(
   override val label get() = decl.label
   override val mimeTypes get() = decl.mimeTypes
   override val extensions get() = decl.extensions
+
+  /** Asks the plugin transport to cancel an in-flight import call for this capability. */
+  fun cancel() = transport.cancel(decl.id)
 
   override suspend fun import(source: ImportSource): ImportedNotebook? =
     withContext(Dispatchers.IO) {
@@ -246,7 +256,8 @@ class ExternalMedia(
   val packageName: String,
   val decl: CapabilityDecl.MediaDecl,
   private val transport: PluginTransport,
-) : Capability {
+  override val externalIcon: ImageBitmap? = null,
+) : Capability, HasExternalIcon {
   val label get() = decl.label
   val placement get() = decl.placement
 
@@ -281,7 +292,8 @@ class ExternalScreen(
   override val id: String,
   override val label: String,
   override val placement: ScreenPlacement,
-) : ScreenPageAction {
+  override val externalIcon: ImageBitmap? = null,
+) : ScreenPageAction, HasExternalIcon {
   override val enabledWhen: EnabledWhen =
     when (placement) {
       ScreenPlacement.SELECTION_MENU -> EnabledWhen.SELECTION_NOT_EMPTY

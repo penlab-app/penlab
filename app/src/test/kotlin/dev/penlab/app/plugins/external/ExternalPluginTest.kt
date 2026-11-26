@@ -9,6 +9,7 @@ import dev.penlab.plugin.PageAction
 import dev.penlab.plugin.PageRef
 import dev.penlab.plugin.Selection
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -163,5 +164,39 @@ class ExternalPluginTest {
     IoSession.purge(root)
     assertFalse(old.dir.exists())
     assertTrue(fresh.dir.exists())
+  }
+
+  @Test
+  fun cancelledOutcomeThrowsCancellationExceptionAndKeepsPluginEnabled() = runTest {
+    val messages = ArrayList<String>()
+    val r = registryWith(messages) { _, _, _, _ -> TransportOutcome.Cancelled }
+    val action = countAction(r)
+    try {
+      r.runAction(action, Selection.empty(), page)
+      fail("expected CancellationException")
+    } catch (_: CancellationException) {
+      // expected: propagates cleanly so caller can treat it as user cancel
+    }
+    assertFalse(r.isSwitchedOff("acme.tools"))
+    assertTrue(r.isEnabled("acme.tools"))
+    assertTrue(messages.isEmpty())
+  }
+
+  @Test
+  fun externalPageActionCancelDelegatesToTransportCancel() {
+    val cancelledIds = ArrayList<String>()
+    val transport =
+      object : PluginTransport {
+        override fun call(capabilityId: String, requestJson: String, files: android.os.Bundle, timeoutMs: Long): TransportOutcome =
+          TransportOutcome.Cancelled
+
+        override fun cancel(capabilityId: String) {
+          cancelledIds += capabilityId
+        }
+      }
+    val r = registryWith(transport = transport)
+    val action = countAction(r).capability as ExternalPageAction
+    action.cancel()
+    assertEquals(listOf("count"), cancelledIds)
   }
 }

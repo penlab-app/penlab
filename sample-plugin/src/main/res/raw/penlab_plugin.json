@@ -3,7 +3,7 @@
   "name": "Sample plugin",
   "apiVersion": 2,
   "capabilities": [
-    { "kind": "pageAction", "id": "wordcount", "label": "Word count", "selection": "required" },
+    { "kind": "pageAction", "id": "wordcount", "label": "Word count", "icon": "@drawable/ic_wordcount", "selection": "required" },
     { "kind": "screen", "id": "hello", "label": "Hello screen", "activity": "dev.penlab.sample.HelloActivity", "placement": "moreMenu" }
   ],
   "permissions": []

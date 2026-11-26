@@ -53,6 +53,11 @@
 ### Phase 2 — Projector View Full Content & Committed-Scene Caching (26 Nov 2026, QA-Verified on Tab S9)
 - **Projector View full content & caching:** `ProjectorSnapshot` / `ProjectorSurfaceView` / `InkCanvasView.publishProjector` now render PDF pages (`PdfBackground`), `ImageItem` photos, `TextItem` text boxes (using thread-safe `ThreadLocal<TextPaint>` in `TextItems`), and `PluginPageItem` placeholders alongside ruling & committed ink, backed by hybrid `StaticCacheTracker` committed-scene bitmap caching on the projector render thread (`ProjectorLogic.kt`, 11 tests in `ProjectorLogicTest.kt`), QA-verified on Tab S9 with a simulated secondary display.
 
+### Phase 3 — Plugin Bridge Polish (26 Nov 2026, QA-Verified on Tab S9)
+- **Cancel button for running plugin calls:** `PluginTransport.cancel` / `BoundServiceTransport` in-flight tracking / `TransportOutcome.Cancelled` → `CancellationException` (no crash-disable) wired through `ExternalPageAction.cancel()` and `MainActivity`'s `"Running…"` snackbar `"Cancel"` button + `closeNotebook`/`onDestroy` cleanup.
+- **External `@drawable` menu icons:** `"icon"` manifest parsing in `ExternalManifest.kt`, bounded (`<= 96px`) LRU cross-package loader in `ExternalPluginIcons.kt`, `HasExternalIcon` on `ExternalPageAction`/`ExternalScreen`/`ExternalMedia`, shared `PluginMenuRow` rendering across `MorePanel`/`SelectionActions`/`FileOptionsPopover`, and `sample-plugin` `ic_wordcount` reference example.
+- **Tests & device QA:** 495 JVM unit tests passing (`:app` 451 + `:plugin-sdk` 44, including `ExternalPluginIconsTest`, expanded `ExternalManifestTest` & `ExternalPluginTest`), verified on Tab S9 (`arm64-v8a` R8 build).
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)
@@ -177,6 +182,7 @@ done
 | **Library** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, LibraryCards.kt, Covers.kt}`, `app/src/main/kotlin/dev/penlab/app/notes/{CoverMaker.kt, LibraryMigration.kt}` |
 | **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, PageItems.kt, StrokeChunkCache.kt}` |
 | **Projector View** | `app/src/main/kotlin/dev/penlab/app/projector/{ProjectorLogic.kt, ProjectorSurface.kt}`, `app/src/test/kotlin/dev/penlab/app/projector/ProjectorLogicTest.kt` |
+| **External Plugin Bridge** | `app/src/main/kotlin/dev/penlab/app/plugins/external/{ExternalManifest.kt, ExternalPlugin.kt, ExternalPluginIcons.kt, ExternalPluginManager.kt, PluginTransport.kt}`, `app/src/test/kotlin/dev/penlab/app/plugins/external/{ExternalManifestTest.kt, ExternalPluginTest.kt, ExternalPluginIconsTest.kt}` |
 | **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt}` |
 
 ## Notes from the 25–26 Nov review + plugin work (`AI context/notes/`)

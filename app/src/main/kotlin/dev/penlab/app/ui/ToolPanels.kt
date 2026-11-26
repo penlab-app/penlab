@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -654,7 +655,9 @@ fun MoreToolsPanel(
         style = MaterialTheme.typography.labelMedium,
         modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
       )
-      for (action in pluginItems) PenLabMenuItem(label = action.label, icon = action.icon, onClick = action.onClick)
+      for (action in pluginItems) {
+        PluginMenuRow(action.label, action.onClick, action.icon, action.iconRes, action.iconBitmap)
+      }
     }
 
     HorizontalDivider(
@@ -1247,6 +1250,7 @@ data class SelectionPluginAction(
   val label: String,
   val onClick: () -> Unit,
   val iconRes: Int = 0,
+  val iconBitmap: ImageBitmap? = null,
 )
 
 /**
@@ -1568,45 +1572,19 @@ private fun SelectionMorePopover(
           when (entry) {
             is SelectionPluginMenuEntry.Registered -> {
               val action = entry.action
-              if (action.iconRes != 0) {
-                Row(
-                  modifier =
-                    Modifier
-                      .fillMaxWidth()
-                      .heightIn(min = PenLabSpacing.touchTarget)
-                      .clip(PenLabShapes.small)
-                      .clickable(role = Role.Button) { onRunRegisteredPlugin(action) }
-                      .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  Icon(
-                    painter = painterResource(action.iconRes),
-                    contentDescription = null,
-                    tint = scheme.onSurfaceVariant,
-                    modifier = Modifier.size(PenLabLayout.iconMedium),
-                  )
-                  Spacer(Modifier.width(PenLabSpacing.md))
-                  Text(
-                    text = action.label,
-                    color = scheme.onSurface,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                  )
+              val fallback =
+                when (entry.matchedSlot) {
+                  BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
+                  BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
+                  null -> PenLabIcons.Sparkles
                 }
-              } else {
-                val icon =
-                  when (entry.matchedSlot) {
-                    BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
-                    BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
-                    null -> PenLabIcons.Sparkles
-                  }
-                PenLabMenuItem(
-                  label = action.label,
-                  icon = icon,
-                  onClick = { onRunRegisteredPlugin(action) },
-                )
-              }
+              PluginMenuRow(
+                label = action.label,
+                onClick = { onRunRegisteredPlugin(action) },
+                fallbackIcon = fallback,
+                iconRes = action.iconRes,
+                iconBitmap = action.iconBitmap,
+              )
             }
           }
         }
@@ -1816,12 +1794,67 @@ fun PasteMenu(
 
 /** One entry of the top bar's "more" menu. */
 class MenuAction(
-  val icon: androidx.compose.ui.graphics.vector.ImageVector,
+  val icon: ImageVector,
   val label: String,
   val onClick: () -> Unit,
   /** A drawable resource shown instead of [icon] (plugins bring their own); 0 = use [icon]. */
   val iconRes: Int = 0,
+  /** An external plugin `@drawable` bitmap shown instead of [icon]; null = fall back to [iconRes] or [icon]. */
+  val iconBitmap: ImageBitmap? = null,
 )
+
+/**
+ * Renders a plugin menu item using [iconBitmap] (external `@drawable`), [iconRes] (built-in
+ * drawable), or [fallbackIcon] (Phosphor vector), matching [PenLabMenuItem] metrics.
+ */
+@Composable
+internal fun PluginMenuRow(
+  label: String,
+  onClick: () -> Unit,
+  fallbackIcon: ImageVector,
+  iconRes: Int = 0,
+  iconBitmap: ImageBitmap? = null,
+) {
+  if (iconBitmap == null && iconRes == 0) {
+    PenLabMenuItem(label = label, icon = fallbackIcon, onClick = onClick)
+    return
+  }
+  val scheme = MaterialTheme.colorScheme
+  Row(
+    modifier =
+      Modifier
+        .fillMaxWidth()
+        .heightIn(min = PenLabSpacing.touchTarget)
+        .clip(PenLabShapes.small)
+        .clickable(role = Role.Button, onClick = onClick)
+        .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    if (iconBitmap != null) {
+      Icon(
+        bitmap = iconBitmap,
+        contentDescription = null,
+        tint = scheme.onSurfaceVariant,
+        modifier = Modifier.size(PenLabLayout.iconMedium),
+      )
+    } else {
+      Icon(
+        painter = painterResource(iconRes),
+        contentDescription = null,
+        tint = scheme.onSurfaceVariant,
+        modifier = Modifier.size(PenLabLayout.iconMedium),
+      )
+    }
+    Spacer(Modifier.width(PenLabSpacing.md))
+    Text(
+      text = label,
+      color = scheme.onSurface,
+      style = MaterialTheme.typography.labelLarge,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
+  }
+}
 
 // ---- Layers popover ---------------------------------------------------------------------------
 

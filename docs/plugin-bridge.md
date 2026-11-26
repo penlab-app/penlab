@@ -23,10 +23,10 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
 ```json
 { "id": "dev.example.penlab.thing", "name": "Thing", "apiVersion": 2,
   "capabilities": [
-    { "kind": "pageAction", "id": "count", "label": "Count", "selection": "required|none|any" },
+    { "kind": "pageAction", "id": "count", "label": "Count", "icon": "@drawable/ic_count", "selection": "required|none|any" },
     { "kind": "importer",   "id": "fmt",   "label": "My format", "mimeTypes": ["application/x-fmt"], "extensions": ["fmt"] },
-    { "kind": "screen",     "id": "chat",  "label": "Chat", "activity": ".ChatActivity", "placement": "selectionMenu|moreMenu|fileMenu" },
-    { "kind": "recogniser", "id": "r", "label": "..." }, { "kind": "media", "id": "m", "label": "..." }
+    { "kind": "screen",     "id": "chat",  "label": "Chat", "icon": "@drawable/ic_chat", "activity": ".ChatActivity", "placement": "selectionMenu|moreMenu|fileMenu" },
+    { "kind": "recogniser", "id": "r", "label": "..." }, { "kind": "media", "id": "m", "label": "...", "icon": "@drawable/ic_mic" }
   ],
   "permissions": ["network", "microphone"] }
 ```
@@ -34,7 +34,8 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
 - `apiVersion` must be exactly 2. Unknown kinds (and capabilities with missing or unknown fields) are ignored.
   `recogniser` is read but not hosted yet; `media` is hosted (see "Media").
 - Where entries appear: pageAction `selection: required` in the lasso's More menu, `none` in the file menu, `any` in both;
-  a screen goes where its `placement` says (`moreMenu` = the toolbar's More panel, default). External entries have no icon.
+  a screen goes where its `placement` says (`moreMenu` = the toolbar's More panel, default).
+- Optional `"icon"` on `pageAction`, `screen`, and `media`: `@drawable/<name>` (or `<name>`) matching `[a-z][a-z0-9_]{0,127}`, loaded off the main thread from the plugin package and bounded to 96 px (`ExternalPluginIcons`); rendered tinted to the menu icon colour (monochrome 24 dp vector recommended). Invalid or missing icons are dropped silently and fall back to PenLab's built-in slot/default icon.
 - Importers are matched by MIME type or by extension (formats Android has no MIME type for). A format that is only known by its
   extension should list `extensions` and leave `mimeTypes` empty: claiming `application/octet-stream` or `application/zip` would route
   every unrelated binary to the plugin. (The library's import picker accepts any file, so such files stay pickable.) A file nobody claims is
@@ -59,7 +60,7 @@ checks its caller: only `dev.penlab.app` may call it (`PenLabPluginService`), op
 AIDL `dev.penlab.sdk.IPenLabPlugin`: `int apiVersion()`, `Bundle run(String capabilityId, String requestJson, in Bundle files)`,
 `void cancel(String capabilityId)`. Files are `ParcelFileDescriptor`s inside the Bundles (no content URIs between the apps).
 PenLab binds the explicit component on a worker thread for one call, waits 60 s (importers 180 s), then calls `cancel`,
-unbinds and reports a timeout.
+unbinds and reports a timeout. While a `pageAction` is running, PenLab's status snackbar offers a **Cancel** action that cancels the coroutine, calls `IPenLabPlugin.cancel(capabilityId)` on a worker thread, unbinds cleanly, and leaves the plugin enabled.
 
 Request JSON (`PluginRequest`): `capabilityId`, `strokesFormat` (the newest strokes-file version PenLab reads, see below; absent or 0 in an older PenLab),
 `itemsFormat` (the newest items format, see "Selected items"; absent or 0 in an older PenLab), `page {notebookId, pageIndex, widthMm, heightMm, darkPage}`,
@@ -303,7 +304,7 @@ list the capabilities in `penlab_plugin.json`. Sign it with the shared PenLab ke
 
 ## Not done yet / test on a device
 
-The recogniser capability (parsed only), icons for external entries, a Cancel button for a running plugin.
-Device checks: install `sample-plugin` (Trusted, on by itself) and see it in Settings → Plugins; select ink, More ▾ → Word count;
+The recogniser capability (parsed only).
+Device checks: install `sample-plugin` (Trusted, on by itself) and see it in Settings → Plugins; select ink, More ▾ → Word count (check `@drawable/ic_wordcount` icon and Cancel snackbar action on slow calls);
 toolbar More ▾ → Hello screen → the text box appears (undo removes it); uninstall → entries vanish; kill the plugin process
 mid-call → one message, PenLab keeps running.

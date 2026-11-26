@@ -25,11 +25,17 @@ enum class SelectionRule { REQUIRED, NONE, ANY }
 sealed interface CapabilityDecl {
   val id: String
   val label: String
+  val icon: String? get() = null
 
   /** The manifest's `kind`, for display. */
   val kind: String
 
-  class PageActionDecl(override val id: String, override val label: String, val selection: SelectionRule) : CapabilityDecl {
+  class PageActionDecl(
+    override val id: String,
+    override val label: String,
+    val selection: SelectionRule,
+    override val icon: String? = null,
+  ) : CapabilityDecl {
     override val kind get() = "pageAction"
   }
 
@@ -38,7 +44,13 @@ sealed interface CapabilityDecl {
   }
 
   /** [activity] is as written in the manifest: a full class name, or one starting with "." relative to the plugin's package. */
-  class ScreenDecl(override val id: String, override val label: String, val activity: String, val placement: ScreenPlacement) : CapabilityDecl {
+  class ScreenDecl(
+    override val id: String,
+    override val label: String,
+    val activity: String,
+    val placement: ScreenPlacement,
+    override val icon: String? = null,
+  ) : CapabilityDecl {
     override val kind get() = "screen"
   }
 
@@ -59,6 +71,7 @@ sealed interface CapabilityDecl {
     val placement: MediaPlacement = MediaPlacement.MORE_MENU,
     val screenId: String? = null,
     val startActivity: String? = null,
+    override val icon: String? = null,
   ) : CapabilityDecl {
     override val kind get() = "media"
   }
@@ -79,6 +92,15 @@ sealed interface ManifestParse {
   class Ok(val manifest: ExternalManifest) : ManifestParse
 
   class Rejected(val reason: String) : ManifestParse
+}
+
+private val iconDrawableName = Regex("[a-z][a-z0-9_]{0,127}")
+
+/** Parses `"ic_foo"` or `"@drawable/ic_foo"`, returning the bare drawable resource name or null if invalid. */
+internal fun parseIconName(raw: String?): String? {
+  val trimmed = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+  val name = if (trimmed.startsWith("@drawable/")) trimmed.removePrefix("@drawable/") else trimmed
+  return name.takeIf { iconDrawableName.matches(it) }
 }
 
 /**
@@ -120,6 +142,7 @@ object ManifestParser {
     val id = c.optString("id")
     val label = c.optString("label").trim()
     if (!plainId.matches(id) || label.isEmpty()) return null
+    val icon = parseIconName(c.optString("icon", ""))
     return when (c.optString("kind")) {
       "pageAction" ->
         CapabilityDecl.PageActionDecl(
@@ -130,6 +153,7 @@ object ManifestParser {
             "any" -> SelectionRule.ANY
             else -> return null
           },
+          icon,
         )
       "importer" ->
         CapabilityDecl.ImporterDecl(id, label, strings(c.optJSONArray("mimeTypes")), strings(c.optJSONArray("extensions")).map { it.removePrefix(".").lowercase() }.filter { it.isNotEmpty() })
@@ -143,7 +167,7 @@ object ManifestParser {
             "fileMenu" -> ScreenPlacement.FILE_MENU
             else -> return null
           }
-        CapabilityDecl.ScreenDecl(id, label, activity, placement)
+        CapabilityDecl.ScreenDecl(id, label, activity, placement, icon)
       }
       "recogniser" -> CapabilityDecl.RecogniserDecl(id, label)
       "media" ->
@@ -158,6 +182,7 @@ object ManifestParser {
           c.optString("screen").trim().takeIf { plainId.matches(it) },
           // A name that is not a class name is dropped, the capability stays (it then starts over the binder).
           c.optString("startActivity").trim().takeIf { activityName.matches(it) },
+          icon,
         )
       else -> null // a kind this PenLab does not know: ignored, as the contract says
     }

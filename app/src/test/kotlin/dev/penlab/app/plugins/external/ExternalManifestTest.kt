@@ -130,4 +130,25 @@ class ExternalManifestTest {
     assertNull(media[4].startActivity) // dropped, the capability stays
     assertEquals(5, media.size)
   }
+
+  @Test
+  fun capabilityIconParsesValidDrawableNamesAndRejectsInvalidOnes() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"pageAction","id":"p1","label":"P1","icon":"@drawable/ic_wordcount"},
+        {"kind":"screen","id":"s1","label":"S1","activity":".A","icon":"ic_chat_2"},
+        {"kind":"media","id":"m1","label":"M1","icon":"@layout/bad"},
+        {"kind":"pageAction","id":"p2","label":"P2","icon":"../escape"},
+        {"kind":"pageAction","id":"p3","label":"P3","icon":"IcUpper"},
+        {"kind":"pageAction","id":"p4","label":"P4","icon":"   "}
+      ]}""",
+    )
+    assertEquals("ic_wordcount", m.capabilities[0].icon)
+    assertEquals("ic_chat_2", m.capabilities[1].icon)
+    assertNull(m.capabilities[2].icon)
+    assertNull(m.capabilities[3].icon)
+    assertNull(m.capabilities[4].icon)
+    assertNull(m.capabilities[5].icon)
+    assertEquals(6, m.capabilities.size) // invalid icons are dropped without dropping the capability
+  }
 }

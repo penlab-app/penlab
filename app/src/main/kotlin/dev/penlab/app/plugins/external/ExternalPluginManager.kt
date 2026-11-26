@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import dev.penlab.app.plugins.PluginRegistry
 import dev.penlab.sdk.PenLabBridge
 import java.io.File
@@ -25,6 +26,8 @@ class DiscoveredPlugin(
   val problem: String?,
   /** Signed with the same certificate as PenLab. */
   val trusted: Boolean,
+  /** Loaded capability icons keyed by manifest drawable name. */
+  val icons: Map<String, ImageBitmap> = emptyMap(),
 )
 
 /** What Settings → Plugins shows for one plugin. */
@@ -81,7 +84,17 @@ class PluginScanner(private val context: Context) {
           when (val parsed = text?.let(ManifestParser::parse)) {
             null -> DiscoveredPlugin(si.packageName, si.name, null, "the manifest could not be read", trusted)
             is ManifestParse.Rejected -> DiscoveredPlugin(si.packageName, si.name, null, parsed.reason, trusted)
-            is ManifestParse.Ok -> DiscoveredPlugin(si.packageName, si.name, parsed.manifest, null, trusted)
+            is ManifestParse.Ok -> {
+              val icons = buildMap {
+                for (cap in parsed.manifest.capabilities) {
+                  val iconName = cap.icon ?: continue
+                  if (iconName !in this) {
+                    ExternalPluginIcons.load(context, si.packageName, iconName)?.let { put(iconName, it) }
+                  }
+                }
+              }
+              DiscoveredPlugin(si.packageName, si.name, parsed.manifest, null, trusted, icons)
+            }
           }
         }
       }
@@ -124,6 +137,7 @@ class ExternalPluginManager(
 
   /** Looks for plugin apps now (off the main thread) and applies the result on the main thread. */
   fun rescan() {
+    ExternalPluginIcons.clear()
     worker.execute {
       val scanned =
         try {
@@ -170,7 +184,7 @@ class ExternalPluginManager(
   private fun apply() {
     val enabled = discovered.filter { it.manifest != null && consent.isEnabled(it.packageName, it.trusted) }
     registry.replaceExternal(
-      enabled.map { ExternalPlugin(it.manifest!!, it.packageName, transportFor(ComponentName(it.packageName, it.serviceName)), env) }
+      enabled.map { ExternalPlugin(it.manifest!!, it.packageName, transportFor(ComponentName(it.packageName, it.serviceName)), env, it.icons) }
     )
     rows = discovered.map { PluginRows.row(it, consent.isEnabled(it.packageName, it.trusted), it.manifest?.id?.let(registry::isSwitchedOff) == true) }
     version++

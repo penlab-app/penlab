@@ -166,7 +166,9 @@ import dev.penlab.app.plugins.PluginItemMaterialiser
 import dev.penlab.app.plugins.PluginRegistry
 import dev.penlab.app.plugins.external.ConsentStep
 import dev.penlab.app.plugins.external.ExternalMedia
+import dev.penlab.app.plugins.external.ExternalPageAction
 import dev.penlab.app.plugins.external.ExternalPluginManager
+import dev.penlab.app.plugins.external.HasExternalIcon
 import dev.penlab.app.plugins.external.MediaPlacement
 import dev.penlab.app.plugins.host.MediaHost
 import dev.penlab.app.plugins.host.MediaPages
@@ -259,6 +261,9 @@ class MainActivity : ComponentActivity() {
   /** A plugin action is running (one at a time), and the text a finished one wants shown. */
   private var pluginBusy = false
   private var pluginText by mutableStateOf<String?>(null)
+  private var runningPluginJob: kotlinx.coroutines.Job? = null
+  private var runningPluginCancel: (() -> Unit)? = null
+  private var pluginCancelAction by mutableStateOf<(() -> Unit)?>(null)
 
   // ---- Media (lecture recording plugins, docs/plugin-bridge.md "Media") ----------------------------------------------
   // The state lives in MediaHost.sessions (process-wide: the plugin's calls arrive on binder threads); this is the screen's view of it.
@@ -686,6 +691,7 @@ class MainActivity : ComponentActivity() {
               onMediaControl = ::controlMedia,
               exportMessage = exportMessage,
               onExportMessageShown = { exportMessage = null },
+              onCancelPlugin = pluginCancelAction,
               onPageEdited = ::scheduleSave,
               search = current.search,
               projector = projector,
@@ -710,6 +716,7 @@ class MainActivity : ComponentActivity() {
     MediaHost.sessions.endLocally()
     MediaHost.sessions.clearPlayback()
     main.removeCallbacks(mediaPlaybackStale)
+    cancelRunningPlugin()
     super.onDestroy()
   }
 
@@ -1189,6 +1196,16 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  private fun cancelRunningPlugin() {
+    val job = runningPluginJob
+    val cancelIpc = runningPluginCancel
+    runningPluginJob = null
+    runningPluginCancel = null
+    pluginCancelAction = null
+    job?.cancel()
+    if (cancelIpc != null) io.execute { cancelIpc() }
+  }
+
   /**
    * Runs a plugin's page action on the open notebook: gives it the selection (read here, on the
    * main thread), shows "Running..." while it works off the main thread, then places its items or
@@ -1201,7 +1218,6 @@ class MainActivity : ComponentActivity() {
     pluginBusy = true
     val canvas = notebook.canvas
     val selection = canvas.pluginSelection()
-    val info = notebook.info
     val page = pageRefOf(notebook)
     val label = entry.capability.label
     val screen = entry.capability as? ExternalScreen
@@ -1210,11 +1226,22 @@ class MainActivity : ComponentActivity() {
       return
     }
     exportMessage = "Running “$label”…"
-    lifecycleScope.launch {
-      val outcome = plugins.runAction(entry, selection, page)
-      pluginBusy = false
-      handleOutcome(outcome, notebook, selection.isEmpty, label)
-    }
+    runningPluginCancel = { (entry.capability as? ExternalPageAction)?.cancel() }
+    pluginCancelAction = ::cancelRunningPlugin
+    runningPluginJob =
+      lifecycleScope.launch {
+        try {
+          val outcome = plugins.runAction(entry, selection, page)
+          handleOutcome(outcome, notebook, selection.isEmpty, label)
+        } catch (_: kotlinx.coroutines.CancellationException) {
+          exportMessage = "Cancelled “$label”."
+        } finally {
+          pluginBusy = false
+          runningPluginJob = null
+          runningPluginCancel = null
+          pluginCancelAction = null
+        }
+      }
   }
 
   /** The notebook's current page as plugins are told about it (size in mm; an endless canvas uses the screen's). Main thread. */
@@ -1551,6 +1578,7 @@ class MainActivity : ComponentActivity() {
 
   /** Saves and goes back to the library. */
   private fun closeNotebook() {
+    cancelRunningPlugin()
     save()
     open?.let(::saveCover)
     open?.pdf?.close()
@@ -1854,6 +1882,7 @@ private fun NoteScreen(
   onMediaControl: (String) -> Unit,
   exportMessage: String?,
   onExportMessageShown: () -> Unit,
+  onCancelPlugin: (() -> Unit)? = null,
   onPageEdited: () -> Unit,
   search: HandwritingIndex?,
   projector: dev.penlab.app.projector.ProjectorController,
@@ -2050,7 +2079,15 @@ private fun NoteScreen(
   }
   val messages = remember { SnackbarHostState() }
   val scope = rememberCoroutineScope()
-  LaunchedEffect(exportMessage) { showExportMessage(exportMessage, messages, onExportMessageShown) }
+  LaunchedEffect(exportMessage) {
+    showExportMessage(
+      message = exportMessage,
+      messages = messages,
+      actionLabel = if (onCancelPlugin != null) "Cancel" else null,
+      onAction = onCancelPlugin,
+      onShown = onExportMessageShown,
+    )
+  }
 
   fun sendToolsToCanvas() {
     val safeIndex = selected.coerceIn(0, tools.lastIndex)
@@ -2378,17 +2415,28 @@ private fun NoteScreen(
             onClearPage = { clearPageWithUndo() },
             pluginItems =
               moreMenuActions().map { entry ->
-                MenuAction(IdeaIcon, entry.capability.label, {
-                  openPanel = null
-                  onPluginAction(entry)
-                }, entry.capability.iconRes)
+                MenuAction(
+                  icon = IdeaIcon,
+                  label = entry.capability.label,
+                  onClick = {
+                    openPanel = null
+                    onPluginAction(entry)
+                  },
+                  iconRes = entry.capability.iconRes,
+                  iconBitmap = (entry.capability as? HasExternalIcon)?.externalIcon,
+                )
               } +
                 // "Record lecture" (media plugins): a recording at a time, so no entry while one is live.
                 mediaEntries().filter { mediaSession == null && it.capability.placement == MediaPlacement.MORE_MENU }.map { entry ->
-                  MenuAction(PenLabIcons.Microphone, entry.capability.label, {
-                    openPanel = null
-                    onMediaStart(entry)
-                  })
+                  MenuAction(
+                    icon = PenLabIcons.Microphone,
+                    label = entry.capability.label,
+                    onClick = {
+                      openPanel = null
+                      onMediaStart(entry)
+                    },
+                    iconBitmap = (entry.capability as? HasExternalIcon)?.externalIcon,
+                  )
                 },
             isPalm = isPalm,
           )
@@ -2538,6 +2586,7 @@ private fun NoteScreen(
               label = entry.capability.label,
               onClick = { onPluginAction(entry) },
               iconRes = entry.capability.iconRes,
+              iconBitmap = (entry.capability as? HasExternalIcon)?.externalIcon,
             )
           },
         isPalm = isPalm,
@@ -2704,16 +2753,27 @@ private fun NoteScreen(
             },
             pluginActions =
               pluginActions(true).map { entry ->
-                MenuAction(IdeaIcon, entry.capability.label, {
-                  closeOverlays(topBarToo = true)
-                  onPluginAction(entry)
-                }, entry.capability.iconRes)
+                MenuAction(
+                  icon = IdeaIcon,
+                  label = entry.capability.label,
+                  onClick = {
+                    closeOverlays(topBarToo = true)
+                    onPluginAction(entry)
+                  },
+                  iconRes = entry.capability.iconRes,
+                  iconBitmap = (entry.capability as? HasExternalIcon)?.externalIcon,
+                )
               } +
                 mediaEntries().filter { mediaSession == null && it.capability.placement == MediaPlacement.FILE_MENU }.map { entry ->
-                  MenuAction(PenLabIcons.Microphone, entry.capability.label, {
-                    closeOverlays(topBarToo = true)
-                    onMediaStart(entry)
-                  })
+                  MenuAction(
+                    icon = PenLabIcons.Microphone,
+                    label = entry.capability.label,
+                    onClick = {
+                      closeOverlays(topBarToo = true)
+                      onMediaStart(entry)
+                    },
+                    iconBitmap = (entry.capability as? HasExternalIcon)?.externalIcon,
+                  )
                 },
             isPalm = isPalm,
             modifier = Modifier.onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
@@ -3145,11 +3205,30 @@ private fun Modifier.besideSelection(
  * the effect's key, which cancelled the snackbar at once: no export message ever appeared.)
  * "Preparing…" stays up until the next message replaces it.
  */
-private suspend fun showExportMessage(message: String?, messages: SnackbarHostState, onShown: () -> Unit) {
-  if (message == null) return
+private suspend fun showExportMessage(
+  message: String?,
+  messages: SnackbarHostState,
+  actionLabel: String? = null,
+  onAction: (() -> Unit)? = null,
+  onShown: () -> Unit,
+) {
+  if (message == null) {
+    messages.currentSnackbarData?.dismiss()
+    return
+  }
   val waiting = message.startsWith("Preparing") || message.startsWith("Running")
+  val action = if (waiting && onAction != null) actionLabel else null
   messages.currentSnackbarData?.dismiss()
-  messages.showSnackbar(message, duration = if (waiting) SnackbarDuration.Indefinite else SnackbarDuration.Short)
-  onShown()
+  val result =
+    messages.showSnackbar(
+      message = message,
+      actionLabel = action,
+      duration = if (waiting) SnackbarDuration.Indefinite else SnackbarDuration.Short,
+    )
+  if (result == SnackbarResult.ActionPerformed) {
+    onAction?.invoke()
+  } else {
+    onShown()
+  }
 }
 

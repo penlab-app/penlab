@@ -431,39 +431,7 @@ fun FileOptionsPopover(
           modifier = Modifier.padding(vertical = PenLabSpacing.xs),
         )
         for (action in pluginActions) {
-          if (action.iconRes != 0) {
-            Row(
-              modifier =
-                Modifier
-                  .fillMaxWidth()
-                  .heightIn(min = PenLabSpacing.touchTarget)
-                  .clip(PenLabShapes.small)
-                  .clickable(role = Role.Button, onClick = action.onClick)
-                  .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Icon(
-                painter = painterResource(action.iconRes),
-                contentDescription = null,
-                tint = scheme.onSurfaceVariant,
-                modifier = Modifier.size(PenLabLayout.iconMedium),
-              )
-              Spacer(Modifier.width(PenLabSpacing.md))
-              Text(
-                text = action.label,
-                color = scheme.onSurface,
-                style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-              )
-            }
-          } else {
-            PenLabMenuItem(
-              label = action.label,
-              icon = action.icon,
-              onClick = action.onClick,
-            )
-          }
+          PluginMenuRow(action.label, action.onClick, action.icon, action.iconRes, action.iconBitmap)
         }
       }
     }

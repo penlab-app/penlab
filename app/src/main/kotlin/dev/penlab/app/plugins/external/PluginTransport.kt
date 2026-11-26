@@ -17,13 +17,16 @@ import dev.penlab.sdk.PluginFiles
 import java.io.Closeable
 import java.io.File
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 
 /** How long PenLab waits for a plugin app. */
 object PluginTimeouts {
@@ -88,18 +91,24 @@ sealed interface TransportOutcome {
 
   class Failed(val kind: FailureKind, val detail: String, val cause: Throwable? = null) : TransportOutcome
 
-  /** The result, or throws [ExternalPluginException] (which the registry's crash isolation handles). */
+  data object Cancelled : TransportOutcome
+
+  /** The result, or throws [ExternalPluginException] (or [CancellationException] when cancelled). */
   fun orThrow(pluginName: String): Ok =
     when (this) {
       is Ok -> this
       is Failed -> throw ExternalPluginException(kind, pluginName, detail, cause)
+      is Cancelled -> throw CancellationException("$pluginName cancelled")
     }
 }
 
 /** One blocking call into a plugin app. Production: [BoundServiceTransport]; tests use fakes. */
 fun interface PluginTransport {
-  /** Never throws: every failure is a [TransportOutcome.Failed]. [files] holds request files as ParcelFileDescriptors; the caller closes them. */
+  /** Never throws: every failure is a [TransportOutcome.Failed] or [TransportOutcome.Cancelled]. [files] holds request files as ParcelFileDescriptors; the caller closes them. */
   fun call(capabilityId: String, requestJson: String, files: Bundle, timeoutMs: Long): TransportOutcome
+
+  /** Best-effort cancellation of an in-flight call for [capabilityId]. */
+  fun cancel(capabilityId: String) {}
 }
 
 /** Maps what a binder call threw to a failure. Pure, so it is unit-tested. */
@@ -144,6 +153,24 @@ private class BundleResultFiles(private val bundle: Bundle) : ResultFiles {
  * the deadline PenLab tells the plugin to `cancel`, unbinds and reports [FailureKind.TIMEOUT].
  */
 class BoundServiceTransport(private val context: Context, private val component: ComponentName) : PluginTransport {
+  private class InFlight(
+    val connected: CountDownLatch,
+    val binder: AtomicReference<IBinder?>,
+    val task: AtomicReference<Future<TransportOutcome>?> = AtomicReference(),
+    val cancelled: AtomicBoolean = AtomicBoolean(false),
+  )
+
+  private val inFlight = ConcurrentHashMap<String, InFlight>()
+
+  override fun cancel(capabilityId: String) {
+    val entry = inFlight[capabilityId] ?: return
+    entry.cancelled.set(true)
+    entry.connected.countDown()
+    entry.task.get()?.cancel(true)
+    val b = entry.binder.get() ?: return
+    dispatchCancel(IPenLabPlugin.Stub.asInterface(b), capabilityId)
+  }
+
   override fun call(capabilityId: String, requestJson: String, files: Bundle, timeoutMs: Long): TransportOutcome {
     val deadline = SystemClock.elapsedRealtime() + timeoutMs
     fun remaining() = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
@@ -151,6 +178,8 @@ class BoundServiceTransport(private val context: Context, private val component:
     val connected = CountDownLatch(1)
     val binder = AtomicReference<IBinder?>()
     val gone = AtomicBoolean(false)
+    val entry = InFlight(connected, binder)
+    inFlight[capabilityId] = entry
     val connection =
       object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -177,25 +206,57 @@ class BoundServiceTransport(private val context: Context, private val component:
       }
     try {
       if (!bound) return TransportOutcome.Failed(FailureKind.UNAVAILABLE, "could not bind ${component.flattenToShortString()}")
-      if (!connected.await(remaining(), TimeUnit.MILLISECONDS)) return TransportOutcome.Failed(FailureKind.TIMEOUT, "did not connect in time")
-      val service = IPenLabPlugin.Stub.asInterface(binder.get() ?: return TransportOutcome.Failed(if (gone.get()) FailureKind.DIED else FailureKind.UNAVAILABLE, "no connection"))
+      val awaited =
+        try {
+          connected.await(remaining(), TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+          entry.cancelled.set(true)
+          return TransportOutcome.Cancelled
+        }
+      if (entry.cancelled.get()) return TransportOutcome.Cancelled
+      if (!awaited) return TransportOutcome.Failed(FailureKind.TIMEOUT, "did not connect in time")
+      val rawBinder = binder.get()
+        ?: return if (entry.cancelled.get()) TransportOutcome.Cancelled
+        else TransportOutcome.Failed(if (gone.get()) FailureKind.DIED else FailureKind.UNAVAILABLE, "no connection")
+      val service = IPenLabPlugin.Stub.asInterface(rawBinder)
       val task = POOL.submit(Callable { remote(service, capabilityId, requestJson, files) })
-      return try {
-        task.get(remaining(), TimeUnit.MILLISECONDS)
-      } catch (e: TimeoutException) {
+      entry.task.set(task)
+      if (entry.cancelled.get()) {
         task.cancel(true)
-        POOL.execute { runCatching { service.cancel(capabilityId) } } // best effort: the plugin may be hung
-        TransportOutcome.Failed(FailureKind.TIMEOUT, "no answer within ${timeoutMs / 1000} s")
-      } catch (e: ExecutionException) {
-        failureFor(e.cause ?: e)
+        dispatchCancel(service, capabilityId)
+        return TransportOutcome.Cancelled
       }
+      val outcome =
+        try {
+          task.get(remaining(), TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+          task.cancel(true)
+          dispatchCancel(service, capabilityId) // best effort: the plugin may be hung
+          TransportOutcome.Failed(FailureKind.TIMEOUT, "no answer within ${timeoutMs / 1000} s")
+        } catch (_: InterruptedException) {
+          task.cancel(true)
+          dispatchCancel(service, capabilityId)
+          TransportOutcome.Cancelled
+        } catch (_: java.util.concurrent.CancellationException) {
+          task.cancel(true)
+          dispatchCancel(service, capabilityId)
+          TransportOutcome.Cancelled
+        } catch (e: ExecutionException) {
+          if (entry.cancelled.get()) TransportOutcome.Cancelled else failureFor(e.cause ?: e)
+        }
+      return if (entry.cancelled.get()) TransportOutcome.Cancelled else outcome
     } finally {
+      inFlight.remove(capabilityId, entry)
       try {
         context.unbindService(connection)
       } catch (e: IllegalArgumentException) {
         Log.w(TAG, "unbind: $e") // never bound
       }
     }
+  }
+
+  private fun dispatchCancel(service: IPenLabPlugin, capabilityId: String) {
+    POOL.execute { runCatching { service.cancel(capabilityId) } }
   }
 
   /** The calls into the plugin, on a pool thread. */

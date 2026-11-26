@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
@@ -7,7 +9,7 @@ plugins {
 // every other's (Android refuses an update signed with a different key). Point PENLAB_KEYSTORE at
 // a keystore.properties file (storeFile, storePassword, keyAlias, keyPassword), or keep it at
 // ~/.config/penlab/keystore.properties. Without it, builds fall back to the local debug key.
-val penlabKeyProps = java.util.Properties().apply {
+val penlabKeyProps = Properties().apply {
   val f = file(System.getenv("PENLAB_KEYSTORE") ?: "${System.getProperty("user.home")}/.config/penlab/keystore.properties")
   if (f.exists()) f.inputStream().use { load(it) }
 }

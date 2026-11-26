@@ -1,6 +1,5 @@
 package dev.penlab.app.ui
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -49,16 +48,4 @@ class ScreenChromeTest {
     assertTrue(ScreenChrome(toolsPeeking = true).toolbar)
     assertFalse(ScreenChrome(toolsPeeking = true).presentButtons)
   }
-
-  @Test
-  fun peekWaitsWhileSomethingIsOpen() {
-    assertTrue(peekMayEnd(false, false, false, false))
-    assertFalse(peekMayEnd(true, false, false, false))
-    assertFalse(peekMayEnd(false, true, false, false))
-    assertFalse(peekMayEnd(false, false, true, false))
-    assertFalse(peekMayEnd(false, false, false, true))
-  }
-
-  @Test
-  fun peekTimeIsAboutFourSeconds() = assertEquals(4000L, PEEK_TOOLS_MS)
 }

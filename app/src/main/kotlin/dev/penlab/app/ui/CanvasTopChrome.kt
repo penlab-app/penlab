@@ -369,6 +369,9 @@ fun FileOptionsPopover(
   onSyncGoogleDrive: () -> Unit,
   onPresentMode: () -> Unit,
   onOpenSettings: () -> Unit,
+  /** Null when no external display is connected: then the entry is hidden. */
+  projectorActive: Boolean? = null,
+  onProjectorView: () -> Unit = {},
   onReportBugs: () -> Unit,
   pluginActions: List<MenuAction>,
   isPalm: () -> Boolean,
@@ -406,6 +409,14 @@ fun FileOptionsPopover(
         icon = PenLabIcons.Present,
         onClick = onPresentMode,
       )
+      if (projectorActive != null) {
+        PenLabMenuItem(
+          label = if (projectorActive) "Projector view · on" else "Projector view",
+          subtitle = "Only the page on the projector; tools stay here",
+          icon = PenLabIcons.Present,
+          onClick = onProjectorView,
+        )
+      }
       HorizontalDivider(
         color = scheme.outlineVariant,
         thickness = 1.dp,

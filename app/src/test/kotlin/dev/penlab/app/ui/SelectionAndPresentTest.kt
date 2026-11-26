@@ -175,7 +175,7 @@ class SelectionAndPresentTest {
     assertEquals(0.60f, presentPillAlpha(toolsPeeking = false), 0.001f)
     assertEquals(1.0f, presentPillAlpha(toolsPeeking = true), 0.001f)
     assertEquals(0.72f, FULLSCREEN_EXIT_ALPHA, 0.001f)
-    assertEquals(4000L, PEEK_TOOLS_MS)
+    // The pen-tools button is a toggle (Akram, 24 Nov): no auto-hide timer to assert.
     assertTrue(PRESENT_HINT_MESSAGE.contains("Presenting"))
     assertTrue(PRESENT_HINT_MS in 1500L..4000L)
 

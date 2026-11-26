@@ -195,6 +195,9 @@ class SelectionAndPresentTest {
   fun backPeelsOverlayThenPresentThenFullScreenThenNotebook() {
     assertEquals(BackAction.CLOSE_OVERLAYS, backAction(overlayOpen = true, present = true, fullScreen = true))
     assertEquals(BackAction.CLOSE_OVERLAYS, backAction(overlayOpen = true, present = false, fullScreen = false))
+    assertEquals(BackAction.CLOSE_OVERLAYS, backAction(overlayOpen = true, present = false, fullScreen = false, selection = true))
+    assertEquals(BackAction.CLEAR_SELECTION, backAction(overlayOpen = false, present = true, fullScreen = true, selection = true))
+    assertEquals(BackAction.CLEAR_SELECTION, backAction(overlayOpen = false, present = false, fullScreen = false, selection = true))
     assertEquals(BackAction.LEAVE_PRESENT, backAction(overlayOpen = false, present = true, fullScreen = true))
     assertEquals(BackAction.LEAVE_FULL_SCREEN, backAction(overlayOpen = false, present = false, fullScreen = true))
     assertEquals(BackAction.LEAVE_NOTEBOOK, backAction(overlayOpen = false, present = false, fullScreen = false))

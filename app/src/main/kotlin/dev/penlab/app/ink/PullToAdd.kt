@@ -40,10 +40,31 @@ internal object PullToAdd {
 }
 
 /**
- * Where the page should rest after the view's size changed (a rotation, a split-screen resize).
- * Pure so it is unit-tested; [InkCanvasView] applies it.
+ * The notebook view's resting rules (pure, so they are unit-tested; [InkCanvasView] applies them):
+ * the normal pan clamp, and where the view lands after the screen's size changed (a rotation, a
+ * split-screen resize). The resize reuses the pan clamp, so there is exactly one rule for the sides.
  */
 internal object ViewSettle {
+  /** A view turned by no more than this is a slip of the fingers, not a choice: treated as level. */
+  const val LEVEL_TOLERANCE_DEG = 1f
+
+  /** Whether a view turned by [angleDegrees] counts as level (the notebook rules still apply). */
+  fun isNearLevel(angleDegrees: Float): Boolean = kotlin.math.abs(angleDegrees) <= LEVEL_TOLERANCE_DEG
+
+  /**
+   * The pan clamp for the page's left edge [tx] (px) when the page is [pageWidthPx] wide: narrower
+   * than the free space between the toolbars, it stays centred; wider, its edges never come inside
+   * the screen edges.
+   */
+  fun clampX(tx: Float, pageWidthPx: Float, width: Float, leftInset: Float, rightInset: Float): Float {
+    val free = width - leftInset - rightInset
+    return if (pageWidthPx <= free) leftInset + (free - pageWidthPx) / 2f
+    else tx.coerceIn(width - rightInset - pageWidthPx, leftInset)
+  }
+
+  /** The first page's top cannot be pulled down past [topLimit]. */
+  fun clampTop(ty: Float, topLimit: Float): Float = ty.coerceAtMost(topLimit)
+
   /**
    * How far (px, positive = down) to move the content so the end of the notebook is not left above
    * the bottom of the screen with an empty area under it. [pastEnd] is how far the screen's bottom
@@ -52,4 +73,41 @@ internal object ViewSettle {
    */
   fun shiftDown(pastEnd: Float, pageTop: Float, topLimit: Float): Float =
     if (pastEnd <= 0f) 0f else minOf(pastEnd, (topLimit - pageTop).coerceAtLeast(0f))
+
+  /** A level view: page units to pixels [scale], the page's left edge [tx] and top [ty] on screen. */
+  data class Level(val scale: Float, val tx: Float, val ty: Float)
+
+  /**
+   * Where a level view lands after the size went from [oldW]x[oldH] to [newW]x[newH].
+   *  - A page that was fitted to the old width, or no longer fits the new one, is fitted to the new
+   *    width, keeping the part that was in the middle of the screen in the middle.
+   *  - The end of the notebook ([contentEnd], page units) is slid back down to the bottom of the
+   *    screen above [bottomInset] if the taller screen left it high.
+   *  - Then the ordinary pan clamp ([clampX], [clampTop]) has the last word, on both axes.
+   */
+  fun afterResize(
+    view: Level, pageWidth: Float, contentEnd: Float,
+    oldW: Float, oldH: Float, newW: Float, newH: Float,
+    leftInset: Float, rightInset: Float, bottomInset: Float, topLimit: Float,
+    minZoom: Float, maxZoom: Float,
+  ): Level {
+    var scale = view.scale
+    var tx = view.tx
+    var ty = view.ty
+    val oldFree = oldW - leftInset - rightInset
+    val newFree = newW - leftInset - rightInset
+    val wasFitted = kotlin.math.abs(pageWidth * scale - oldFree) / oldFree < FITTED_SHARE
+    if (newW != oldW && (wasFitted || pageWidth * scale > newFree)) {
+      val middleY = (oldH / 2f - ty) / scale
+      scale = (newFree / pageWidth).coerceIn(minZoom, maxZoom)
+      tx = leftInset
+      ty = newH / 2f - middleY * scale
+    }
+    val pastEnd = ((newH - bottomInset - ty) / scale - contentEnd) * scale
+    ty += shiftDown(pastEnd, ty, topLimit)
+    return Level(scale, clampX(tx, pageWidth * scale, newW, leftInset, rightInset), clampTop(ty, topLimit))
+  }
+
+  /** "Fitted" means within this share of the free width. */
+  private const val FITTED_SHARE = 0.08f
 }

@@ -26,6 +26,10 @@ internal fun speedForSystemScale(scale: Float): MotionSpeed = when {
   else -> MotionSpeed.NORMAL
 }
 
+/** The speed in effect: the one the person [stored] here, else the one Android's animation scale implies. Pure, unit-tested. */
+internal fun resolveSpeed(stored: String?, systemScale: Float): MotionSpeed =
+  MotionSpeed.entries.firstOrNull { it.name == stored } ?: speedForSystemScale(systemScale)
+
 /**
  * Every UI animation goes through here, so one setting (in the zoom readout's panel) can speed
  * them up, slow them down or switch them off. The page itself (ink, pan, zoom)
@@ -50,13 +54,18 @@ object Motion {
     prefs = p
     val system = systemScale(context)
     // Until the user picks a speed here, follow Android's own animation setting.
-    chosen = MotionSpeed.entries.firstOrNull { it.name == p.getString("speed", null) } ?: speedForSystemScale(system)
+    chosen = resolveSpeed(p.getString("speed", null), system)
     systemOff = system == 0f
   }
 
-  /** Call on resume: the person may have switched "Remove animations" in Android's settings meanwhile. */
+  /**
+   * Call on resume: the person may have changed Android's animation scale meanwhile. Re-reads it, so
+   * Settings -> Animations follows it without a relaunch (unless the person picked a speed here).
+   */
   fun refreshSystem(context: Context) {
-    systemOff = systemScale(context) == 0f
+    val system = systemScale(context)
+    systemOff = system == 0f
+    chosen = resolveSpeed(prefs?.getString("speed", null), system)
   }
 
   private fun systemScale(context: Context): Float =

@@ -1671,17 +1671,18 @@ private fun NoteScreen(
     onDispose { canvas.presenting = false }
   }
   // One Back handler for the note screen, registered after (so ahead of) the leave-notebook one in
-  // the parent: overlay first, then Present, then full screen; otherwise it is off and Back leaves.
+  // the parent: overlay first, then a selection, then Present, then full screen; otherwise it is off and Back leaves.
   val anyOverlayOpen =
     openPanel != null || dock.wheelOpen || pasteMenuAt != null || selectionMoreOpen ||
       topBarOverlayOpen() || colorWheelFor != null
-  BackHandler(enabled = anyOverlayOpen || present || fullScreen) {
-    when (backAction(anyOverlayOpen, present, fullScreen)) {
+  BackHandler(enabled = anyOverlayOpen || selectionRect != null || present || fullScreen) {
+    when (backAction(anyOverlayOpen, present, fullScreen, selection = selectionRect != null)) {
       BackAction.CLOSE_OVERLAYS -> {
         colorWheelFor?.let { slot -> tools.getOrNull(slot)?.let { toolSettings.addRecentColor(it.paperColor) } }
         closeOverlays(topBarToo = true)
         colorWheelFor = null
       }
+      BackAction.CLEAR_SELECTION -> canvas.clearSelection()
       BackAction.LEAVE_PRESENT -> leavePresent()
       BackAction.LEAVE_FULL_SCREEN -> fullScreen = false
       BackAction.LEAVE_NOTEBOOK -> Unit

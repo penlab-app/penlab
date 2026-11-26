@@ -1579,13 +1579,9 @@ class InkCanvasView(
     pageToScreen.getValues(matrixValues)
     if (abs(matrixValues[Matrix.MSKEW_Y]) > 1e-3f || abs(matrixValues[Matrix.MSKEW_X]) > 1e-3f) return // turned: no rules
     val zoom = matrixValues[Matrix.MSCALE_X]
-    val pageWidth = layout.pageWidth * zoom
     val oldTx = matrixValues[Matrix.MTRANS_X]
-    var tx = oldTx
-    val free = width - leftInset - rightInset
-    tx = if (pageWidth <= free) leftInset + (free - pageWidth) / 2f else tx.coerceIn(width - rightInset - pageWidth, leftInset)
-    val topLimit = topClearance()
-    val ty = matrixValues[Matrix.MTRANS_Y].coerceAtMost(topLimit)
+    val tx = ViewSettle.clampX(oldTx, layout.pageWidth * zoom, width.toFloat(), leftInset, rightInset)
+    val ty = ViewSettle.clampTop(matrixValues[Matrix.MTRANS_Y], topClearance())
     if (tx != matrixValues[Matrix.MTRANS_X] || ty != matrixValues[Matrix.MTRANS_Y]) {
       matrixValues[Matrix.MTRANS_X] = tx
       matrixValues[Matrix.MTRANS_Y] = ty
@@ -1628,37 +1624,33 @@ class InkCanvasView(
     val layout = pageLayout ?: return
     if (oldw <= 0 || (w == oldw && h == oldh)) return
     pageToScreen.getValues(matrixValues)
-    if (abs(matrixValues[Matrix.MSKEW_Y]) > 1e-3f) return
-    val zoom = matrixValues[Matrix.MSCALE_X]
-    val oldFree = oldw - leftInset - rightInset
-    val wasFitted = abs(layout.pageWidth * zoom - oldFree) / oldFree < 0.08f
-    if (w != oldw && (wasFitted || layout.pageWidth * zoom > w - leftInset - rightInset)) {
-      stopFling()
-      val middle = floatArrayOf(oldw / 2f, oldh / 2f)
-      screenToPage.mapPoints(middle)
-      val fit = ((w - leftInset - rightInset) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
-      pageToScreen.setScale(fit, fit)
-      pageToScreen.postTranslate(leftInset, h / 2f - middle[1] * fit)
+    if (abs(matrixValues[Matrix.MSKEW_Y]) > 1e-3f || abs(matrixValues[Matrix.MSKEW_X]) > 1e-3f) {
+      // Turned on purpose: leave it. A slip of a degree or less is level, so straighten it first
+      // (about the middle of the screen) and the notebook rules below apply as usual.
+      if (!ViewSettle.isNearLevel(angleDegrees)) return
+      straightenAbout(oldw / 2f, oldh / 2f)
+      pageToScreen.getValues(matrixValues)
     }
-    settleAfterResize(layout)
+    stopFling()
+    val settled = ViewSettle.afterResize(
+      ViewSettle.Level(matrixValues[Matrix.MSCALE_X], matrixValues[Matrix.MTRANS_X], matrixValues[Matrix.MTRANS_Y]),
+      layout.pageWidth, layout.totalHeight + layout.gap,
+      oldw.toFloat(), oldh.toFloat(), w.toFloat(), h.toFloat(),
+      leftInset, rightInset, bottomInset, topClearance(), MIN_ZOOM, MAX_ZOOM,
+    )
+    pageToScreen.setScale(settled.scale, settled.scale)
+    pageToScreen.postTranslate(settled.tx, settled.ty)
     viewMoved()
   }
 
-  /**
-   * After a size change the end of the notebook may sit high on a taller screen (the middle was kept
-   * in the middle), leaving a large empty area. Pulling past the end is only ever a finger's job, so
-   * slide the content down until the end rests at the bottom (never moving the first page's top
-   * below its limit, so a short notebook stays at the top).
-   */
-  private fun settleAfterResize(layout: PageLayout) {
-    val bottom = floatArrayOf(width / 2f, height - bottomInset)
+  /** Removes a small turn, keeping the page point under ([x], [y]) where it is. Zoom is kept. */
+  private fun straightenAbout(x: Float, y: Float) {
     pageToScreen.invert(screenToPage)
-    screenToPage.mapPoints(bottom)
+    val p = floatArrayOf(x, y)
+    screenToPage.mapPoints(p)
     val zoom = pageToScreen.mapRadius(1f)
-    val pastEnd = (bottom[1] - layout.totalHeight - layout.gap) * zoom
-    pageToScreen.getValues(matrixValues)
-    val dy = ViewSettle.shiftDown(pastEnd, matrixValues[Matrix.MTRANS_Y], topClearance())
-    if (dy > 0f) pageToScreen.postTranslate(0f, dy)
+    pageToScreen.setScale(zoom, zoom)
+    pageToScreen.postTranslate(x - p[0] * zoom, y - p[1] * zoom)
   }
 
   /** After a pinch: if the page ended up nearly screen-wide, snap it to exactly screen-wide. */

@@ -72,4 +72,57 @@ class PullToAddTest {
     // The end is still below the bottom of the screen: nothing to do.
     assertEquals(0f, ViewSettle.shiftDown(pastEnd = -300f, pageTop = -2000f, topLimit = 80f), 0f)
   }
+
+  // ---- Resize settle: 4 A4 portrait pages (2100 x 2970 units) at 75%, Tab S9 ----------------------
+
+  private val pageW = 2100f
+  private val end = 4 * 2970f + 3 * 120f // the content's end in page units (pages + gaps)
+  private val scale75 = 0.809f // 75% of true size at about 274 dpi: the page is 1700 px wide
+
+  private fun resize(view: ViewSettle.Level, oldW: Float, oldH: Float, newW: Float, newH: Float, left: Float = 0f, right: Float = 0f) =
+    ViewSettle.afterResize(view, pageW, end, oldW, oldH, newW, newH, left, right, 0f, 160f, 0.1f, 8f)
+
+  @Test
+  fun landscapeToPortraitOnATallWidePageFitsEdgeToEdgeAndRestsAtTheEnd() {
+    // Landscape 2560x1600, page centred (narrower than the view), scrolled so the end is at the bottom.
+    val tx = (2560f - pageW * scale75) / 2f
+    val view = ViewSettle.Level(scale75, tx, 1600f - end * scale75)
+    val out = resize(view, 2560f, 1600f, 1600f, 2560f)
+    // Wider than the new view: fitted, edges on the screen edges (the reported bug left it 410 px right).
+    assertEquals(1600f / pageW, out.scale, 1e-6f)
+    assertEquals(0f, out.tx, 0f)
+    // The end of the notebook rests at the bottom of the screen, not at 59% of it.
+    assertEquals(2560f, out.ty + end * out.scale, 0.01f)
+  }
+
+  @Test
+  fun aPageStillWiderThanTheViewKeepsItsEdgesBeyondTheScreenEdges() {
+    // Zoomed in (page 3400 px) and scrolled sideways; a height-only change must not strand it right of the edge.
+    val view = ViewSettle.Level(1.619f, 300f, -9000f)
+    val out = resize(view, 1600f, 2560f, 1600f, 2000f)
+    assertEquals(0f, out.tx, 0f) // clamped: left edge at the screen edge, never inside it
+    assertTrue(out.tx + pageW * out.scale >= 1600f)
+  }
+
+  @Test
+  fun aNarrowerPageIsCentredAfterTheResize() {
+    val view = ViewSettle.Level(0.3f, 0f, 160f) // 630 px page
+    val out = resize(view, 1600f, 2560f, 2560f, 1600f)
+    assertEquals((2560f - pageW * out.scale) / 2f, out.tx, 0.01f)
+  }
+
+  @Test
+  fun resizeUsesThePanClamp() {
+    assertEquals(100f, ViewSettle.clampX(40f, 800f, 1000f, 100f, 100f), 0f) // narrower: centred in the free space
+    assertEquals(0f, ViewSettle.clampX(410f, 1700f, 1600f, 0f, 0f), 0f) // wider: left edge at the screen edge at most
+    assertEquals(-100f, ViewSettle.clampX(-500f, 1700f, 1600f, 0f, 0f), 0f) // right edge at the screen edge at least
+    assertEquals(160f, ViewSettle.clampTop(300f, 160f), 0f)
+  }
+
+  @Test
+  fun aSlipOfADegreeIsLevelButADeliberateTurnIsNot() {
+    assertTrue(ViewSettle.isNearLevel(0.5f))
+    assertTrue(ViewSettle.isNearLevel(-1f))
+    assertFalse(ViewSettle.isNearLevel(5f))
+  }
 }

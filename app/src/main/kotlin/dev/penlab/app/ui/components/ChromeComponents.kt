@@ -240,13 +240,20 @@ fun <T> PenLabSegmentedControl(
         label = "segmentPress",
       )
       val bgColor by animateColorAsState(
-        targetValue = if (isSelected) PenLabComponentTokens.segmentSelectedBg else Color.Transparent,
+        targetValue =
+          when {
+            !isSelected -> Color.Transparent
+            // A disabled control keeps its choice readable: a quiet neutral pill, not primary-on-primary.
+            !enabled -> scheme.outlineVariant
+            else -> PenLabComponentTokens.segmentSelectedBg
+          },
         animationSpec = Motion.tween(140),
         label = "segmentBg",
       )
       val fgColor by animateColorAsState(
         targetValue =
           when {
+            !enabled && isSelected -> scheme.onSurface
             !enabled -> PenLabComponentTokens.toolIconDisabled
             isSelected -> PenLabComponentTokens.segmentSelectedContent
             else -> scheme.onSurface

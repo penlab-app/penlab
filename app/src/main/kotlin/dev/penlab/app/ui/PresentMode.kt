@@ -45,14 +45,15 @@ data class ScreenChrome(
 }
 
 /** What the Back button does on the note screen, most local first. */
-enum class BackAction { CLOSE_OVERLAYS, LEAVE_PRESENT, LEAVE_FULL_SCREEN, LEAVE_NOTEBOOK }
+enum class BackAction { CLOSE_OVERLAYS, CLEAR_SELECTION, LEAVE_PRESENT, LEAVE_FULL_SCREEN, LEAVE_NOTEBOOK }
 
 /**
- * Back peels one layer: an open popover, panel or wheel first, then Present, then full screen, and only
- * when nothing is left does it leave the notebook. Pure so the order can be unit-tested.
+ * Back peels one layer: an open popover, panel or wheel first, then a lasso selection, then Present, then
+ * full screen, and only when nothing is left does it leave the notebook. Pure so the order can be unit-tested.
  */
-fun backAction(overlayOpen: Boolean, present: Boolean, fullScreen: Boolean): BackAction = when {
+fun backAction(overlayOpen: Boolean, present: Boolean, fullScreen: Boolean, selection: Boolean = false): BackAction = when {
   overlayOpen -> BackAction.CLOSE_OVERLAYS
+  selection -> BackAction.CLEAR_SELECTION
   present -> BackAction.LEAVE_PRESENT
   fullScreen -> BackAction.LEAVE_FULL_SCREEN
   else -> BackAction.LEAVE_NOTEBOOK

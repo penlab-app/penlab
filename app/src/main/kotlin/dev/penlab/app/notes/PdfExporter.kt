@@ -205,11 +205,13 @@ object PdfExporter {
   /** An endless canvas becomes one page just big enough for everything on it, with a margin. */
   private fun writeCanvas(document: PdfDocument, renderer: CanvasStrokeRenderer, strokes: List<InkStroke>) {
     val bounds = RectF()
+    var first = true // not bounds.isEmpty: a zero-width first stroke would make every later one restart it
     for (stroke in strokes) {
       val r = stroke.bounds
-      if (bounds.isEmpty) bounds.set(r) else bounds.union(r)
+      if (first) bounds.set(r) else bounds.union(r)
+      first = false
     }
-    if (bounds.isEmpty) bounds.set(0f, 0f, 595f, 842f)
+    if (first || bounds.isEmpty) bounds.set(0f, 0f, 595f, 842f)
     val margin = 40f
     bounds.inset(-margin, -margin)
     // Canvas units are screen pixels; scale so the page is at most 2000 points on its long side.

@@ -3505,11 +3505,14 @@ class InkCanvasView(
     }
     // Everything the selection draws on screen (turned box and rotate handle), so the buttons
     // placed above it never cover a handle.
-    reportedRect.setEmpty()
-    for ((fx, fy) in listOf(0f to 0f, 1f to 0f, 1f to 1f, 0f to 1f)) {
+    // Start from the first corner and grow. (Testing reportedRect.isEmpty instead was wrong: a
+    // single point has zero width, so every corner restarted the rect and only the last one plus
+    // the knob survived, and the buttons were placed against that sliver. QA 26 Nov.)
+    boxPoint(0f, 0f, pageToScreen, handlePoint)
+    reportedRect.set(handlePoint[0], handlePoint[1], handlePoint[0], handlePoint[1])
+    for ((fx, fy) in listOf(1f to 0f, 1f to 1f, 0f to 1f)) {
       boxPoint(fx, fy, pageToScreen, handlePoint)
-      if (reportedRect.isEmpty) reportedRect.set(handlePoint[0], handlePoint[1], handlePoint[0], handlePoint[1])
-      else reportedRect.union(handlePoint[0], handlePoint[1])
+      reportedRect.union(handlePoint[0], handlePoint[1])
     }
     rotateHandlePoint(pageToScreen, handlePoint)
     reportedRect.union(handlePoint[0], handlePoint[1])
@@ -3574,11 +3577,22 @@ class InkCanvasView(
       path.close()
       canvas.drawPath(path, dashed)
 
-      // Rotate handle on a short stem above the top edge.
-      boxPoint(0.5f, 0f, movedMatrix, point)
-      val stemX = point[0]
-      val stemY = point[1]
+      // Rotate handle on a short stem from the nearer edge: the top normally, the bottom when the
+      // knob was flipped below the box (near the top chrome). Drawing it from the top edge always
+      // ran the stem through the whole selection.
       rotateHandlePoint(movedMatrix, point)
+      val knobX = point[0]
+      val knobY = point[1]
+      boxPoint(0.5f, 0f, movedMatrix, point)
+      var stemX = point[0]
+      var stemY = point[1]
+      boxPoint(0.5f, 1f, movedMatrix, point)
+      if (hypot(point[0] - knobX, point[1] - knobY) < hypot(stemX - knobX, stemY - knobY)) {
+        stemX = point[0]
+        stemY = point[1]
+      }
+      point[0] = knobX
+      point[1] = knobY
       canvas.drawLine(stemX, stemY, point[0], point[1], solid)
       canvas.drawCircle(point[0], point[1], HANDLE_RADIUS_DP * density, handleFill)
       canvas.drawCircle(point[0], point[1], HANDLE_RADIUS_DP * density, handleEdge)

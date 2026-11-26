@@ -13,8 +13,25 @@ class WheelGeometryTest {
   // A 1600 x 2560 px screen at 2x density (800 x 1280 dp), like the Tab S9 in portrait.
   private val w = 1600f
   private val h = 2560f
-  private fun corner(onLeft: Boolean, onTop: Boolean) =
-    WheelGeometry.corner(onLeft, onTop, w, h, insetLeft = 48f, insetRight = 64f, insetBottom = 72f, topReserve = 200f, gap = 24f, hubHalf = 72f)
+  private val density = 2f // px per dp, for converting the dp constants
+  private val hubHalfPx = WheelGeometry.HUB_DP * density / 2f
+
+  /** The ring for a corner of the test screen, at 2 px per dp, exactly as ToolDock asks for it. */
+  private fun ringWith(insetU: Float, insetV: Float): WheelGeometry.Ring = WheelGeometry.ring(
+    minRadius = WheelGeometry.RING_RADIUS_DP * density,
+    cell = WheelGeometry.CELL_DP * density,
+    discMargin = WheelGeometry.DISC_MARGIN_DP * density,
+    insetU = insetU,
+    insetV = insetV,
+    hubHalf = hubHalfPx,
+    cellGap = WheelGeometry.CELL_GAP_DP * density,
+    hubClearance = WheelGeometry.HUB_CLEARANCE_DP * density,
+  )
+
+  private fun cornerOf(onLeft: Boolean, onTop: Boolean, ring: WheelGeometry.Ring) =
+    WheelGeometry.corner(onLeft, onTop, w, h, ring.hubU, ring.hubV)
+
+  private fun corner(onLeft: Boolean, onTop: Boolean) = cornerOf(onLeft, onTop, ringWith(48f, 72f))
 
   // ---- The gesture: the item list must compare equal across recompositions ----
 
@@ -43,40 +60,28 @@ class WheelGeometryTest {
   }
 
   @Test
-  fun everyCornerSitsInsideTheGestureSafeArea() {
+  fun theHubIsTheDiscCentreAndSitsWellInFromBothEdges() {
     for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
-      val c = corner(onLeft, onTop)
-      // The button's whole disc (centre +/- half) stays inside the safe rectangle.
-      val safeLeft = 48f
-      val safeRight = w - 64f
-      val safeBottom = h - 72f
-      val safeTop = 200f
-      assertTrue(c.hubX - 72f >= safeLeft && c.hubX + 72f <= safeRight)
-      assertTrue(c.hubY - 72f >= safeTop && c.hubY + 72f <= safeBottom)
-      // The disc itself is centred on the real screen corner (the edges cut it), not pulled in.
-      assertEquals(if (onLeft) 0f else w, c.originX, 0f)
-      assertEquals(if (onTop) 0f else h, c.originY, 0f)
+      val ring = ringWith(48f, 72f)
+      val c = cornerOf(onLeft, onTop, ring)
+      // The hub is the disc's centre (ToolDock places the disc on c.hub); it is clear of the strips...
+      assertTrue(c.hubU - hubHalfPx >= 48f)
+      assertTrue(c.hubV - hubHalfPx >= 72f)
+      // ...and so far in that more than a quarter of the disc shows: the centre is inside the screen
+      // by well over the quarter's zero, and the disc reaches past it on both sides.
+      assertEquals(if (onLeft) c.hubU else w - c.hubU, c.hubX, 0f)
+      assertEquals(if (onTop) c.hubV else h - c.hubV, c.hubY, 0f)
+      assertTrue(c.hubU > 0f && c.hubV > 0f)
     }
   }
 
   @Test
-  fun bottomCornersAreLiftedOutOfTheHomeGestureZone() {
-    val c = corner(onLeft = true, onTop = false)
-    assertEquals(h, c.originY, 0f) // the disc is anchored at the real corner...
-    assertEquals(0f, c.originX, 0f)
-    assertTrue(c.hubY + 72f <= h - 72f) // ...but the button is lifted out of the Home-gesture zone
-    assertTrue(c.hubX - 72f >= 48f)
-  }
-
-  @Test
-  fun quarterContainsOnlyTheScreenSideOfTheDisc() {
-    val c = corner(onLeft = true, onTop = false)
-    val r = 380f
-    fun inside(x: Float, y: Float) = WheelGeometry.inQuarter(Offset(x, y), c.originX, c.originY, true, false, r)
-    assertTrue(inside(c.originX + 100f, c.originY - 100f))
-    assertFalse(inside(c.originX - 10f, c.originY - 100f)) // back towards the Back-gesture strip
-    assertFalse(inside(c.originX + 100f, c.originY + 10f)) // down into the Home-gesture strip
-    assertFalse(inside(c.originX + 300f, c.originY - 300f)) // past the rim
+  fun discContainmentIsACircleAroundTheHub() {
+    val hub = Offset(500f, 500f)
+    assertTrue(WheelGeometry.inDisc(Offset(500f, 500f), hub, 300f))
+    assertTrue(WheelGeometry.inDisc(Offset(200f, 500f), hub, 300f)) // on the rim
+    assertTrue(WheelGeometry.inDisc(Offset(300f, 300f), hub, 300f)) // behind the hub, towards the corner
+    assertFalse(WheelGeometry.inDisc(Offset(800f, 800f), hub, 300f))
   }
 
   // ---- Immersive (system bars hidden): the wheel sits in the real corner ----
@@ -89,43 +94,32 @@ class WheelGeometryTest {
   }
 
   @Test
-  fun immersiveHubAndCellsSitAtTheNaturalCornerAndStayOnScreen() {
+  fun immersiveCellsKeepOnlyTheCornerMarginAndStayOnScreen() {
     val half = WheelGeometry.CELL_DP * density / 2f
     val margin = WheelGeometry.CORNER_MARGIN_DP * density
-    val hubHalf = WheelGeometry.HUB_DP * density / 2f
-    val gap = WheelGeometry.EDGE_GAP_DP * density
     for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
-      // No gesture pull-in: the hub is just EDGE_GAP from the side and from the bottom (or top buttons).
-      val topReserve = 200f
-      val c = WheelGeometry.corner(onLeft, onTop, w, h, 0f, 0f, 0f, topReserve, gap, hubHalf)
-      assertEquals(gap + hubHalf, c.hubU, 0.01f)
-      assertEquals(if (onTop) topReserve + gap + hubHalf else gap + hubHalf, c.hubV, 0.01f)
-      val ring = WheelGeometry.ring(
-        minRadius = WheelGeometry.RING_RADIUS_DP * density, cell = WheelGeometry.CELL_DP * density,
-        discMargin = WheelGeometry.DISC_MARGIN_DP * density, insetU = margin,
-        insetV = if (onTop) maxOf(topReserve, margin) else margin,
-        hubU = c.hubU, hubV = c.hubV, hubHalf = hubHalf,
-        cellGap = WheelGeometry.CELL_GAP_DP * density, hubClearance = WheelGeometry.HUB_CLEARANCE_DP * density,
-      )
+      val ring = ringWith(margin, margin)
+      val c = cornerOf(onLeft, onTop, ring)
       for (p in cells(c, ring, onLeft, onTop)) {
         assertTrue("cell $p fully on screen", p.x - half >= margin - 0.01f && p.x + half <= w - margin + 0.01f)
         assertTrue("cell $p fully on screen", p.y - half >= margin - 0.01f && p.y + half <= h - margin + 0.01f)
       }
-      // The cells sit nearer the real corner than they would behind a 30 dp gesture strip.
-      val strip = ringFor(onLeft, onTop, insetSide = 60f, insetBottom = 60f, topReserve = topReserve).second
-      assertTrue(ring.startDeg < strip.startDeg || onTop)
+      // With no gesture strips the cells reach nearer the real corner than behind 30 dp strips.
+      val strip = ringWith(60f, 60f)
+      assertTrue(ring.hubU < strip.hubU && ring.hubV < strip.hubV)
     }
   }
 
   @Test
   fun foldedHubExclusionRunsFromTheSideEdgeOverTheButton() {
     val hubHalf = 72f
-    val c = WheelGeometry.corner(true, false, w, h, 0f, 0f, 0f, 200f, 24f, hubHalf)
+    val ring = ringWith(0f, 0f)
+    val c = cornerOf(true, false, ring)
     val r = WheelGeometry.hubExclusionRects(true, w, h, c, hubHalf, 24f).single()
     assertEquals(0, r.left)
     assertTrue(r.right >= (c.hubX + hubHalf).toInt())
     assertTrue(c.hubY >= r.top && c.hubY <= r.bottom && r.bottom <= h.toInt())
-    val rr = WheelGeometry.hubExclusionRects(false, w, h, WheelGeometry.corner(false, false, w, h, 0f, 0f, 0f, 200f, 24f, hubHalf), hubHalf, 24f).single()
+    val rr = WheelGeometry.hubExclusionRects(false, w, h, cornerOf(false, false, ring), hubHalf, 24f).single()
     assertEquals(w.toInt(), rr.right)
     assertTrue(WheelGeometry.hubExclusionRects(true, 0f, 0f, c, hubHalf, 24f).isEmpty())
   }
@@ -133,31 +127,31 @@ class WheelGeometryTest {
   // ---- Exclusion rects ----
 
   @Test
-  fun leftWheelExcludesFromTheLeftEdgeAcrossTheWheel() {
+  fun leftWheelExcludesFromTheLeftEdgeAcrossTheDisc() {
     val c = corner(onLeft = true, onTop = false)
-    val rects = WheelGeometry.exclusionRects(true, false, w, h, c, radius = 380f, maxHeight = 400f)
-    assertEquals(1, rects.size)
-    val r = rects.single()
+    val radius = 380f
+    val r = WheelGeometry.exclusionRects(true, false, w, h, c, radius = radius, maxHeight = 5000f).single()
     assertEquals(0, r.left) // includes the gesture strip itself
-    assertEquals(380, r.right) // the disc is centred on the real corner
-    assertEquals(h.toInt(), r.bottom) // runs on to the screen's bottom edge
-    assertTrue(r.height <= 400)
+    assertEquals((c.hubX + radius).toInt(), r.right) // the disc's far side, centred on the hub
+    assertEquals((c.hubY - radius).toInt(), r.top)
+    assertEquals(minOf(c.hubY + radius, h).toInt(), r.bottom)
+    assertTrue(r.left >= 0 && r.right <= w.toInt() && r.top >= 0 && r.bottom <= h.toInt())
   }
 
   @Test
   fun rightWheelExcludesToTheRightEdge() {
     val c = corner(onLeft = false, onTop = false)
-    val r = WheelGeometry.exclusionRects(false, false, w, h, c, radius = 380f, maxHeight = 400f).single()
+    val r = WheelGeometry.exclusionRects(false, false, w, h, c, radius = 380f, maxHeight = 5000f).single()
     assertEquals(w.toInt(), r.right)
-    assertEquals((w - 380f).toInt(), r.left)
+    assertEquals((c.hubX - 380f).toInt(), r.left)
   }
 
   @Test
-  fun topWheelExcludesFromTheTopEdgeDownwards() {
+  fun topWheelIsExcludedFromTheTopEdgeWhenTheDiscReachesIt() {
     val c = corner(onLeft = true, onTop = true)
-    val whole = WheelGeometry.exclusionRects(true, true, w, h, c, radius = 500f, maxHeight = 5000f).single()
-    assertEquals(0, whole.top) // uncut, it starts at the top edge and runs to the disc's far side
-    assertEquals(500, whole.bottom)
+    val whole = WheelGeometry.exclusionRects(true, true, w, h, c, radius = c.hubY + 50f, maxHeight = 5000f).single()
+    assertEquals(0, whole.top) // the disc runs past the top edge, so the rect is clipped to it
+    assertEquals((2 * c.hubY + 50f).toInt(), whole.bottom)
     val cut = WheelGeometry.exclusionRects(true, true, w, h, c, radius = 500f, maxHeight = 400f).single()
     assertEquals(400, cut.height)
     assertTrue(c.hubY >= cut.top && c.hubY <= cut.bottom)
@@ -173,23 +167,13 @@ class WheelGeometryTest {
   }
 
   @Test
-  fun shortWheelIsExcludedWholeAndRectsStayOnScreen() {
-    val c = corner(onLeft = true, onTop = false)
-    val r = WheelGeometry.exclusionRects(true, false, w, h, c, radius = 380f, maxHeight = 5000f).single()
-    assertEquals(380, r.height) // from the disc's top to the screen's bottom
-    assertTrue(r.left >= 0 && r.right <= w.toInt() && r.top >= 0 && r.bottom <= h.toInt())
-  }
-
-  @Test
   fun aDegenerateScreenGivesNoRects() {
-    val c = WheelGeometry.corner(true, false, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    val c = WheelGeometry.corner(true, false, 0f, 0f, 0f, 0f)
     assertTrue(WheelGeometry.exclusionRects(true, false, 0f, 0f, c, 380f, 400f).isEmpty())
     assertEquals(PxRect(0, 0, 10, 20).height, 20)
   }
 
   // ---- Ring sizes and hit-testing at the new size ----
-
-  private val density = 2f // px per dp, for converting the dp constants
 
   @Test
   fun ringCellsMeetTheTouchTargetMinimumAndAreAboutAQuarterBigger() {
@@ -198,32 +182,16 @@ class WheelGeometryTest {
     assertEquals(1.25f, WheelGeometry.RING_RADIUS_DP / 124f, 0.01f)
   }
 
-  /** The ring for a corner of the test screen, at 2 px per dp, exactly as ToolDock asks for it. */
   private fun ringFor(onLeft: Boolean, onTop: Boolean, insetSide: Float = 60f, insetBottom: Float = 60f, topReserve: Float = 200f): Pair<WheelGeometry.Corner, WheelGeometry.Ring> {
-    val c = WheelGeometry.corner(
-      onLeft, onTop, w, h, insetLeft = insetSide, insetRight = insetSide, insetBottom = insetBottom, topReserve = topReserve,
-      gap = WheelGeometry.EDGE_GAP_DP * density, hubHalf = WheelGeometry.HUB_DP * density / 2f,
-    )
-    val ring = WheelGeometry.ring(
-      minRadius = WheelGeometry.RING_RADIUS_DP * density,
-      cell = WheelGeometry.CELL_DP * density,
-      discMargin = WheelGeometry.DISC_MARGIN_DP * density,
-      insetU = insetSide,
-      insetV = if (onTop) topReserve else insetBottom,
-      hubU = c.hubU,
-      hubV = c.hubV,
-      hubHalf = WheelGeometry.HUB_DP * density / 2f,
-      cellGap = WheelGeometry.CELL_GAP_DP * density,
-      hubClearance = WheelGeometry.HUB_CLEARANCE_DP * density,
-    )
-    return c to ring
+    val ring = ringWith(insetSide, if (onTop) topReserve else insetBottom)
+    return cornerOf(onLeft, onTop, ring) to ring
   }
 
-  /** The visible cells' centres in root pixels. */
+  /** The visible cells' centres in root pixels, round the hub. */
   private fun cells(c: WheelGeometry.Corner, ring: WheelGeometry.Ring, onLeft: Boolean, onTop: Boolean): List<Offset> =
-    (0 until WheelGeometry.VISIBLE_CELLS).map { i ->
+    (0 until ring.count).map { i ->
       val s = WheelGeometry.ringSlot(ring.radius, ring.startDeg + i * ring.stepDeg)
-      Offset(c.originX + if (onLeft) s.x else -s.x, c.originY + if (onTop) s.y else -s.y)
+      Offset(c.hubX + if (onLeft) s.x else -s.x, c.hubY + if (onTop) s.y else -s.y)
     }
 
   private val insetCases = listOf(
@@ -263,21 +231,34 @@ class WheelGeometryTest {
         assertTrue("cells overlap: $g", g >= cell)
       }
       val hub = Offset(c.hubX, c.hubY)
-      for (p in pts) assertTrue("cell on the button", (p - hub).getDistance() >= cell / 2f + WheelGeometry.HUB_DP * density / 2f)
+      for (p in pts) assertTrue("cell on the button", (p - hub).getDistance() >= cell / 2f + hubHalfPx)
     }
   }
 
   @Test
-  fun theDiscIsAnchoredAtTheScreenCornerAndHoldsTheWholeRing() {
+  fun theVisibleArcIsAtLeastAHalfCircleAndHoldsMoreThanFourTools() {
+    for ((side, bottom, top) in insetCases) for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
+      val (_, ring) = ringFor(onLeft, onTop, side, bottom, top)
+      assertTrue("arc ${ring.spanDeg}", ring.spanDeg >= 180f)
+      assertTrue("count ${ring.count}", ring.count > 4)
+      assertEquals(ring.spanDeg, (ring.count - 1) * ring.stepDeg, 0.01f)
+    }
+  }
+
+  @Test
+  fun theDiscIsCentredOnTheHubAndHoldsTheWholeRingAndShowsMoreThanAQuarter() {
     for (onLeft in listOf(true, false)) for (onTop in listOf(true, false)) {
       val (c, ring) = ringFor(onLeft, onTop)
-      assertEquals(if (onLeft) 0f else w, c.originX, 0f)
-      assertEquals(if (onTop) 0f else h, c.originY, 0f)
+      val hub = Offset(c.hubX, c.hubY)
       assertEquals(ring.radius + WheelGeometry.CELL_DP * density / 2f + WheelGeometry.DISC_MARGIN_DP * density, ring.disc, 0.001f)
-      // Every visible cell and the button are inside the disc's quarter.
-      for (p in cells(c, ring, onLeft, onTop) + Offset(c.hubX, c.hubY))
-        assertTrue(WheelGeometry.inQuarter(p, c.originX, c.originY, onLeft, onTop, ring.disc))
-      assertTrue(ring.radius >= WheelGeometry.RING_RADIUS_DP * density) // never smaller than the 25%-larger ring
+      // Every visible cell is inside the disc, whose centre is the hub itself.
+      for (p in cells(c, ring, onLeft, onTop)) assertTrue(WheelGeometry.inDisc(p, hub, ring.disc))
+      assertTrue(ring.radius >= WheelGeometry.RING_RADIUS_DP * density)
+      // More than a quarter shows: the screen edges are closer to the centre than the rim is on
+      // both axes, so the visible part is the disc minus two thin caps, not a 90 degree wedge.
+      // (measured from the gesture strips: 60 px at the sides and bottom, 200 px under the top buttons)
+      assertTrue(c.hubU - 60f < ring.disc && c.hubV - (if (onTop) 200f else 60f) < ring.disc)
+      assertTrue(c.hubU > 0f && c.hubV > 0f)
     }
   }
 
@@ -305,7 +286,7 @@ class WheelGeometryTest {
     val (c, ring) = ringFor(true, false)
     val targets = targetsFor(c, ring, true, false)
     val hub = Offset(c.hubX, c.hubY)
-    assertNull(WheelGeometry.pickTarget(targets, Offset(c.originX + 900f, c.originY - 900f), hub, 110f, 208f))
+    assertNull(WheelGeometry.pickTarget(targets, hub + Offset(900f, -900f), hub, 110f, 208f))
   }
 
   @Test

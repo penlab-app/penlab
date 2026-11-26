@@ -8,9 +8,10 @@ import androidx.compose.ui.geometry.Offset
  * rectangles must be excluded from the Back gesture, and which ring cell a pull is pointing at.
  * No Compose state and no Android classes, so it is unit-tested on the JVM (WheelGeometryTest).
  *
- * The disc is a true quarter circle centred on the real screen corner; the screen edges cut it.
- * Only what is interactive keeps out of the gesture strips: the button's touch centre, and the
- * ring cells (see [ring]).
+ * The disc is centred on the round button (the hub), and the hub is pulled in from both screen
+ * edges far enough that the ring of tools round it has a visible arc of 190
+ * degrees ([ARC_CUT_DEG]); the screen edges still clip the disc, but only its outer rim. The ring cells are placed
+ * so every visible one is fully on screen and clear of the gesture strips (see [ring]).
  *
  * All sizes are in dp (as plain floats) and every position is in root pixels.
  */
@@ -35,13 +36,17 @@ internal object WheelGeometry {
   /** Least clear space between the round button and the nearest visible ring cell. */
   const val HUB_CLEARANCE_DP = 8f
 
-  /** How many tools are visible on the arc at once. */
-  const val VISIBLE_CELLS = 4
+  /**
+   * How far (in degrees, seen from the hub) each screen edge's cut reaches into the ring on both
+   * sides of the edge's direction: the visible arc is 270 - 2 * this = 190 degrees, so it is always
+   * more than a half circle (a quarter disc would be 90).
+   */
+  const val ARC_CUT_DEG = 40f
 
-  /** The round button in the corner. */
+  /** The round button, at the centre of the disc. */
   const val HUB_DP = 72f
 
-  /** Space between the button and the (gesture-safe) edges. */
+  /** Space between the folded button's exclusion rectangle and the button. */
   const val EDGE_GAP_DP = 12f
 
   /** Android honours at most this much exclusion height per screen edge. */
@@ -69,61 +74,59 @@ internal object WheelGeometry {
     maxOf(if (immersive) 0f else gesture, covered, 0f).coerceAtMost((extent * MAX_INSET_FRACTION).coerceAtLeast(0f))
 
   /**
-   * The wheel's centre (the real screen corner, where the disc is drawn from) and its round
-   * button's touch centre, root pixels.
+   * The wheel's centre, which is also the round button's centre ([hubX], [hubY], root pixels), and
+   * the real screen corner it hangs off ([originX], [originY]).
    */
   data class Corner(val originX: Float, val originY: Float, val hubX: Float, val hubY: Float) {
-    /** How far the button's centre is from the corner along the bottom/top edge. */
+    /** How far the hub's centre is from the side edge (along the bottom/top edge). */
     val hubU: Float get() = kotlin.math.abs(hubX - originX)
 
-    /** How far the button's centre is from the corner along the side edge. */
+    /** How far the hub's centre is from the bottom/top edge (along the side edge). */
     val hubV: Float get() = kotlin.math.abs(hubY - originY)
   }
 
   /**
-   * Where the wheel turns round and where its button sits. The wheel's centre is the screen corner
-   * itself, so the disc runs off both screen edges. The button is the interactive part: its centre
-   * sits [gap] + [hubHalf] in from the gesture insets (bottom/sides) or from [topReserve] (the top
-   * buttons), so it is clear of every gesture zone.
+   * Where the hub (and so the disc's centre) sits for a corner: [hubU] in from the side edge and
+   * [hubV] in from the bottom/top edge, both taken from [Ring.hubU] and [Ring.hubV].
    */
-  fun corner(
-    onLeft: Boolean,
-    onTop: Boolean,
-    width: Float,
-    height: Float,
-    insetLeft: Float,
-    insetRight: Float,
-    insetBottom: Float,
-    topReserve: Float,
-    gap: Float,
-    hubHalf: Float,
-  ): Corner {
+  fun corner(onLeft: Boolean, onTop: Boolean, width: Float, height: Float, hubU: Float, hubV: Float): Corner {
     val ox = if (onLeft) 0f else width
     val oy = if (onTop) 0f else height
-    val d = gap + hubHalf
-    val hx = if (onLeft) insetLeft + d else width - insetRight - d
-    val hy = if (onTop) topReserve + d else height - insetBottom - d
-    return Corner(ox, oy, hx, hy)
+    return Corner(ox, oy, if (onLeft) hubU else width - hubU, if (onTop) hubV else height - hubV)
   }
 
   // ---- The ring ----
 
   /**
-   * Where the tools sit. Cell centres lie on a circle of [radius] round the screen corner, at
-   * [startDeg] + i * [stepDeg] (0 = along the bottom/top edge, 90 = along the side edge); the
-   * [VISIBLE_CELLS] visible ones run from [startDeg] to [endDeg], evenly spaced. [disc] is the
-   * visible disc's radius.
+   * Where the tools sit. Cell centres lie on a circle of [radius] round the hub, at
+   * [startDeg] + i * [stepDeg] (0 = along the bottom/top edge into the screen, 90 = along the side
+   * edge into the screen); the [count] visible ones run from [startDeg] to [endDeg], evenly spaced.
+   * [disc] is the disc's radius. [hubU] and [hubV] are the disc centre's distances from the side
+   * edge and from the bottom/top edge.
    */
-  data class Ring(val radius: Float, val startDeg: Float, val endDeg: Float, val stepDeg: Float, val disc: Float)
+  data class Ring(
+    val radius: Float,
+    val startDeg: Float,
+    val endDeg: Float,
+    val stepDeg: Float,
+    val disc: Float,
+    val count: Int = 4,
+    val hubU: Float = 0f,
+    val hubV: Float = 0f,
+  ) {
+    /** The visible arc's size in degrees. */
+    val spanDeg: Float get() = endDeg - startDeg
+  }
 
   /**
-   * Lays the ring out so every visible cell is fully on screen and clear of the gesture strips.
-   * [insetU] is the strip along the side edge and [insetV] the one along the bottom (or top) edge,
-   * so a cell at (u, v) from the corner needs u - cell/2 >= insetU and v - cell/2 >= insetV. The
-   * angular range is exactly what that allows at the chosen radius, and the radius is the
-   * smallest one (not under [minRadius]) at which neighbouring cells keep [cellGap] between them
-   * and the button (centre [hubU], [hubV] from the corner, radius [hubHalf]) keeps [hubClearance]
-   * from every visible cell.
+   * Lays the ring out round the hub. [insetU] is the strip along the side edge and [insetV] the one
+   * along the bottom (or top) edge; a cell at (u, v) from the corner needs u - cell/2 >= insetU and
+   * v - cell/2 >= insetV. The hub is put exactly where the two edges cut the circle of cell
+   * centres [ARC_CUT_DEG] either side of their directions, so the cells that stay visible run along
+   * one arc of 270 - 2 * [ARC_CUT_DEG] degrees (190), from just above the bottom/top edge round the
+   * far side to just clear of the side edge, each fully on screen. As many cells as keep
+   * [cellGap] between neighbours are spread evenly along the arc, and the radius is never so small
+   * that a cell touches the button (radius [hubHalf], kept [hubClearance] away).
    */
   fun ring(
     minRadius: Float,
@@ -131,42 +134,21 @@ internal object WheelGeometry {
     discMargin: Float,
     insetU: Float,
     insetV: Float,
-    hubU: Float,
-    hubV: Float,
     hubHalf: Float,
     cellGap: Float,
     hubClearance: Float,
-    maxRadius: Float = 700f,
+    arcCutDeg: Float = ARC_CUT_DEG,
   ): Ring {
-    val loU = insetU + cell / 2f
-    val loV = insetV + cell / 2f
-    fun at(radius: Float): Ring? {
-      if (radius <= loU || radius <= loV) return null
-      val start = Math.toDegrees(Math.asin((loV / radius).toDouble())).toFloat()
-      val end = Math.toDegrees(Math.acos((loU / radius).toDouble())).toFloat()
-      val step = (end - start) / (VISIBLE_CELLS - 1)
-      if (step <= 0f) return null
-      return Ring(radius, start, end, step, radius + cell / 2f + discMargin)
-    }
-    fun fits(r: Ring): Boolean {
-      val chord = 2f * r.radius * Math.sin(Math.toRadians(r.stepDeg / 2.0)).toFloat()
-      if (chord < cell + cellGap) return false
-      return (0 until VISIBLE_CELLS).all { i ->
-        val s = ringSlot(r.radius, r.startDeg + i * r.stepDeg)
-        Math.hypot((s.x - hubU).toDouble(), (s.y - hubV).toDouble()) >= cell / 2f + hubHalf + hubClearance
-      }
-    }
-    var radius = minRadius
-    var best: Ring? = null
-    while (radius <= maxRadius) {
-      val r = at(radius)
-      if (r != null) {
-        best = r
-        if (fits(r)) return r
-      }
-      radius += 1f
-    }
-    return best ?: Ring(maxRadius, 45f, 45f, 0f, maxRadius + cell / 2f + discMargin)
+    val radius = maxOf(minRadius, cell / 2f + hubHalf + hubClearance)
+    val cut = Math.cos(Math.toRadians(arcCutDeg.toDouble())).toFloat() * radius
+    val hubU = insetU + cell / 2f + cut
+    val hubV = insetV + cell / 2f + cut
+    val start = arcCutDeg - 90f
+    val end = 180f - arcCutDeg
+    val span = end - start
+    val minStep = Math.toDegrees(2.0 * Math.asin(((cell + cellGap) / (2f * radius)).toDouble().coerceAtMost(1.0))).toFloat()
+    val count = (Math.floor((span / minStep + 1e-4f).toDouble()).toInt() + 1).coerceAtLeast(2)
+    return Ring(radius, start, end, span / (count - 1), radius + cell / 2f + discMargin, count, hubU, hubV)
   }
 
   /** Where a ring slot at [angleDeg] (0 = along the bottom/top edge, 90 = along the side edge) sits. */
@@ -190,12 +172,8 @@ internal object WheelGeometry {
     return (1f - over / (0.6f * ring.stepDeg)).coerceIn(0f, 1f)
   }
 
-  /** True if [p] lies in the wheel's quarter: inside the disc and on the screen side of both axes. */
-  fun inQuarter(p: Offset, originX: Float, originY: Float, onLeft: Boolean, onTop: Boolean, radius: Float): Boolean {
-    val u = if (onLeft) p.x - originX else originX - p.x
-    val v = if (onTop) p.y - originY else originY - p.y
-    return u >= 0f && v >= 0f && u * u + v * v <= radius * radius
-  }
+  /** True if [p] lies inside the wheel's disc (centre [hub], radius [radius]). */
+  fun inDisc(p: Offset, hub: Offset, radius: Float): Boolean = (p - hub).getDistance() <= radius
 
   // ---- System gesture exclusion ----
 
@@ -207,8 +185,9 @@ internal object WheelGeometry {
   /**
    * The rectangles to hand to `View.setSystemGestureExclusionRects` while the wheel is open, so a
    * drag on it never starts the Back gesture. The rect runs from the side edge (the gesture zone
-   * itself) across the wheel, as tall as the wheel but at most [maxHeight]; when it has to be
-   * cut, the window stays on the button's height, where the pen is.
+   * itself) across the disc's bounding box (centre = the hub, [radius]), clipped to the screen,
+   * as tall as the disc but at most [maxHeight]; when it has to be cut, the window stays on the
+   * hub's height, where the pen is.
    */
   fun exclusionRects(
     onLeft: Boolean,
@@ -219,11 +198,10 @@ internal object WheelGeometry {
     radius: Float,
     maxHeight: Float,
   ): List<PxRect> {
-    val x0 = if (onLeft) 0f else (corner.originX - radius).coerceIn(0f, width)
-    val x1 = if (onLeft) (corner.originX + radius).coerceIn(0f, width) else width
-    // Vertically: the quarter's span, running on to the screen edge it sits against.
-    val y0 = if (onTop) 0f else (corner.originY - radius).coerceIn(0f, height)
-    val y1 = if (onTop) (corner.originY + radius).coerceIn(0f, height) else height
+    val x0 = if (onLeft) 0f else (corner.hubX - radius).coerceIn(0f, width)
+    val x1 = if (onLeft) (corner.hubX + radius).coerceIn(0f, width) else width
+    val y0 = (corner.hubY - radius).coerceIn(0f, height)
+    val y1 = (corner.hubY + radius).coerceIn(0f, height)
     if (x1 <= x0 || y1 <= y0) return emptyList()
     var top = y0
     var bottom = y1

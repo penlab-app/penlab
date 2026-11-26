@@ -12,17 +12,14 @@ import androidx.ink.brush.StockBrushes
  * the line reacts to the pen; colour and size are added per stroke.
  */
 internal object PenBrushes {
-  /** Round tip whose width follows how hard you press. The pen PenLab started with. */
-  private val pressure = StockBrushes.pressurePen()
-
   /** Round tip, same width however you press: a ballpoint or fineliner. */
   private val ballpoint = StockBrushes.marker()
 
   val highlighter = StockBrushes.highlighter()
 
   /**
-   * A flat nib held at an angle, like a fountain or calligraphy pen: strokes along the nib's
-   * edge come out thin, strokes across it thick, and pressing harder widens both.
+   * Calibrated pressure-pen and fountain-pen brush families, one pre-allocated [BrushFamily] per
+   * [PressureSensitivity] preset so switching sensitivity or starting a stroke never allocates.
    *
    * Built with Ink's custom-brush API, which is still marked experimental (it may change in a
    * later Ink version; the stock brushes above will not). Lint flags the constructors as
@@ -30,7 +27,36 @@ internal object PenBrushes {
    */
   @OptIn(ExperimentalInkCustomBrushApi::class)
   @android.annotation.SuppressLint("RestrictedApi")
-  private val fountain: BrushFamily =
+  private fun pressureBehavior(spec: PressureCurveSpec): BrushBehavior =
+    BrushBehavior(
+      source = BrushBehavior.Source.NORMALIZED_PRESSURE,
+      target = BrushBehavior.Target.SIZE_MULTIPLIER,
+      sourceValueRangeStart = spec.sourceStart,
+      sourceValueRangeEnd = spec.sourceEnd,
+      targetModifierRangeStart = spec.minMultiplier,
+      targetModifierRangeEnd = spec.maxMultiplier,
+      sourceOutOfRangeBehavior = BrushBehavior.OutOfRange.CLAMP,
+      responseCurve = EasingFunction.Predefined.LINEAR,
+      responseTimeMillis = 0L,
+      enabledToolTypes = BrushBehavior.ALL_TOOL_TYPES,
+    )
+
+  @OptIn(ExperimentalInkCustomBrushApi::class)
+  @android.annotation.SuppressLint("RestrictedApi")
+  private fun buildPressureFamily(spec: PressureCurveSpec): BrushFamily =
+    BrushFamily(
+      tip =
+        BrushTip(
+          scaleX = 1f,
+          scaleY = 1f,
+          cornerRounding = 1f,
+          behaviors = listOf(pressureBehavior(spec)),
+        )
+    )
+
+  @OptIn(ExperimentalInkCustomBrushApi::class)
+  @android.annotation.SuppressLint("RestrictedApi")
+  private fun buildFountainFamily(spec: PressureCurveSpec): BrushFamily =
     BrushFamily(
       tip =
         BrushTip(
@@ -38,23 +64,19 @@ internal object PenBrushes {
           scaleY = NIB_THICKNESS,
           cornerRounding = 0.5f,
           rotationDegrees = NIB_ANGLE_DEGREES,
-          behaviors =
-            listOf(
-              BrushBehavior(
-                source = BrushBehavior.Source.NORMALIZED_PRESSURE,
-                target = BrushBehavior.Target.SIZE_MULTIPLIER,
-                sourceValueRangeStart = 0f,
-                sourceValueRangeEnd = 1f,
-                targetModifierRangeStart = 0.6f,
-                targetModifierRangeEnd = 1.3f,
-                sourceOutOfRangeBehavior = BrushBehavior.OutOfRange.CLAMP,
-                responseCurve = EasingFunction.Predefined.LINEAR,
-                responseTimeMillis = 0L,
-                enabledToolTypes = BrushBehavior.ALL_TOOL_TYPES,
-              )
-            ),
+          behaviors = listOf(pressureBehavior(spec)),
         )
     )
+
+  private val pressureFamilies: Map<PressureSensitivity, BrushFamily> =
+    PressureSensitivity.entries.associateWith { sensitivity ->
+      buildPressureFamily(requireNotNull(pressureCurveFor(PenStyle.PRESSURE, sensitivity)))
+    }
+
+  private val fountainFamilies: Map<PressureSensitivity, BrushFamily> =
+    PressureSensitivity.entries.associateWith { sensitivity ->
+      buildFountainFamily(requireNotNull(pressureCurveFor(PenStyle.FOUNTAIN, sensitivity)))
+    }
 
   /**
    * Names for the families, used in saved pages. Never rename one: files on the tablet use
@@ -64,7 +86,7 @@ internal object PenBrushes {
   fun idOf(family: BrushFamily): String =
     when {
       family === ballpoint -> "ballpoint"
-      family === fountain -> "fountain"
+      fountainFamilies.values.any { it === family } -> "fountain"
       family === highlighter -> "highlighter"
       else -> "pressure"
     }
@@ -72,17 +94,17 @@ internal object PenBrushes {
   fun familyById(id: String): BrushFamily =
     when (id) {
       "ballpoint" -> ballpoint
-      "fountain" -> fountain
+      "fountain" -> fountainFamilies.getValue(DEFAULT_PRESSURE_SENSITIVITY)
       "highlighter" -> highlighter
-      else -> pressure
+      else -> pressureFamilies.getValue(DEFAULT_PRESSURE_SENSITIVITY)
     }
 
-  fun familyFor(tool: InkTool): BrushFamily =
+  fun familyFor(tool: InkTool, sensitivity: PressureSensitivity = DEFAULT_PRESSURE_SENSITIVITY): BrushFamily =
     when {
       tool.isHighlighter -> highlighter
       tool.style == PenStyle.BALLPOINT -> ballpoint
-      tool.style == PenStyle.FOUNTAIN -> fountain
-      else -> pressure
+      tool.style == PenStyle.FOUNTAIN -> fountainFamilies.getValue(sensitivity)
+      else -> pressureFamilies.getValue(sensitivity)
     }
 
   /** Nib thickness as a share of its width: smaller = more contrast between thick and thin. */

@@ -6,6 +6,8 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.penlab.app.ink.PressureSensitivity
+import dev.penlab.app.ink.pressureSensitivityFromStorage
 import dev.penlab.app.ui.theme.PageThemeMode
 
 /**
@@ -60,6 +62,16 @@ class ViewSettings(context: Context) {
     prefs.edit().putBoolean(KEY_SHAPE_SNAPPING, enabled).apply()
   }
 
+  private var _pressureSensitivity by mutableStateOf(pressureSensitivityFromStorage(prefs.getString(KEY_PRESSURE_SENSITIVITY, null)))
+
+  val pressureSensitivity: PressureSensitivity
+    get() = _pressureSensitivity
+
+  fun setPressureSensitivity(sensitivity: PressureSensitivity) {
+    _pressureSensitivity = sensitivity
+    prefs.edit().putString(KEY_PRESSURE_SENSITIVITY, sensitivity.name).apply()
+  }
+
   /** Call for every touch or hover event: remembers the first time a pen shows up. */
   fun noteMotionEvent(event: MotionEvent) {
     if (stylusSeen) return // cheap exit for the rest of the app's life
@@ -112,6 +124,7 @@ class ViewSettings(context: Context) {
     const val KEY_STYLUS_SEEN = "stylus_seen"
     const val KEY_FINGER_DRAW = "finger_draw"
     const val KEY_SHAPE_SNAPPING = "shape_snapping"
+    const val KEY_PRESSURE_SENSITIVITY = "pressure_sensitivity"
   }
 }
 

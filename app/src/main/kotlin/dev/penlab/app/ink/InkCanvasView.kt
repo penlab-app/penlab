@@ -694,6 +694,9 @@ class InkCanvasView(
   /** Hold-to-perfect-shapes can be switched off (it is on by default). */
   var shapeSnappingEnabled = true
 
+  /** Stylus pressure sensitivity preset applied to newly started pressure/fountain strokes. */
+  var pressureSensitivity: PressureSensitivity = DEFAULT_PRESSURE_SENSITIVITY
+
   // Is the pen close to the screen? Used to tell the writing hand's palm from a real finger.
   private var penHovering = false
   private var lastHoverTime = 0L
@@ -1975,7 +1978,7 @@ class InkCanvasView(
   }
 
   private fun paperBrush(tool: InkTool, detail: Float): Brush =
-    Brushes.get(PenBrushes.familyFor(tool), tool.paperColor, tool.sizeDp * strokeUnitsPerDp, detail)
+    Brushes.get(PenBrushes.familyFor(tool, pressureSensitivity), tool.paperColor, tool.sizeDp * strokeUnitsPerDp, detail)
 
   /** Puts a stroke the pen just finished onto the page. */
   private fun store(drawn: Stroke, pending: PendingStroke?) {

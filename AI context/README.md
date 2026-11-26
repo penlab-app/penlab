@@ -63,6 +63,12 @@
 - **`lintRelease` & release polish:** `0` lint errors (`87` warnings, `0` `ContentDescription` / `RtlHardcoded`); fixed `InlinedApi` (`FingerTapDetector.kt`), `UseCompatLoadingForDrawables` (`ExternalPluginIcons.kt`), `LocalContextResourcesRead` & `AutoboxingStateCreation` (`MainActivity.kt`), and steady-state `SelectionView.onDraw` `DrawAllocation` (`InkCanvasView.kt`).
 - **Verified:** 495 JVM unit tests passing + `:sample-plugin:compileDebugKotlin`, `arm64-v8a` R8 APK (`13.32 MB`), and 4-theme QA PASS on Tab S9 (`Dark/Light × Blueprint/Copper`, `gfxinfo` `50th: 5ms`, `90th: 8ms`, zero `logcat` errors).
 
+### Stage 1 (Round 2) — S Pen Pressure Sensitivity Calibration (26 Nov 2026, QA-Verified on Tab S9)
+- Added `PressureSensitivity` (`Light` / `Balanced` [default] / `Firm`), `PressureCurveSpec`, and calibrated per-style curve tables in `app/src/main/kotlin/dev/penlab/app/ink/PressureCurve.kt`.
+- Updated `PenBrushes.kt` with pre-allocated `BrushFamily` variants for Pressure & Fountain pens while keeping `"pressure"` / `"fountain"` `.graphite` serialization IDs 100% backward-compatible.
+- Persisted `pressureSensitivity` in `ViewSettings.kt`, exposed `Light` / `Balanced` / `Firm` segmented control under **Settings → Writing & input** (`SettingsSheet.kt`), and wired into `InkCanvasView.kt` / `MainActivity.kt`.
+- Verified `:app:testDebugUnitTest` (`54` suites, `491` tests, `0` failures — including `PressureCurveTest` & `ViewSettingsLogicTest`) and Tab S9 R8 release QA (`13.34 MB` `arm64-v8a` APK, `CN=PenLab, O=penlab-app`).
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)
@@ -185,10 +191,10 @@ done
 | **Popovers & Pickers** | `app/src/main/kotlin/dev/penlab/app/ui/{ColorWheel.kt, MarkerWheel.kt, PagesPanel.kt, ViewReadout.kt, ViewSettings.kt, SearchUi.kt}` |
 | **Dialogs, Settings & Modes** | `app/src/main/kotlin/dev/penlab/app/ui/{SettingsSheet.kt, PresentMode.kt, ExportLookDialog.kt, RequestDialog.kt, Motion.kt}` |
 | **Library** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, LibraryCards.kt, Covers.kt}`, `app/src/main/kotlin/dev/penlab/app/notes/{CoverMaker.kt, LibraryMigration.kt}` |
-| **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, PageItems.kt, StrokeChunkCache.kt}` |
+| **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, PageItems.kt, PenBrushes.kt, PressureCurve.kt, StrokeChunkCache.kt}` |
 | **Projector View** | `app/src/main/kotlin/dev/penlab/app/projector/{ProjectorLogic.kt, ProjectorSurface.kt}`, `app/src/test/kotlin/dev/penlab/app/projector/ProjectorLogicTest.kt` |
 | **External Plugin Bridge** | `app/src/main/kotlin/dev/penlab/app/plugins/external/{ExternalManifest.kt, ExternalPlugin.kt, ExternalPluginIcons.kt, ExternalPluginManager.kt, PluginTransport.kt}`, `app/src/test/kotlin/dev/penlab/app/plugins/external/{ExternalManifestTest.kt, ExternalPluginTest.kt, ExternalPluginIconsTest.kt}` |
-| **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt}` |
+| **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt}`, `app/src/test/kotlin/dev/penlab/app/ink/PressureCurveTest.kt` |
 
 ## Notes from the 25–26 Nov review + plugin work (`AI context/notes/`)
 - `REVIEW-2026-11-26.md` — what landed overnight (merge, Stage 6, wheel fix, Stage 7 craft, review fixes, real bugs found).

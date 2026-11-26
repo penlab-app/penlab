@@ -1464,6 +1464,7 @@ class MainActivity : ComponentActivity() {
     canvas.zoomLocked = viewSettings.zoomLocked
     canvas.rotationLocked = viewSettings.rotationLocked
     canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
+    canvas.pressureSensitivity = viewSettings.pressureSensitivity
     canvas.fingerDrawEnabled = { viewSettings.drawWithFinger }
     canvas.pageStyle = info.pageStyle
     canvas.rulingMm = info.rulingMm
@@ -3084,6 +3085,7 @@ private fun NoteScreen(
     canvas.zoomLocked = viewSettings.zoomLocked
     canvas.rotationLocked = viewSettings.rotationLocked
     canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
+    canvas.pressureSensitivity = viewSettings.pressureSensitivity
 
     colorWheelFor?.let { slot ->
       val tool = tools.getOrNull(slot)

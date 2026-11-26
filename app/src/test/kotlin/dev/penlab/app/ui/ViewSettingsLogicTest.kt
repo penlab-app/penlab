@@ -1,6 +1,10 @@
 package dev.penlab.app.ui
 
+import dev.penlab.app.ink.DEFAULT_PRESSURE_SENSITIVITY
+import dev.penlab.app.ink.PressureSensitivity
+import dev.penlab.app.ink.pressureSensitivityFromStorage
 import dev.penlab.app.ui.theme.PageThemeMode
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -48,5 +52,20 @@ class ViewSettingsLogicTest {
   fun aPdfNotebookOnDarkPaperIsStillWhiteSoIconsAreDark() {
     val paperDark = resolveCanvasDarkPage(PageThemeMode.DARK, isPdfNotebook = true)
     assertFalse(systemBarsOverDarkSurface(appIsDark = true, notebookOpen = true, paperIsDark = paperDark))
+  }
+
+  @Test
+  fun pressureSensitivityDefaultsToBalancedWhenUnsetOrUnknown() {
+    assertEquals(PressureSensitivity.BALANCED, DEFAULT_PRESSURE_SENSITIVITY)
+    assertEquals(PressureSensitivity.BALANCED, pressureSensitivityFromStorage(null))
+    assertEquals(PressureSensitivity.BALANCED, pressureSensitivityFromStorage(""))
+    assertEquals(PressureSensitivity.BALANCED, pressureSensitivityFromStorage("UNKNOWN_PRESET"))
+  }
+
+  @Test
+  fun pressureSensitivityRoundTripsAllPresets() {
+    for (preset in PressureSensitivity.entries) {
+      assertEquals(preset, pressureSensitivityFromStorage(preset.name))
+    }
   }
 }

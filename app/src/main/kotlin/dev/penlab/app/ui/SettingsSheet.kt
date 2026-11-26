@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.penlab.app.ink.PressureSensitivity
 import dev.penlab.app.plugins.external.PluginRow
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.components.PenLabIconButton
@@ -241,6 +242,22 @@ fun SettingsSheet(
             checked = viewSettings.shapeSnapping,
             onCheckedChange = viewSettings::setShapeSnapping,
             horizontalPadding = 0.dp,
+          )
+
+          Spacer(Modifier.height(PenLabSpacing.md))
+          SettingFieldLabel("Pressure sensitivity")
+          Spacer(Modifier.height(PenLabSpacing.xs))
+          PenLabSegmentedControl(
+            options = PressureSensitivity.entries,
+            selected = viewSettings.pressureSensitivity,
+            onSelect = viewSettings::setPressureSensitivity,
+            label = { it.label },
+          )
+          Spacer(Modifier.height(PenLabSpacing.xs))
+          Text(
+            text = "How strongly pen width responds to stylus pressure.",
+            color = scheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
           )
 
           Spacer(Modifier.height(PenLabSpacing.md))

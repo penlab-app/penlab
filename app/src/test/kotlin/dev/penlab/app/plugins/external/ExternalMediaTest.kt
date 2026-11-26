@@ -157,4 +157,17 @@ class ExternalMediaTest {
     assertFalse(r.isEnabled("acme.rec"))
     assertEquals(1, messages.size)
   }
+
+  @Test
+  fun theStartActivityIsResolvedAgainstThePluginPackage() {
+    fun media(startActivity: String?): ExternalMedia {
+      val extra = if (startActivity == null) "" else ""","startActivity":"$startActivity""""
+      val m = (ManifestParser.parse("""{"id":"a.b","name":"P","apiVersion":2,"capabilities":[{"kind":"media","id":"r","label":"R"$extra}]}""") as ManifestParse.Ok).manifest
+      return ExternalPlugin(m, "acme.pkg", { _, _, _, _ -> TransportOutcome.Ok(none, ResultFiles.EMPTY) }, ExternalEnv(File(tmp.root, "io"))).capabilities().single() as ExternalMedia
+    }
+    assertEquals("acme.pkg.StartRecordingActivity", media(".StartRecordingActivity").startActivityClass)
+    assertEquals("acme.pkg.StartRecordingActivity", media("StartRecordingActivity").startActivityClass)
+    assertEquals("com.other.Start", media("com.other.Start").startActivityClass)
+    assertNull(media(null).startActivityClass)
+  }
 }

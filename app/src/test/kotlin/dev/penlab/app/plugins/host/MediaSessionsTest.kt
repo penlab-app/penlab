@@ -21,6 +21,7 @@ class MediaSessionsTest {
   fun startingReturnsTheIndexAndStoresTheRefOnceInOrder() {
     open(recordings = listOf("old1", "old2"))
     assertEquals(2, sessions.started("p", "content://rec/1", now))
+    sessions.level("p", 0.3f) // a recording that really ran (a start that reports nothing and stops at once is dropped: see below)
     assertEquals(listOf(listOf("old1", "old2", "content://rec/1")), persisted)
     sessions.stopped("p")
     assertEquals(3, sessions.started("p", "content://rec/2", now))
@@ -247,5 +248,93 @@ class MediaSessionsTest {
     sessions.started("p", "y", now) // index 1
     sessions.playbackPosition("p", 1, 500, false)
     assertEquals(1, sessions.playback!!.recordingIndex)
+  }
+
+  // ---- A start that never really happened (the plugin failed after saying "started") ---------------------
+
+  @Test
+  fun aFailedStartIsTakenOffTheListWhenItEndsQuicklyWithNoReports() {
+    open(recordings = listOf("old"))
+    sessions.started("p", "ghost", now)
+    now += 3_000
+    sessions.stopped("p")
+    assertEquals(listOf(listOf("old", "ghost"), listOf("old")), persisted) // appended, then taken off again
+    assertNull(sessions.session)
+  }
+
+  @Test
+  fun aLevelReportMakesTheRecordingReal() {
+    open()
+    sessions.started("p", "real", now)
+    sessions.level("p", 0.4f)
+    now += 3_000
+    sessions.stopped("p")
+    assertEquals(listOf(listOf("real")), persisted)
+  }
+
+  @Test
+  fun aPlaybackReportMakesTheRecordingReal() {
+    open()
+    sessions.started("p", "real", now)
+    sessions.playbackPosition("p", 0, 100, true)
+    sessions.stopped("p")
+    assertEquals(listOf(listOf("real")), persisted)
+  }
+
+  @Test
+  fun aMarkedStrokeKeepsTheRecording() {
+    open()
+    sessions.started("p", "real", now)
+    now += 2_000
+    assertTrue(sessions.markFor("nb") { 100L } != MediaMark.NONE)
+    sessions.stopped("p")
+    assertEquals(listOf(listOf("real")), persisted)
+  }
+
+  @Test
+  fun aStrokeThatGotNoMarkDoesNotKeepIt() {
+    open()
+    sessions.started("p", "ghost", now)
+    sessions.paused("p", now)
+    now += 1_000
+    assertEquals(MediaMark.NONE, sessions.markFor("nb") { 100L }) // began during a pause: no mark
+    sessions.stopped("p")
+    assertEquals(listOf("ghost"), persisted.first())
+    assertEquals(emptyList<String>(), persisted.last())
+  }
+
+  @Test
+  fun aRecordingThatEndsAfterTheWindowIsKept() {
+    open()
+    sessions.started("p", "quiet-plugin", now) // a plugin that sends no levels at all
+    now += MediaSessions.GHOST_WINDOW_MS + 1
+    sessions.stopped("p")
+    assertEquals(listOf(listOf("quiet-plugin")), persisted)
+  }
+
+  @Test
+  fun aReusedEntryIsNeverRemoved() {
+    open(recordings = listOf("a", "b"))
+    assertEquals(0, sessions.started("p", "a", now)) // not appended: an older recording's entry
+    sessions.stopped("p")
+    assertTrue(persisted.isEmpty())
+  }
+
+  @Test
+  fun anEntryThatIsNoLongerLastIsNeverRemoved() {
+    // Binding.removeLast only takes the final entry, so an entry other starts built on top of stays where it is.
+    val binding = MediaSessions.NotebookBinding("nb", listOf("a", "b")) { persisted += it }
+    assertEquals(false, binding.removeLast("a"))
+    assertEquals(listOf("a", "b"), binding.recordings())
+    assertEquals(true, binding.removeLast("b"))
+    assertEquals(listOf("a"), binding.recordings())
+  }
+
+  @Test
+  fun anEndLocallyDoesNotTouchTheList() {
+    open()
+    sessions.started("p", "x", now)
+    sessions.endLocally() // PenLab's own doing (plugin off, unreachable): says nothing about the recording
+    assertEquals(listOf(listOf("x")), persisted)
   }
 }

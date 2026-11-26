@@ -222,11 +222,24 @@ A plugin app can record a lecture while the user writes: every stroke remembers 
 audio from that moment, and a recording pill shows in the top chrome. PenLab only owns the bookkeeping; the plugin owns the
 microphone, the file and the player. Without a media plugin switched on, marked ink is plain ink (no seek).
 
-**Manifest.** `{ "kind": "media", "id": "record", "label": "Record lecture", "placement": "topBar|moreMenu|fileMenu", "screen": "<id of a screen capability>" }`.
+**Manifest.** `{ "kind": "media", "id": "record", "label": "Record lecture", "placement": "topBar|moreMenu|fileMenu", "screen": "<id of a screen capability>", "startActivity": "<activity class>" }`.
 `placement` says where the "Record lecture" entry goes (`moreMenu`, the toolbar's More panel, is the default, and so is any unknown value;
 `topBar` is a mic button in the top chrome where the pill appears; `fileMenu` is the file options popover). `screen` is optional and only
 names a screen capability of the same plugin that lists recordings (that screen appears under its own placement). No entry shows while a
 recording is live (the pill has the controls).
+
+**Starting from the foreground (`startActivity`).** Android 12+ refuses a microphone foreground service that is started while the app is in the
+background, and a plugin's *bound* service counts as background even when PenLab is in front and binds it with `BIND_INCLUDE_CAPABILITIES`
+(device log: "Foreground service started from background can not have location/camera/microphone access"). The fix is the standard one: the
+START must come from an activity that is visible. So a media capability may name `startActivity` (a class name, or one starting with "." relative to
+the plugin's package; an exported activity). When it is present, "Record lecture" does NOT send `media:command start`: PenLab opens that activity
+(explicit intent, started FOR A RESULT so the plugin can check `PenLabScreenContract.isCalledByPenLab`, no animation) with the same extras a screen gets
+(`PenLabScreenContract`: capability id, notebook id, page index and size, dark page, theme; no selection). The activity should be transparent: it asks for any
+missing permission right there (a dialog needs a visible window, so first run works too), starts its foreground service with
+`startForegroundService`, and finishes at once. The result it sets is ignored. If the launch itself throws, or no `startActivity` is declared,
+PenLab falls back to the old binder `media:command start` (fine for a plugin whose start does not need a visible app). With no notebook open and a
+`startActivity` declared, PenLab shows "Open a notebook first" and starts nothing. Pause, resume and stop always go over the binder.
+The plugin must call `mediaStarted` only after its service is in the foreground AND its recorder runs.
 
 **Plugin to PenLab: `IPenLabHost`** (in `:plugin-sdk`; `PenLabHostClient` binds it: `connectBlocking()` on a worker thread, then the calls below, all
 safe when PenLab is absent). PenLab's exported service is `dev.penlab.app/.plugins.host.MediaHostService`.
@@ -252,13 +265,19 @@ alive every call is a harmless no-op.
 appends `ref` (or returns the index of an identical existing entry) and writes the file at once. A stroke's mark is `(recordingIndex shl 32) or positionMs`
 (Graphite's AudioMark, so Graphite notebooks keep working) and holds an INDEX, so entries are only ever appended, never removed or reordered.
 
+**Failed starts.** The reference is stored when `mediaStarted` arrives, so a plugin that says "started" and then fails would leave a dead entry. As a
+safety net (a correct plugin never needs it), `MediaSessions.stopped` takes the reference off again when ALL of these hold: this start appended it (it did not
+reuse an old entry), it is still the LAST entry, the plugin sent no `level` and no `playbackPosition`, no stroke was marked with it, and `mediaStopped` came within
+10 s of the start. Entries are never removed from the middle, and never when anything refers to them, so indices of marked recordings cannot shift.
+(The host interface has no "stopped with an error" call; a quick stop with no report is the signal.)
+
 **Stamping.** While a recording of the open notebook is live, every committed stroke gets its mark at pen-up (never while the pen is down; nothing runs on
 the pen's path: one volatile read and arithmetic from a cached session snapshot). The position is where the stroke BEGAN (pen-up time minus the stroke's
 duration) on the recording's own clock with pauses left out (`MediaTimeline`). A stroke that began during a pause, or in another notebook, gets no mark; one
 that began before a pause keeps its mark even if the pen lifted inside it. Hold-to-snap shapes carry the mark of the line they replace.
 
-**PenLab to plugin: `run` calls** (bound like any capability call, 10 s timeout, crash isolation as usual; bound with `BIND_INCLUDE_CAPABILITIES` so the plugin may
-start a microphone foreground service while PenLab is in front). The request is a normal request JSON with these top-level keys, built by
+**PenLab to plugin: `run` calls** (bound like any capability call, 10 s timeout, crash isolation as usual; bound with `BIND_INCLUDE_CAPABILITIES`; that keeps the plugin's process
+alive and PenLab-visible but does NOT let a bound service start a microphone foreground service: see `startActivity` above). The request is a normal request JSON with these top-level keys, built by
 `PenLabPluginService.mediaCommandRequest` / `mediaSeekRequest` and read with `PluginCall.mediaCommand`, `mediaSeekRef`, `mediaSeekPositionMs`, `mediaSeekRecordingIndex`, `mediaNotebookId`:
 
 - `run("media:command", {"command": "start"|"pause"|"resume"|"stop", "page": {"notebookId": ...}})`: the pill and the entry. `page` is the open notebook (as for
@@ -273,8 +292,8 @@ It is the same chrome pill as the islands: palm-ignoring, 48 dp targets, registe
 selection layer (off the ink path), covers ink written from 4 s before to 0.3 s after the play position, follows the ink unless the user pans, and goes if the plugin stops
 reporting for 15 s. With several media plugins on, a seek goes to the one that is recording, else the first.
 
-Tests: `MediaTimelineTest` (packing, pauses, stamp rules), `MediaSessionsTest` (start / refs / one at a time / throttling / playback index rules), `MediaCallerPolicyTest`,
-`RecordingRefsTest` (list round trip through Properties, refused refs), `MediaPagesTest`, `ExternalMediaTest` (wire format, bind flags, crash isolation), `WireTest` (SDK:
+Tests: `MediaTimelineTest` (packing, pauses, stamp rules), `MediaSessionsTest` (start / refs / one at a time / throttling / playback index rules / failed-start removal), `MediaCallerPolicyTest`,
+`RecordingRefsTest` (list round trip through Properties, refused refs), `MediaPagesTest`, `MediaStartRouteTest` (start activity or binder), `ExternalManifestTest` (`startActivity`), `ExternalMediaTest` (wire format, bind flags, crash isolation), `WireTest` (SDK:
 request keys), `MediaPillTest`. Device check: record 20 s while writing, strokes marked, stop, tap ink, plays from there with the glow; uninstall the plugin, ink still fine.
 
 ## Writing a plugin

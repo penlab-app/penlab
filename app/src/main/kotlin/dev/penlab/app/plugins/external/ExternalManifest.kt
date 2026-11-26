@@ -50,8 +50,16 @@ sealed interface CapabilityDecl {
   /**
    * Lecture recording (docs/plugin-bridge.md, "Media"). [placement] says where PenLab puts the "Record lecture" entry;
    * [screenId] is the optional id of a `screen` capability of the same plugin that lists recordings (it appears under its own placement).
+   * [startActivity] is the optional activity (as written in the manifest, like a screen's `activity`) PenLab opens for "Record lecture"
+   * instead of sending `media:command start`: Android only lets an app start a microphone service from a visible activity.
    */
-  class MediaDecl(override val id: String, override val label: String, val placement: MediaPlacement = MediaPlacement.MORE_MENU, val screenId: String? = null) : CapabilityDecl {
+  class MediaDecl(
+    override val id: String,
+    override val label: String,
+    val placement: MediaPlacement = MediaPlacement.MORE_MENU,
+    val screenId: String? = null,
+    val startActivity: String? = null,
+  ) : CapabilityDecl {
     override val kind get() = "media"
   }
 }
@@ -81,6 +89,7 @@ sealed interface ManifestParse {
  */
 object ManifestParser {
   private val plainId = Regex("[A-Za-z0-9._-]{1,128}")
+  private val activityName = Regex("[A-Za-z0-9_.$]{1,256}")
 
   fun parse(json: String): ManifestParse {
     val o =
@@ -147,6 +156,8 @@ object ManifestParser {
             else -> MediaPlacement.MORE_MENU
           },
           c.optString("screen").trim().takeIf { plainId.matches(it) },
+          // A name that is not a class name is dropped, the capability stays (it then starts over the binder).
+          c.optString("startActivity").trim().takeIf { activityName.matches(it) },
         )
       else -> null // a kind this PenLab does not know: ignored, as the contract says
     }

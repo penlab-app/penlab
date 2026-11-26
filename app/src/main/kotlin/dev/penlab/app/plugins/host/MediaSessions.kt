@@ -44,6 +44,21 @@ class MediaSessions(
       onRecordingsChanged(changed)
       return index
     }
+
+    /**
+     * Takes [ref] off the end of the list, if it is still the last entry (never from the middle: a stroke's mark holds an index, so
+     * entries before the end must not move). True if it was removed, and the new list reported.
+     */
+    fun removeLast(ref: String): Boolean {
+      val changed: List<String>
+      synchronized(this) {
+        if (list.lastOrNull() != ref) return false
+        changed = list.dropLast(1)
+        list = changed
+      }
+      onRecordingsChanged(changed)
+      return true
+    }
   }
 
   private val lock = Any()
@@ -61,6 +76,13 @@ class MediaSessions(
     private set
 
   @Volatile private var notebook: NotebookBinding? = null
+
+  // What the live session needs to tell whether it was a ghost (see [stopped]); reset by every [started].
+  private var sessionBinding: NotebookBinding? = null // under [lock]
+  private var sessionAppended = false // under [lock]: this start added the ref (it did not reuse an old entry)
+  private var sessionStartedAt = 0L // under [lock]
+  @Volatile private var sessionReported = false // a level or playback report arrived
+  @Volatile private var sessionMarked = false // a stroke carries this recording's index
   @Volatile private var seekedIndex = -1
   private var lastLevelAt: Long? = null
 
@@ -86,8 +108,14 @@ class MediaSessions(
       val nb = notebook ?: return -1
       val live = session
       if (live != null && live.pluginId != pluginId) return -1
+      val before = nb.recordings().size
       index = nb.add(ref)
       if (index < 0) return -1
+      sessionBinding = nb
+      sessionAppended = nb.recordings().size > before
+      sessionStartedAt = now
+      sessionReported = false
+      sessionMarked = false
       // A start in the future, or long ago, is a wrong clock: use the moment PenLab heard of it.
       val start = if (startMs > now || startMs < now - MAX_BACKDATE_MS) now else startMs
       session = MediaSession(pluginId, nb.id, index, ref, MediaTimeline(start))
@@ -101,13 +129,23 @@ class MediaSessions(
 
   fun resumed(pluginId: String, at: Long) = update(pluginId) { it.withTimeline(it.timeline.resumed(at.coerceAtMost(clock()))) }
 
-  /** The recording of [pluginId] ended. */
+  /**
+   * The recording of [pluginId] ended. A recording that never really started (the plugin said "started", then failed to open the
+   * microphone or its service) must not leave a reference in the notebook's list, so the reference is taken off again when ALL of
+   * these hold: this start appended it, it is still the last entry, the plugin sent no level and no playback report, no stroke was
+   * marked with it, and it ended within [GHOST_WINDOW_MS] of starting. Otherwise it stays (an entry in the middle never moves).
+   */
   fun stopped(pluginId: String) {
+    var ghost: Pair<NotebookBinding, String>? = null
     synchronized(lock) {
-      if (session?.pluginId != pluginId) return
+      val s = session ?: return
+      if (s.pluginId != pluginId) return
+      val binding = sessionBinding
+      if (binding != null && sessionAppended && !sessionReported && !sessionMarked && clock() - sessionStartedAt <= GHOST_WINDOW_MS) ghost = binding to s.ref
       session = null
       level = 0f
     }
+    ghost?.let { (binding, ref) -> binding.removeLast(ref) }
     listener()
   }
 
@@ -125,6 +163,7 @@ class MediaSessions(
     // Anyone enabled may report: a player may belong to another media plugin than the recorder. Garbage is dropped:
     // the index must be one PenLab knows (the live recording, the one a tap just asked for, or one in the open notebook's list).
     if (positionMs < 0 || !isKnownRecording(recordingIndex)) return
+    sessionReported = true
     playback = Playback(recordingIndex, positionMs, playing, clock())
     listener()
   }
@@ -152,7 +191,9 @@ class MediaSessions(
   fun level(pluginId: String, value: Float) {
     val now = clock()
     synchronized(lock) {
-      if (session?.pluginId != pluginId || lastLevelAt?.let { now - it < MIN_LEVEL_GAP_MS } == true) return
+      if (session?.pluginId != pluginId) return
+      sessionReported = true
+      if (lastLevelAt?.let { now - it < MIN_LEVEL_GAP_MS } == true) return
       lastLevelAt = now
       level = if (value.isNaN()) 0f else value.coerceIn(0f, 1f)
     }
@@ -166,7 +207,9 @@ class MediaSessions(
   fun markFor(notebookId: String, strokeDurationMs: () -> Long): Long {
     val live = session ?: return MediaMark.NONE
     if (live.notebookId != notebookId) return MediaMark.NONE
-    return MediaSession.markFor(live, notebookId, clock(), strokeDurationMs())
+    val mark = MediaSession.markFor(live, notebookId, clock(), strokeDurationMs())
+    if (mark != MediaMark.NONE) sessionMarked = true
+    return mark
   }
 
   /** Milliseconds into the live recording now (pauses not counted), or 0. */
@@ -189,6 +232,9 @@ class MediaSessions(
   companion object {
     /** A start more than this long ago is not believed. */
     const val MAX_BACKDATE_MS = 60_000L
+
+    /** A recording that ends this soon after it started, having reported nothing and marked nothing, was a failed start (see [stopped]). */
+    const val GHOST_WINDOW_MS = 10_000L
 
     /** Level reports closer than this are dropped. */
     const val MIN_LEVEL_GAP_MS = 50L

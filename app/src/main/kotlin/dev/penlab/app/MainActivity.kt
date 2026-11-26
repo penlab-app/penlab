@@ -1,6 +1,7 @@
 package dev.penlab.app
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -170,6 +171,7 @@ import dev.penlab.app.plugins.host.MediaPages
 import dev.penlab.app.plugins.host.MediaPluginRef
 import dev.penlab.app.plugins.host.MediaSession
 import dev.penlab.app.plugins.host.MediaSessions
+import dev.penlab.app.plugins.host.MediaStartRoute
 import dev.penlab.app.plugins.external.ExternalScreen
 import dev.penlab.app.plugins.external.PluginConsent
 import dev.penlab.app.plugins.external.PrefsConsentStore
@@ -242,6 +244,9 @@ class MainActivity : ComponentActivity() {
 
   private var pendingScreen: PendingScreen? = null
   private val screenResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result -> onScreenResult(result.resultCode, result.data) }
+
+  /** The plugin's recording start activity ([startMedia]): started for a result only so it can check the caller; nothing to read back. */
+  private val mediaStartResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
   /** Rescans for plugin apps when one is installed, updated or removed while PenLab is on screen (a manifest receiver is blocked since Android 8). */
   private val packageReceiver =
@@ -772,10 +777,27 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  /**
+   * "Record lecture". A plugin that declares a `startActivity` gets that activity opened (in front, so Android lets it start its
+   * microphone service); any other plugin, and a launch that fails, gets `media:command start` over the binder.
+   */
   private fun startMedia(entry: PluginRegistry.Entry<ExternalMedia>) {
     if (MediaHost.sessions.session != null) return // one recording at a time
     val page = mediaPage(dev.penlab.sdk.PenLabBridge.MEDIA_START)
-    mediaCall(entry) { it.command(dev.penlab.sdk.PenLabBridge.MEDIA_START, page) }
+    when (val route = MediaStartRoute.choose(entry.capability.startActivityClass, page)) {
+      MediaStartRoute.Binder -> mediaCall(entry) { it.command(dev.penlab.sdk.PenLabBridge.MEDIA_START, page) }
+      MediaStartRoute.NoNotebook -> exportMessage = "Open a notebook first, then record."
+      is MediaStartRoute.Activity -> {
+        val intent = ScreenLaunch.mediaStart(ComponentName(entry.capability.packageName, route.className), entry.capability.decl.id, page!!, dev.penlab.sdk.ScreenTheme(Accent.isDark, Accent.theme.accent.toArgb(), page.darkPage))
+        try {
+          // For a result (the plugin checks who called it), with no animation: the activity is transparent and closes at once. The answer is not used.
+          mediaStartResult.launch(intent, androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(this, 0, 0))
+        } catch (e: Exception) {
+          Log.w("Plugins", "Could not open ${route.className}; starting over the binder", e)
+          mediaCall(entry) { it.command(dev.penlab.sdk.PenLabBridge.MEDIA_START, page) }
+        }
+      }
+    }
   }
 
   /** The `page` a recording control carries: the open notebook (see [MediaPages.forCommand]). Read on the main thread. */

@@ -250,6 +250,9 @@ class ExternalMedia(
   val label get() = decl.label
   val placement get() = decl.placement
 
+  /** The full class name of the plugin's `startActivity` (see [CapabilityDecl.MediaDecl.startActivity]), or null: then Start goes over the binder. */
+  val startActivityClass: String? = decl.startActivity?.let { ExternalPlugin.className(it, packageName) }
+
   /** Sends `start`, `pause`, `resume` or `stop` (PenLabBridge.MEDIA_*), with the open notebook in [page] (see [MediaPages.forCommand]). Returns a message for the user if the plugin sent one, else null. A broken or silent plugin throws [ExternalPluginException]. */
   suspend fun command(command: String, page: PageInfo? = null): String? = send(PenLabBridge.CAP_MEDIA_COMMAND, PluginRequest.mediaCommand(command, page))
 

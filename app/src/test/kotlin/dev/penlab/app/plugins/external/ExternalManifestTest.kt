@@ -110,4 +110,24 @@ class ExternalManifestTest {
     assertNull(media[3].screenId) // not a plain id: dropped, the capability stays
     assertEquals("Record lecture", media[0].label)
   }
+
+  @Test
+  fun mediaCapabilityReadsItsStartActivity() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"media","id":"one","label":"One","startActivity":"com.x.StartRecordingActivity"},
+        {"kind":"media","id":"two","label":"Two","startActivity":".StartRecordingActivity"},
+        {"kind":"media","id":"three","label":"Three"},
+        {"kind":"media","id":"four","label":"Four","startActivity":"   "},
+        {"kind":"media","id":"five","label":"Five","startActivity":"not a class!"}
+      ]}""",
+    )
+    val media = m.capabilities.map { it as CapabilityDecl.MediaDecl }
+    assertEquals("com.x.StartRecordingActivity", media[0].startActivity)
+    assertEquals(".StartRecordingActivity", media[1].startActivity)
+    assertNull(media[2].startActivity)
+    assertNull(media[3].startActivity)
+    assertNull(media[4].startActivity) // dropped, the capability stays
+    assertEquals(5, media.size)
+  }
 }

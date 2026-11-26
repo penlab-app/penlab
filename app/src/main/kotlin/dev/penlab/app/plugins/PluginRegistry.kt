@@ -11,6 +11,7 @@ import dev.penlab.plugin.Plugin
 import dev.penlab.plugin.PluginItem
 import dev.penlab.plugin.PluginStroke
 import dev.penlab.plugin.Selection
+import dev.penlab.app.plugins.external.ExternalMedia
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -180,6 +181,9 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
         EnabledWhen.SELECTION_NOT_EMPTY -> !selectionEmpty
       }
     }
+
+  /** The `media` capabilities of the plugin apps in use (on and not crashed), in registry order. */
+  fun mediaPlugins(): List<Entry<ExternalMedia>> = entries<ExternalMedia>()
 
   /** Plugin screens that ask to be in the toolbar's More panel. */
   fun moreMenuActions(): List<Entry<PageAction>> = entries<PageAction>().filter { (it.capability as? ScreenPageAction)?.placement == ScreenPlacement.MORE_MENU }

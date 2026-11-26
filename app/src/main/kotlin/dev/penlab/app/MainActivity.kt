@@ -1,6 +1,7 @@
 package dev.penlab.app
 
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -115,6 +116,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.result.PickVisualMediaRequest
 import dev.penlab.app.ui.IdeaIcon
+import dev.penlab.app.ui.RecordLectureButton
+import dev.penlab.app.ui.RecordingPill
 import dev.penlab.app.ui.RequestDialog
 import dev.penlab.app.ui.SearchPanel
 import dev.penlab.app.ui.SearchStepper
@@ -162,7 +165,15 @@ import dev.penlab.app.plugins.BuiltInPlugins
 import dev.penlab.app.plugins.PluginItemMaterialiser
 import dev.penlab.app.plugins.PluginRegistry
 import dev.penlab.app.plugins.external.ConsentStep
+import dev.penlab.app.plugins.external.ExternalMedia
 import dev.penlab.app.plugins.external.ExternalPluginManager
+import dev.penlab.app.plugins.external.MediaPlacement
+import dev.penlab.app.plugins.host.MediaHost
+import dev.penlab.app.plugins.host.MediaPages
+import dev.penlab.app.plugins.host.MediaPluginRef
+import dev.penlab.app.plugins.host.MediaSession
+import dev.penlab.app.plugins.host.MediaSessions
+import dev.penlab.app.plugins.host.MediaStartRoute
 import dev.penlab.app.plugins.external.ExternalScreen
 import dev.penlab.app.plugins.external.PluginConsent
 import dev.penlab.app.plugins.external.PrefsConsentStore
@@ -236,6 +247,9 @@ class MainActivity : ComponentActivity() {
   private var pendingScreen: PendingScreen? = null
   private val screenResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result -> onScreenResult(result.resultCode, result.data) }
 
+  /** The plugin's recording start activity ([startMedia]): started for a result only so it can check the caller; nothing to read back. */
+  private val mediaStartResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
+
   /** Rescans for plugin apps when one is installed, updated or removed while PenLab is on screen (a manifest receiver is blocked since Android 8). */
   private val packageReceiver =
     object : android.content.BroadcastReceiver() {
@@ -245,6 +259,19 @@ class MainActivity : ComponentActivity() {
   /** A plugin action is running (one at a time), and the text a finished one wants shown. */
   private var pluginBusy = false
   private var pluginText by mutableStateOf<String?>(null)
+
+  // ---- Media (lecture recording plugins, docs/plugin-bridge.md "Media") ----------------------------------------------
+  // The state lives in MediaHost.sessions (process-wide: the plugin's calls arrive on binder threads); this is the screen's view of it.
+
+  /** The live recording, for the pill (a new object on every pause, resume, start and stop; Compose state). */
+  private var mediaSession by mutableStateOf<MediaSession?>(null)
+
+  /** The last playback report whose glow is on the page, and whether it was playing (to follow the ink again on Play). */
+  private var shownPlayback: MediaSessions.Playback? = null
+  private val mediaPlaybackStale = Runnable { MediaHost.sessions.clearPlayback() }
+
+  /** What the media host asks of the screen: who may call (read on every call). */
+  private val mediaHosted by lazy { MediaHost.Installed(hosted = { plugins.mediaPlugins().map { MediaPluginRef(it.plugin.id, it.capability.packageName) } }) }
   private val io = Executors.newSingleThreadExecutor()
   private val main = Handler(Looper.getMainLooper())
   private val saveNow = Runnable { save() }
@@ -278,8 +305,15 @@ class MainActivity : ComponentActivity() {
   /** The folder the library shows; kept here so closing a notebook returns to its folder. */
   private var libraryFolder by mutableStateOf("")
 
-  /** The notebook on screen, or null for the library. */
-  private var open by mutableStateOf<OpenNotebook?>(null)
+  /** The notebook on screen, or null for the library. Setting it also (un)binds the notebook to the media host (lecture recording). */
+  private var openState by mutableStateOf<OpenNotebook?>(null)
+  private var open: OpenNotebook?
+    get() = openState
+    set(value) {
+      val old = openState
+      openState = value
+      if (old !== value) onOpenChanged(old, value)
+    }
 
   /** Projector view: shows only the page on a cabled projector or monitor (see projector/). */
   private val projector by lazy { dev.penlab.app.projector.ProjectorController(this) }
@@ -366,6 +400,9 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    MediaHost.install(mediaHosted)
+    MediaHost.sessions.listener = { main.post(::onMediaChanged) }
+    mediaSession = MediaHost.sessions.session
     Accent.load(this)
     // Draw behind the status and navigation bars with icon contrast matching the active UI theme.
     val initialBars =
@@ -643,6 +680,10 @@ class MainActivity : ComponentActivity() {
               pluginActions = { selectionEmpty -> externalPlugins.version.let { plugins.pageActions(selectionEmpty) } },
               moreMenuActions = { externalPlugins.version.let { plugins.moreMenuActions() } },
               onPluginAction = ::runPluginAction,
+              mediaEntries = { externalPlugins.version.let { plugins.mediaPlugins() } },
+              mediaSession = mediaSession,
+              onMediaStart = ::startMedia,
+              onMediaControl = ::controlMedia,
               exportMessage = exportMessage,
               onExportMessageShown = { exportMessage = null },
               onPageEdited = ::scheduleSave,
@@ -660,6 +701,136 @@ class MainActivity : ComponentActivity() {
       }
       handleIncomingPdf(intent, restored = savedInstanceState != null) // queued after the migration (one io thread)
     }
+  }
+
+  override fun onDestroy() {
+    // Nobody is left to stamp ink or show the pill: PenLab's side of a recording ends here. (The plugin's recorder goes on, unmarked.)
+    MediaHost.sessions.listener = {}
+    MediaHost.uninstall(mediaHosted)
+    MediaHost.sessions.endLocally()
+    MediaHost.sessions.clearPlayback()
+    main.removeCallbacks(mediaPlaybackStale)
+    super.onDestroy()
+  }
+
+  /** A notebook opened or closed: recordings that start now belong to the new one, and its ink is stamped. */
+  private fun onOpenChanged(old: OpenNotebook?, new: OpenNotebook?) {
+    old?.let { MediaHost.sessions.unbindNotebook(it.info.id) }
+    if (new == null) return
+    val sessions = MediaHost.sessions
+    val id = new.info.id
+    sessions.bindNotebook(MediaSessions.NotebookBinding(id, new.info.recordings) { list -> main.post { recordingsChanged(new, list) } })
+    // Stamped at pen-up only, from a cached snapshot (see MediaSessions.markFor).
+    new.canvas.mediaMarkNow = { took -> sessions.markFor(id, took) }
+    new.canvas.onMediaSeek = { index, positionMs -> seekMedia(new, index, positionMs) }
+    shownPlayback = null
+  }
+
+  /** The notebook's recordings list grew (a plugin started a recording): kept in its info and written to notebook.properties now (index stability). */
+  private fun recordingsChanged(notebook: OpenNotebook, list: List<String>) {
+    if (notebook.info.recordings == list) return
+    notebook.info = notebook.info.copy(recordings = list)
+    val info = notebook.info
+    io.execute { notebooks.write(info) }
+  }
+
+  /** Something in [MediaHost.sessions] changed (main thread): refresh the pill, and the glow on the page. */
+  private fun onMediaChanged() {
+    val sessions = MediaHost.sessions
+    mediaSession = sessions.session
+    val playback = sessions.playback
+    if (playback === shownPlayback) return
+    val previous = shownPlayback
+    shownPlayback = playback
+    val canvas = open?.canvas
+    main.removeCallbacks(mediaPlaybackStale)
+    if (playback == null) {
+      canvas?.hidePlayback()
+      return
+    }
+    if (playback.playing && previous?.playing != true) canvas?.followPlayback()
+    canvas?.showPlayback(playback.recordingIndex, playback.positionMs)
+    // The player stopped reporting (closed, or died): the glow goes after a while.
+    main.postDelayed(mediaPlaybackStale, MediaSessions.PLAYBACK_STALE_MS)
+  }
+
+  /**
+   * A media plugin to talk to: the one that records right now, else the first that is on. Null when none is on (marked ink is then plain ink).
+   */
+  private fun mediaPluginFor(): PluginRegistry.Entry<ExternalMedia>? {
+    val entries = plugins.mediaPlugins()
+    val live = MediaHost.sessions.session?.pluginId
+    return entries.firstOrNull { it.plugin.id == live } ?: entries.firstOrNull()
+  }
+
+  /**
+   * One call into a media plugin ([ExternalMedia.command] or [ExternalMedia.seek]) off the main thread, under the registry's crash
+   * isolation. A message from the plugin is shown. If the plugin cannot be reached (or crashed), a live recording of it is ended here
+   * so the pill never sticks; [endsSession] says that a failure of this very call must do so too (Stop).
+   */
+  private fun mediaCall(entry: PluginRegistry.Entry<ExternalMedia>, endsSession: Boolean = false, block: suspend (ExternalMedia) -> String?) {
+    lifecycleScope.launch {
+      when (val call = plugins.guarded(entry.plugin) { block(entry.capability) }) {
+        is PluginRegistry.Call.Ok -> call.value?.let { exportMessage = it }
+        is PluginRegistry.Call.Failed -> {
+          if (MediaHost.sessions.session?.pluginId == entry.plugin.id && (endsSession || call.pluginDisabled)) MediaHost.sessions.endLocally()
+          if (!call.pluginDisabled) exportMessage = "“${entry.capability.label}” could not be reached."
+        }
+      }
+    }
+  }
+
+  /**
+   * "Record lecture". A plugin that declares a `startActivity` gets that activity opened (in front, so Android lets it start its
+   * microphone service); any other plugin, and a launch that fails, gets `media:command start` over the binder.
+   */
+  private fun startMedia(entry: PluginRegistry.Entry<ExternalMedia>) {
+    if (MediaHost.sessions.session != null) return // one recording at a time
+    val page = mediaPage(dev.penlab.sdk.PenLabBridge.MEDIA_START)
+    when (val route = MediaStartRoute.choose(entry.capability.startActivityClass, page)) {
+      MediaStartRoute.Binder -> mediaCall(entry) { it.command(dev.penlab.sdk.PenLabBridge.MEDIA_START, page) }
+      MediaStartRoute.NoNotebook -> exportMessage = "Open a notebook first, then record."
+      is MediaStartRoute.Activity -> {
+        val intent = ScreenLaunch.mediaStart(ComponentName(entry.capability.packageName, route.className), entry.capability.decl.id, page!!, dev.penlab.sdk.ScreenTheme(Accent.isDark, Accent.theme.accent.toArgb(), page.darkPage))
+        try {
+          // For a result (the plugin checks who called it), with no animation: the activity is transparent and closes at once. The answer is not used.
+          mediaStartResult.launch(intent, androidx.core.app.ActivityOptionsCompat.makeCustomAnimation(this, 0, 0))
+        } catch (e: Exception) {
+          Log.w("Plugins", "Could not open ${route.className}; starting over the binder", e)
+          mediaCall(entry) { it.command(dev.penlab.sdk.PenLabBridge.MEDIA_START, page) }
+        }
+      }
+    }
+  }
+
+  /** The `page` a recording control carries: the open notebook (see [MediaPages.forCommand]). Read on the main thread. */
+  private fun mediaPage(command: String): dev.penlab.sdk.PageInfo? {
+    val notebook = open ?: return null
+    val ref = pageRefOf(notebook)
+    val darkPage = resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = notebook.pdf != null)
+    val current = dev.penlab.sdk.PageInfo(ref.notebookId, ref.pageIndex, ref.widthMm, ref.heightMm, darkPage)
+    return MediaPages.forCommand(command, current, MediaHost.sessions.session?.notebookId)
+  }
+
+  private fun controlMedia(command: String) {
+    val live = MediaHost.sessions.session ?: return
+    val entry = plugins.mediaPlugins().firstOrNull { it.plugin.id == live.pluginId }
+    if (entry == null) {
+      MediaHost.sessions.endLocally() // the plugin was switched off: nothing can stop it from here
+      return
+    }
+    val page = mediaPage(command)
+    mediaCall(entry, endsSession = command == dev.penlab.sdk.PenLabBridge.MEDIA_STOP) { it.command(command, page) }
+  }
+
+  /** A finger tapped ink with a mark: with a media plugin on and the recording known, ask the plugin to play from a moment before it. */
+  private fun seekMedia(notebook: OpenNotebook, recordingIndex: Int, positionMs: Long): Boolean {
+    val ref = notebook.info.recordings.getOrNull(recordingIndex) ?: return false
+    val entry = mediaPluginFor() ?: return false
+    notebook.canvas.followPlayback()
+    MediaHost.sessions.noteSeek(recordingIndex) // the plugin reports this index back while it plays, whatever it makes of the ref
+    mediaCall(entry) { it.seek(ref, MediaSessions.seekPosition(positionMs), recordingIndex) }
+    return true
   }
 
   override fun onStart() {
@@ -1026,9 +1197,7 @@ class MainActivity : ComponentActivity() {
     val canvas = notebook.canvas
     val selection = canvas.pluginSelection()
     val info = notebook.info
-    val mmWide = if (info.kind == NotebookKind.A4) info.pageWidthMm else canvas.width / (resources.displayMetrics.xdpi / 25.4f)
-    val mmHigh = if (info.kind == NotebookKind.A4) info.pageHeightMm else canvas.height / (resources.displayMetrics.xdpi / 25.4f)
-    val page = PageRef(info.id, canvas.currentPage, mmWide, mmHigh)
+    val page = pageRefOf(notebook)
     val label = entry.capability.label
     val screen = entry.capability as? ExternalScreen
     if (screen != null) {
@@ -1041,6 +1210,15 @@ class MainActivity : ComponentActivity() {
       pluginBusy = false
       handleOutcome(outcome, notebook, selection.isEmpty, label)
     }
+  }
+
+  /** The notebook's current page as plugins are told about it (size in mm; an endless canvas uses the screen's). Main thread. */
+  private fun pageRefOf(notebook: OpenNotebook): PageRef {
+    val info = notebook.info
+    val canvas = notebook.canvas
+    val mmWide = if (info.kind == NotebookKind.A4) info.pageWidthMm else canvas.width / (resources.displayMetrics.xdpi / 25.4f)
+    val mmHigh = if (info.kind == NotebookKind.A4) info.pageHeightMm else canvas.height / (resources.displayMetrics.xdpi / 25.4f)
+    return PageRef(info.id, canvas.currentPage, mmWide, mmHigh)
   }
 
   /** What to do with the outcome of a plugin action or screen (main thread). */
@@ -1637,6 +1815,12 @@ private fun NoteScreen(
   /** Plugin screens placed in the toolbar's More panel. */
   moreMenuActions: () -> List<PluginRegistry.Entry<PageAction>>,
   onPluginAction: (PluginRegistry.Entry<PageAction>) -> Unit,
+  /** The media plugins (lecture recording) in use, and the live recording (null when none). */
+  mediaEntries: () -> List<PluginRegistry.Entry<ExternalMedia>>,
+  mediaSession: MediaSession?,
+  onMediaStart: (PluginRegistry.Entry<ExternalMedia>) -> Unit,
+  /** `start`-less controls: [dev.penlab.sdk.PenLabBridge.MEDIA_PAUSE], MEDIA_RESUME or MEDIA_STOP. */
+  onMediaControl: (String) -> Unit,
   exportMessage: String?,
   onExportMessageShown: () -> Unit,
   onPageEdited: () -> Unit,
@@ -1739,8 +1923,8 @@ private fun NoteScreen(
   var editingText by remember { mutableStateOf<Pair<String?, String>?>(null) }
 
   // Exact hit regions for the floating top islands and their open popovers:
-  // [0] Left pill, [1] Right pill, [2] Left popover, [3] Right popover.
-  val topBarBounds = remember { arrayOfNulls<Rect>(4) }
+  // [0] Left pill, [1] Right pill, [2] Left popover, [3] Right popover, [4] the recording pill.
+  val topBarBounds = remember { arrayOfNulls<Rect>(5) }
   val pasteMenuBounds = remember { arrayOfNulls<Rect>(1) }
   fun topBarOverlayOpen() =
     fileQuickMenuOpen || fileOptionsOpen || viewPanelOpen || pageConfigOpen || searchOpen
@@ -2167,7 +2351,14 @@ private fun NoteScreen(
                   openPanel = null
                   onPluginAction(entry)
                 }, entry.capability.iconRes)
-              },
+              } +
+                // "Record lecture" (media plugins): a recording at a time, so no entry while one is live.
+                mediaEntries().filter { mediaSession == null && it.capability.placement == MediaPlacement.MORE_MENU }.map { entry ->
+                  MenuAction(PenLabIcons.Microphone, entry.capability.label, {
+                    openPanel = null
+                    onMediaStart(entry)
+                  })
+                },
             isPalm = isPalm,
           )
         }
@@ -2486,7 +2677,13 @@ private fun NoteScreen(
                   closeOverlays(topBarToo = true)
                   onPluginAction(entry)
                 }, entry.capability.iconRes)
-              },
+              } +
+                mediaEntries().filter { mediaSession == null && it.capability.placement == MediaPlacement.FILE_MENU }.map { entry ->
+                  MenuAction(PenLabIcons.Microphone, entry.capability.label, {
+                    closeOverlays(topBarToo = true)
+                    onMediaStart(entry)
+                  })
+                },
             isPalm = isPalm,
             modifier = Modifier.onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
           )
@@ -2654,7 +2851,38 @@ private fun NoteScreen(
         }
       }
     } else {
-      topBarBounds.fill(null)
+      for (i in 0..3) topBarBounds[i] = null // [4], the recording pill, stays: it is shown in full screen too
+    }
+
+    // ---- Recording pill (lecture recording plugin): under the left island; stays in full screen, hidden in Present ----
+    val topBarMediaEntries = mediaEntries().filter { it.capability.placement == MediaPlacement.TOP_BAR }
+    if (chrome.mediaPill && (mediaSession != null || (chrome.topBar && topBarMediaEntries.isNotEmpty()))) {
+      DisposableEffect(Unit) { onDispose { topBarBounds[4] = null } }
+      Box(
+        Modifier
+          .align(Alignment.TopStart)
+          .zIndex(2f)
+          .graphicsLayer { alpha = topChromeAlpha }
+          .windowInsetsPadding(WindowInsets.statusBars)
+          .padding(top = if (chrome.topBar) TOP_BUTTONS_HEIGHT + PenLabSpacing.xs else PenLabSpacing.md, start = PenLabSpacing.md + railLeft)
+          .onGloballyPositioned { topBarBounds[4] = it.boundsInRoot() },
+      ) {
+        val live = mediaSession
+        if (live != null) {
+          RecordingPill(
+            paused = live.paused,
+            elapsedMs = { dev.penlab.app.plugins.host.MediaHost.sessions.elapsedMs() },
+            level = { dev.penlab.app.plugins.host.MediaHost.sessions.level },
+            onPauseOrResume = { onMediaControl(if (live.paused) dev.penlab.sdk.PenLabBridge.MEDIA_RESUME else dev.penlab.sdk.PenLabBridge.MEDIA_PAUSE) },
+            onStop = { onMediaControl(dev.penlab.sdk.PenLabBridge.MEDIA_STOP) },
+            isPalm = isPalm,
+          )
+        } else {
+          topBarMediaEntries.firstOrNull()?.let { entry ->
+            RecordLectureButton(label = entry.capability.label, onClick = { onMediaStart(entry) }, isPalm = isPalm)
+          }
+        }
+      }
     }
     jumpBack?.takeIf { chrome.messages }?.let { (view, page) ->
       val label = if (canvas.pageLayout != null) "Back to page ${page + 1}" else "Back to where I was"

@@ -61,6 +61,15 @@
             </intent-filter>
         </activity>
 
+        <!--
+          Media plugins (docs/plugin-bridge.md, "Media"): the bound service a recording plugin app reports to (start, pause,
+          stop, playback position, level). Exported, so it checks every caller itself: only a plugin app that PenLab hosts
+          right now (switched on, declares "media") and only as its own plugin id.
+        -->
+        <service
+            android:name=".plugins.host.MediaHostService"
+            android:exported="true" />
+
         <!-- Share PDF: hands a finished export (in cache/exports) to the share sheet. -->
         <provider
             android:name="androidx.core.content.FileProvider"

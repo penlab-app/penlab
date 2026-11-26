@@ -1,6 +1,7 @@
 package dev.penlab.app.plugins.external
 
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,6 +9,7 @@ import android.os.Bundle
 import androidx.core.content.FileProvider
 import dev.penlab.plugin.PageRef
 import dev.penlab.plugin.Selection
+import dev.penlab.sdk.PageInfo
 import dev.penlab.sdk.PenLabBridge
 import dev.penlab.sdk.PenLabScreenContract
 import dev.penlab.sdk.ScreenTheme
@@ -56,6 +58,22 @@ object ScreenLaunch {
       session.delete()
       throw e
     }
+  }
+
+  /**
+   * The intent for a media plugin's `startActivity` ("Record lecture"): an explicit component and the same extras a screen gets
+   * (capability id, notebook, page, theme; no selection). It is started FOR A RESULT, so the plugin can check [PenLabScreenContract.isCalledByPenLab].
+   */
+  fun mediaStart(component: ComponentName, capabilityId: String, page: PageInfo, theme: ScreenTheme): Intent {
+    val intent =
+      Intent().setComponent(component)
+        .putExtra(PenLabScreenContract.EXTRA_CAPABILITY_ID, capabilityId)
+        .putExtra(PenLabScreenContract.EXTRA_NOTEBOOK_ID, page.notebookId)
+        .putExtra(PenLabScreenContract.EXTRA_PAGE_INDEX, page.pageIndex)
+        .putExtra(PenLabScreenContract.EXTRA_PAGE_WIDTH_MM, page.widthMm)
+        .putExtra(PenLabScreenContract.EXTRA_PAGE_HEIGHT_MM, page.heightMm)
+        .putExtra(PenLabScreenContract.EXTRA_DARK_PAGE, page.darkPage)
+    return PenLabScreenContract.putTheme(intent, theme)
   }
 
   /**

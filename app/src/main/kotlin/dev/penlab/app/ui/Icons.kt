@@ -57,8 +57,10 @@ import com.adamglin.phosphoricons.duotone.Lightbulb
 import com.adamglin.phosphoricons.duotone.LockSimple
 import com.adamglin.phosphoricons.duotone.LockSimpleOpen
 import com.adamglin.phosphoricons.duotone.MagnifyingGlass
+import com.adamglin.phosphoricons.duotone.Microphone
 import com.adamglin.phosphoricons.duotone.Moon
 import com.adamglin.phosphoricons.duotone.PaintBucket
+import com.adamglin.phosphoricons.duotone.Pause
 import com.adamglin.phosphoricons.duotone.Palette
 import com.adamglin.phosphoricons.duotone.PenNib
 import com.adamglin.phosphoricons.duotone.PencilSimple
@@ -69,6 +71,7 @@ import com.adamglin.phosphoricons.duotone.Scissors
 import com.adamglin.phosphoricons.duotone.Shapes
 import com.adamglin.phosphoricons.duotone.Sparkle
 import com.adamglin.phosphoricons.duotone.Stack
+import com.adamglin.phosphoricons.duotone.Stop
 import com.adamglin.phosphoricons.duotone.Sun
 import com.adamglin.phosphoricons.duotone.Swatches
 import com.adamglin.phosphoricons.duotone.TextT
@@ -163,6 +166,9 @@ object PenLabIcons {
   val Move: ImageVector get() = PhosphorIcons.Duotone.ArrowsOutCardinal
   val Settings: ImageVector get() = PhosphorIcons.Duotone.GearSix
   val Idea: ImageVector get() = PhosphorIcons.Duotone.Lightbulb
+  val Microphone: ImageVector get() = PhosphorIcons.Duotone.Microphone
+  val Pause: ImageVector get() = PhosphorIcons.Duotone.Pause
+  val Stop: ImageVector get() = PhosphorIcons.Duotone.Stop
   val Sun: ImageVector get() = PhosphorIcons.Duotone.Sun
   val Moon: ImageVector get() = PhosphorIcons.Duotone.Moon
   val DeviceTablet: ImageVector get() = PhosphorIcons.Duotone.DeviceTablet

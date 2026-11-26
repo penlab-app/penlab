@@ -203,6 +203,6 @@ object PluginRows {
       is CapabilityDecl.ImporterDecl -> "importer"
       is CapabilityDecl.ScreenDecl -> "screen"
       is CapabilityDecl.RecogniserDecl -> "recogniser (not used yet)"
-      is CapabilityDecl.MediaDecl -> "media (not used yet)"
+      is CapabilityDecl.MediaDecl -> "lecture recording"
     }
 }

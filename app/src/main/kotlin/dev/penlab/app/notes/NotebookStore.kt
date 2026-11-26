@@ -35,8 +35,8 @@ data class NotebookInfo(
   /** Layer names, bottom first; which are hidden; which one the pen draws on. */
   val layerNames: List<String> = listOf("Layer 1"),
   /**
-   * Paths of audio recordings made in this notebook by earlier versions. Nothing here uses them;
-   * they are kept so saving does not lose them (a stroke's MediaMark refers into this list).
+   * The notebook's recordings: opaque references a media plugin gave (a URI, a path; Graphite's were paths). A stroke's
+   * MediaMark holds an index into this list, so entries are only ever appended (see RecordingRefs). PenLab owns the list.
    */
   val recordings: List<String> = emptyList(),
   val hiddenLayers: List<Int> = emptyList(),
@@ -191,7 +191,7 @@ class NotebookStore(private val location: LibraryLocation) {
       setProperty("rulingMm", info.rulingMm.toString())
       // Names separated by a character nobody types (Unit Separator).
       setProperty("layers", info.layerNames.joinToString("\u001F"))
-      setProperty("recordings", info.recordings.joinToString("\u001F"))
+      setProperty("recordings", dev.penlab.app.plugins.host.RecordingRefs.encode(info.recordings))
       setProperty("hiddenLayers", info.hiddenLayers.joinToString(","))
       setProperty("currentLayer", info.currentLayer.toString())
     }
@@ -307,7 +307,7 @@ class NotebookStore(private val location: LibraryLocation) {
         pdfPages = props.getProperty("pdfPages", "").split(",").mapNotNull { it.trim().toIntOrNull() },
         rulingMm = props.getProperty("rulingMm")?.toFloatOrNull() ?: 0f,
         layerNames = props.getProperty("layers")?.split("\u001F")?.filter { it.isNotEmpty() }?.ifEmpty { null } ?: listOf("Layer 1"),
-        recordings = props.getProperty("recordings")?.split("\u001F")?.filter { it.isNotEmpty() } ?: emptyList(),
+        recordings = dev.penlab.app.plugins.host.RecordingRefs.decode(props.getProperty("recordings")),
         hiddenLayers = props.getProperty("hiddenLayers", "").split(",").mapNotNull { it.trim().toIntOrNull() },
         currentLayer = props.getProperty("currentLayer")?.toIntOrNull() ?: 0,
       )

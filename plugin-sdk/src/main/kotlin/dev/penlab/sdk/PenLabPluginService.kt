@@ -39,6 +39,27 @@ class PluginCall internal constructor(val capabilityId: String, val request: Plu
 
   /** For an importer: the file the user picked, or null. */
   fun source(): InputStream? = inputStream(PenLabBridge.FILE_SOURCE)
+
+  /**
+   * For `media:command` ([PenLabBridge.CAP_MEDIA_COMMAND]): `start`, `pause`, `resume` or `stop`, else null.
+   * Answer with [PluginResult.None], or [PluginResult.Error] if the recorder cannot do it.
+   */
+  val mediaCommand: String? get() = request.media?.command?.takeIf { capabilityId == PenLabBridge.CAP_MEDIA_COMMAND }
+
+  /** For `media:seek` ([PenLabBridge.CAP_MEDIA_SEEK]): the recording's reference exactly as the plugin gave it to PenLab, else null. */
+  val mediaSeekRef: String? get() = request.media?.ref?.takeIf { capabilityId == PenLabBridge.CAP_MEDIA_SEEK }
+
+  /**
+   * For `media:seek`: the recording's index in the notebook's list (what a stroke's mark holds), or -1 if PenLab did not say.
+   * Report it back in `playbackPosition` while playing this recording.
+   */
+  val mediaSeekRecordingIndex: Int get() = if (capabilityId == PenLabBridge.CAP_MEDIA_SEEK) request.media?.recordingIndex ?: -1 else -1
+
+  /** For `media:command`: the notebook open in PenLab (`request.page.notebookId`), so a recording can be filed under it; null if none was sent. */
+  val mediaNotebookId: String? get() = request.page?.notebookId?.takeIf { capabilityId == PenLabBridge.CAP_MEDIA_COMMAND }
+
+  /** For `media:seek`: where to start playing, in milliseconds into the recording (0 for any other call). */
+  val mediaSeekPositionMs: Long get() = if (capabilityId == PenLabBridge.CAP_MEDIA_SEEK) request.media?.positionMs ?: 0L else 0L
 }
 
 /**
@@ -89,6 +110,25 @@ abstract class PenLabPluginService : Service() {
     }
 
   final override fun onBind(intent: Intent?): IBinder = binder
+
+  companion object {
+    /** `run` capability id of the recording controls; see [PenLabBridge.CAP_MEDIA_COMMAND]. */
+    const val CAP_MEDIA_COMMAND = PenLabBridge.CAP_MEDIA_COMMAND
+
+    /** `run` capability id of a seek; see [PenLabBridge.CAP_MEDIA_SEEK]. */
+    const val CAP_MEDIA_SEEK = PenLabBridge.CAP_MEDIA_SEEK
+
+    const val MEDIA_START = PenLabBridge.MEDIA_START
+    const val MEDIA_PAUSE = PenLabBridge.MEDIA_PAUSE
+    const val MEDIA_RESUME = PenLabBridge.MEDIA_RESUME
+    const val MEDIA_STOP = PenLabBridge.MEDIA_STOP
+
+    /** The request JSON PenLab sends for a recording control (what a plugin's `run` receives for `media:command`), with the open notebook in `page` when given. */
+    fun mediaCommandRequest(command: String, page: PageInfo? = null): String = PluginRequest.mediaCommand(command, page)
+
+    /** The request JSON PenLab sends for a finger tap on marked ink (what a plugin's `run` receives for `media:seek`). */
+    fun mediaSeekRequest(ref: String, positionMs: Long, recordingIndex: Int = -1): String = PluginRequest.mediaSeek(ref, positionMs, recordingIndex)
+  }
 
   /** Throws [SecurityException] unless the caller may use this plugin (see [CallerPolicy]). */
   private fun verifyCaller() {

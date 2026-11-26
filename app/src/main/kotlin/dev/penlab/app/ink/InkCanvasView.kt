@@ -625,6 +625,9 @@ class InkCanvasView(
 
   private val pendingStrokes = HashMap<InProgressStrokeId, PendingStroke>()
 
+  /** When the live stroke began (uptime clock), for the mark of a hold-to-snap shape. */
+  private var strokeDownUptime = 0L
+
   // Both forget a stroke by themselves once nothing else (page, undo stack) holds it.
   /** Dark page only: stored (paper-colour) stroke → the same stroke in its screen colour. */
   private val screenVersions = WeakHashMap<Stroke, Stroke>()
@@ -1745,6 +1748,7 @@ class InkCanvasView(
     val id = inProgressView.startStroke(event, penPointerId, screenBrush, screenToPage, identity)
     pendingStrokes[id] = PendingStroke(tool, paperBrush)
     activeStrokeId = id
+    strokeDownUptime = event.downTime
 
     strokePoints.clear()
     pressureSum = 0f
@@ -1817,7 +1821,8 @@ class InkCanvasView(
 
     val pressure = pressureSum / strokePoints.size
     val clean = strokeAlong(shape.points, pending.paperBrush, pressure, spacing = SHAPE_POINT_SPACING_PX / zoom)
-    addToPage(InkStroke.from(clean, pending.tool.isHighlighter, layers.current), pending.tool)
+    // The shape replaces the hand-drawn line, so it carries the mark of when that line was begun.
+    addToPage(InkStroke.from(clean, pending.tool.isHighlighter, layers.current, mediaMarkNow { SystemClock.uptimeMillis() - strokeDownUptime }), pending.tool)
     liveMirror.end(strokeId) // the clean shape is on the page: the projector shows it instead of the hand-drawn line
     pageChanged()
     performHapticFeedback(HapticFeedbackConstants.CONFIRM)
@@ -1841,11 +1846,55 @@ class InkCanvasView(
         // Keep the drawn stroke as the screen version; store a paper-colour copy.
         val paper = drawn.copy(pending.paperBrush)
         screenVersions[paper] = drawn
-        InkStroke.from(paper, highlighter, layers.current)
+        InkStroke.from(paper, highlighter, layers.current, mediaMarkFor(drawn))
       } else {
-        InkStroke.from(drawn, highlighter, layers.current)
+        InkStroke.from(drawn, highlighter, layers.current, mediaMarkFor(drawn))
       }
     addToPage(stroke, pending?.tool)
+  }
+
+  // ---- Media (lecture recording plugin) -----------------------------------------------------
+
+  /**
+   * While a media plugin records for this notebook: the mark for the stroke finishing now ([MediaMark]); the argument says how many
+   * milliseconds it took to draw (asked only when a recording is live); [MediaMark.NONE] otherwise. Set by the screen that owns the recording session. Called
+   * once per stroke at pen-up, never while the pen is down: the pen's path does no media work.
+   */
+  var mediaMarkNow: (strokeDurationMs: () -> Long) -> Long = { MediaMark.NONE }
+
+  /**
+   * A finger tap on ink with a mark, when a media plugin is enabled: called with the mark's recording number and position
+   * (ms); returns true if the tap was taken (a media plugin will play from there). Null or false: marked ink is plain ink.
+   */
+  var onMediaSeek: ((recordingIndex: Int, positionMs: Long) -> Boolean)? = null
+
+  /** The mark for a stroke Ink just finished: back-dated by how long it took to draw (its last input's elapsed time). */
+  private fun mediaMarkFor(drawn: Stroke): Long {
+    return mediaMarkNow {
+      // Asked only while something records: the duration is the last input's elapsed time.
+      val inputs = drawn.inputs
+      if (inputs.size > 0) StrokeInput().also { inputs.populate(inputs.size - 1, it) }.elapsedTimeMillis else 0L
+    }
+  }
+
+  /** The mark of the ink under a screen point (nearest stroke within a finger's reach), or NONE. */
+  private fun mediaMarkAt(x: Float, y: Float): Long {
+    val p = floatArrayOf(x, y)
+    screenToPage.mapPoints(p)
+    val reach = FINGER_REACH_DP * density / pageToScreen.mapRadius(1f)
+    var best = MediaMark.NONE
+    var bestDist = Float.MAX_VALUE
+    for (stroke in chunkCache.strokesIn(RectF(p[0] - reach, p[1] - reach, p[0] + reach, p[1] + reach))) {
+      if (stroke.mediaMark == MediaMark.NONE || isHiddenLayer(stroke)) continue
+      for (i in 0 until stroke.pointCount) {
+        val d = hypot(stroke.x(i) - p[0], stroke.y(i) - p[1])
+        if (d < bestDist && d <= reach) {
+          bestDist = d
+          best = stroke.mediaMark
+        }
+      }
+    }
+    return best
   }
 
   /**
@@ -2143,6 +2192,7 @@ class InkCanvasView(
     val id = inProgressView.startStroke(input, screenBrush, pageToScreen)
     pendingStrokes[id] = PendingStroke(tool, paperBrush)
     activeStrokeId = id
+    strokeDownUptime = event.downTime
   }
 
   private fun continueRulerStroke(event: MotionEvent, index: Int) {
@@ -2582,6 +2632,7 @@ class InkCanvasView(
 
   private fun panZoomBy(dx: Float, dy: Float, scaleFactor: Float, rotationDegrees: Float, focusX: Float, focusY: Float) {
     if (scaleFactor != 1f) pinchedThisGesture = true
+    followingPlayback = false // the fingers move the page: stop following the playback
     recordPanStep(dx, dy)
     // Pulling past the last page gets harder the further it goes, like stretching something
     // (the page moves 1/2.5 as far as the finger at the "release to add" point). Heavier since
@@ -2628,7 +2679,7 @@ class InkCanvasView(
     if (hasAnySelection) {
       selectionView.invalidate()
       reportSelection()
-    } else if (searchHit != null) {
+    } else if (searchHit != null || playbackRecording >= 0) {
       selectionView.invalidate()
     }
     reportView()
@@ -3059,6 +3110,96 @@ class InkCanvasView(
 
   private val searchHitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = SEARCH_HIT_COLOR }
 
+  // ---- Playback glow: what was being written at this moment -------------------------------------
+
+  /** The recording being played (its index in the notebook's list) and the position (ms); -1 when none. */
+  private var playbackRecording = -1
+  private var playbackMs = 0L
+
+  /**
+   * While playing, the page scrolls to the ink being written at the current moment. Panning by hand turns it off (the
+   * page must not fight the fingers); [followPlayback] turns it back on.
+   */
+  private var followingPlayback = true
+
+  /** Ink of the played recording sorted by when it was written, rebuilt when the strokes change. */
+  private var playbackIndex: List<InkStroke> = emptyList()
+  private var playbackIndexKey = ""
+  private val playbackGlow = RectF()
+  private val playbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = SEARCH_HIT_COLOR }
+
+  /**
+   * Called by the screen when the plugin's player reports progress (a few times a second): glows (and follows) the ink
+   * written around [positionMs] of recording [recording]. Drawn by the selection layer, off the ink path.
+   */
+  fun showPlayback(recording: Int, positionMs: Long) {
+    playbackRecording = recording
+    playbackMs = positionMs
+    val glow = playbackGlowRect() ?: run {
+      selectionView.invalidate()
+      return
+    }
+    if (followingPlayback && width > 0) {
+      // Off screen (or nearly): bring it to the middle, keeping the zoom.
+      val r = RectF(glow).also { pageToScreen.mapRect(it) }
+      val margin = 48f * density
+      if (r.top < margin + topClearance() || r.bottom > height - margin || r.right < margin || r.left > width - margin) {
+        pageToScreen.postTranslate(width / 2f - r.centerX(), height * 0.45f - r.centerY())
+        viewMoved()
+      }
+    }
+    selectionView.invalidate()
+  }
+
+  fun hidePlayback() {
+    if (playbackRecording < 0) return
+    playbackRecording = -1
+    selectionView.invalidate()
+  }
+
+  /** Follow the playback again (on Play, or after a tap on ink). */
+  fun followPlayback() {
+    followingPlayback = true
+  }
+
+  /** The area of the ink written from a little before [playbackMs] up to it, or null if none. */
+  private fun playbackGlowRect(): RectF? {
+    if (playbackRecording < 0) return null
+    val strokes = history.strokes
+    val key = "$playbackRecording:${strokes.size}:${strokes.firstOrNull()?.let(System::identityHashCode)}:${strokes.lastOrNull()?.let(System::identityHashCode)}"
+    if (key != playbackIndexKey) {
+      playbackIndexKey = key
+      playbackIndex = strokes.filter { it.mediaMark != MediaMark.NONE && MediaMark.recording(it.mediaMark) == playbackRecording && !isHiddenLayer(it) }
+        .sortedBy { MediaMark.positionMs(it.mediaMark) }
+    }
+    // First stroke written after (now - window): binary search, then walk up to now.
+    val from = playbackMs - PLAYBACK_WINDOW_MS
+    var lo = 0
+    var hi = playbackIndex.size
+    while (lo < hi) {
+      val mid = (lo + hi) / 2
+      if (MediaMark.positionMs(playbackIndex[mid].mediaMark) < from) lo = mid + 1 else hi = mid
+    }
+    playbackGlow.setEmpty()
+    var i = lo
+    while (i < playbackIndex.size && MediaMark.positionMs(playbackIndex[i].mediaMark) <= playbackMs + PLAYBACK_AHEAD_MS) {
+      playbackGlow.union(playbackIndex[i].bounds)
+      i++
+    }
+    return if (playbackGlow.isEmpty) null else playbackGlow
+  }
+
+  private fun drawPlayback(canvas: Canvas) {
+    val glow = playbackGlowRect() ?: return
+    canvas.save()
+    canvas.concat(pageToScreen)
+    playbackPaint.alpha = PLAYBACK_ALPHA
+    val pad = 1.5f * unitsPerMm
+    val radius = 2f * unitsPerMm
+    canvas.drawRoundRect(glow.left - pad, glow.top - pad, glow.right + pad, glow.bottom + pad, radius, radius, playbackPaint)
+    canvas.restore()
+  }
+
   private fun drawSearchHit(canvas: Canvas) {
     val hit = searchHit ?: return
     if (searchHitAlpha <= 0f) {
@@ -3087,6 +3228,15 @@ class InkCanvasView(
       MotionEvent.ACTION_MOVE ->
         if (hypot(event.x - tapDownX, event.y - tapDownY) > holdSlopPx) tapCandidate = false
       MotionEvent.ACTION_UP -> {
+        // A media plugin is on: a finger tap on ink that was written while recording plays the audio from there.
+        val seek = onMediaSeek
+        if (tapCandidate && seek != null && event.eventTime - tapDownTime < FINGER_TAP_MS) {
+          val mark = mediaMarkAt(event.x, event.y)
+          if (mark != MediaMark.NONE && seek(MediaMark.recording(mark), MediaMark.positionMs(mark))) {
+            tapCandidate = false
+            return
+          }
+        }
         if (tapCandidate && event.eventTime - tapDownTime < FINGER_TAP_MS) {
           clearSelection()
           onPageTouched()
@@ -3647,6 +3797,7 @@ class InkCanvasView(
 
     override fun onDraw(canvas: Canvas) {
       drawSearchHit(canvas)
+      drawPlayback(canvas)
       if (lassoGesture == LassoGesture.DRAWING && lassoPath.size > 1) {
         path.rewind()
         val points = FloatArray(lassoPath.size * 2)
@@ -3804,6 +3955,14 @@ class InkCanvasView(
     const val MAX_ZOOM = 8f
 
     /** Search results: highlighted this long (ms) before fading; a soft amber on either page. */
+    /** Playback glow: ink written in the last 4 s before the play position (and 0.3 s after). */
+    const val PLAYBACK_WINDOW_MS = 4000L
+    const val PLAYBACK_AHEAD_MS = 300L
+    const val PLAYBACK_ALPHA = 70
+
+    /** How close (dp) a finger tap must land to ink to count as tapping it (media seek). */
+    const val FINGER_REACH_DP = 24f
+
     const val SEARCH_HIT_MS = 2500L
     const val SEARCH_HIT_COLOR = 0xFFFFC34D.toInt()
     const val SEARCH_HIT_ALPHA = 90

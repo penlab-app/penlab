@@ -32,7 +32,7 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
 ```
 
 - `apiVersion` must be exactly 2. Unknown kinds (and capabilities with missing or unknown fields) are ignored.
-  `recogniser` and `media` are read but not hosted yet.
+  `recogniser` is read but not hosted yet; `media` is hosted (see "Media").
 - Where entries appear: pageAction `selection: required` in the lasso's More menu, `none` in the file menu, `any` in both;
   a screen goes where its `placement` says (`moreMenu` = the toolbar's More panel, default). External entries have no icon.
 - Importers are matched by MIME type or by extension (formats Android has no MIME type for). A format that is only known by its
@@ -216,6 +216,86 @@ The values are those at launch time; a screen is not told if the user changes th
 means the screen draws edge to edge: pad your content with the system-bar insets (see `HelloActivity`, which also sets the
 status-bar icon colour from `darkUi`).
 
+## Media (lecture recording)
+
+A plugin app can record a lecture while the user writes: every stroke remembers when it was written, a finger tap on ink plays the
+audio from that moment, and a recording pill shows in the top chrome. PenLab only owns the bookkeeping; the plugin owns the
+microphone, the file and the player. Without a media plugin switched on, marked ink is plain ink (no seek).
+
+**Manifest.** `{ "kind": "media", "id": "record", "label": "Record lecture", "placement": "topBar|moreMenu|fileMenu", "screen": "<id of a screen capability>", "startActivity": "<activity class>" }`.
+`placement` says where the "Record lecture" entry goes (`moreMenu`, the toolbar's More panel, is the default, and so is any unknown value;
+`topBar` is a mic button in the top chrome where the pill appears; `fileMenu` is the file options popover). `screen` is optional and only
+names a screen capability of the same plugin that lists recordings (that screen appears under its own placement). No entry shows while a
+recording is live (the pill has the controls).
+
+**Starting from the foreground (`startActivity`).** Android 12+ refuses a microphone foreground service that is started while the app is in the
+background, and a plugin's *bound* service counts as background even when PenLab is in front and binds it with `BIND_INCLUDE_CAPABILITIES`
+(device log: "Foreground service started from background can not have location/camera/microphone access"). The fix is the standard one: the
+START must come from an activity that is visible. So a media capability may name `startActivity` (a class name, or one starting with "." relative to
+the plugin's package; an exported activity). When it is present, "Record lecture" does NOT send `media:command start`: PenLab opens that activity
+(explicit intent, started FOR A RESULT so the plugin can check `PenLabScreenContract.isCalledByPenLab`, no animation) with the same extras a screen gets
+(`PenLabScreenContract`: capability id, notebook id, page index and size, dark page, theme; no selection). The activity should be transparent: it asks for any
+missing permission right there (a dialog needs a visible window, so first run works too), starts its foreground service with
+`startForegroundService`, and finishes at once. The result it sets is ignored. If the launch itself throws, or no `startActivity` is declared,
+PenLab falls back to the old binder `media:command start` (fine for a plugin whose start does not need a visible app). With no notebook open and a
+`startActivity` declared, PenLab shows "Open a notebook first" and starts nothing. Pause, resume and stop always go over the binder.
+The plugin must call `mediaStarted` only after its service is in the foreground AND its recorder runs.
+
+**Plugin to PenLab: `IPenLabHost`** (in `:plugin-sdk`; `PenLabHostClient` binds it: `connectBlocking()` on a worker thread, then the calls below, all
+safe when PenLab is absent). PenLab's exported service is `dev.penlab.app/.plugins.host.MediaHostService`.
+
+| Call | Meaning |
+|---|---|
+| `mediaStarted(pluginId, ref, startElapsedRealtimeMs): Int` | A recording started for the open notebook. `ref` is the plugin's opaque reference (a content URI, a path). Returns the recording's index, or -1 (no notebook open, or `ref` refused: blank, over 1024 characters, or any control character, U+001F included). |
+| `mediaPaused` / `mediaResumed(pluginId, atElapsedRealtimeMs)` | Pause and resume. |
+| `mediaStopped(pluginId)` | The recording ended: the pill goes away. |
+| `playbackPosition(pluginId, recordingIndex, positionMs, playing)` | The player's progress; the glow follows. Report the index the seek carried (or `mediaStarted` returned). |
+| `level(pluginId, level)` | Microphone level 0..1 for the meter (about 10 a second; faster is dropped). |
+
+All times are `SystemClock.elapsedRealtime()`. A start in the future or over a minute ago is clamped to "now". Only one recording is live at a time;
+a second plugin's `mediaStarted` returns -1 (the same plugin starting again replaces its own). Closing PenLab ends PenLab's side of a recording
+(the plugin's recorder goes on, unmarked); a plugin that is switched off or crashes loses its live recording the same way.
+
+**Who may call.** The service is exported, so every call is checked: the calling UID's packages must contain the package that owns the `pluginId`
+argument, and that plugin must be one PenLab hosts right now (switched on by trust or consent, not crashed, declaring `media`). An app that is not a
+plugin, a plugin that is off, and a plugin speaking as another plugin all get a `SecurityException` (`MediaCallerPolicy`). With no PenLab screen
+alive every call is a harmless no-op.
+
+**Notebook list.** The notebook keeps its recordings in `notebook.properties` (`recordings`, entries joined by U+001F). PenLab owns it: `mediaStarted`
+appends `ref` (or returns the index of an identical existing entry) and writes the file at once. A stroke's mark is `(recordingIndex shl 32) or positionMs`
+(Graphite's AudioMark, so Graphite notebooks keep working) and holds an INDEX, so entries are only ever appended, never removed or reordered.
+
+**Failed starts.** The reference is stored when `mediaStarted` arrives, so a plugin that says "started" and then fails would leave a dead entry. As a
+safety net (a correct plugin never needs it), `MediaSessions.stopped` takes the reference off again when ALL of these hold: this start appended it (it did not
+reuse an old entry), it is still the LAST entry, the plugin sent no `level` and no `playbackPosition`, no stroke was marked with it, and `mediaStopped` came within
+10 s of the start. Entries are never removed from the middle, and never when anything refers to them, so indices of marked recordings cannot shift.
+(The host interface has no "stopped with an error" call; a quick stop with no report is the signal.)
+
+**Stamping.** While a recording of the open notebook is live, every committed stroke gets its mark at pen-up (never while the pen is down; nothing runs on
+the pen's path: one volatile read and arithmetic from a cached session snapshot). The position is where the stroke BEGAN (pen-up time minus the stroke's
+duration) on the recording's own clock with pauses left out (`MediaTimeline`). A stroke that began during a pause, or in another notebook, gets no mark; one
+that began before a pause keeps its mark even if the pen lifted inside it. Hold-to-snap shapes carry the mark of the line they replace.
+
+**PenLab to plugin: `run` calls** (bound like any capability call, 10 s timeout, crash isolation as usual; bound with `BIND_INCLUDE_CAPABILITIES`; that keeps the plugin's process
+alive and PenLab-visible but does NOT let a bound service start a microphone foreground service: see `startActivity` above). The request is a normal request JSON with these top-level keys, built by
+`PenLabPluginService.mediaCommandRequest` / `mediaSeekRequest` and read with `PluginCall.mediaCommand`, `mediaSeekRef`, `mediaSeekPositionMs`, `mediaSeekRecordingIndex`, `mediaNotebookId`:
+
+- `run("media:command", {"command": "start"|"pause"|"resume"|"stop", "page": {"notebookId": ...}})`: the pill and the entry. `page` is the open notebook (as for
+  page actions); `start` always names the open notebook, the other controls name the live recording's notebook (and carry no `page` if another notebook is open now).
+  Answer `none`, or `error` / `message` with text PenLab shows. A failed `stop` ends the pill anyway.
+- `run("media:seek", {"ref": "<ref>", "positionMs": n, "recordingIndex": i})`: a finger tap on marked ink. `positionMs` already includes a 2 s lead (the sentence is
+  heard from its start). `recordingIndex` is the index in the notebook's list; report it back in `playbackPosition` so the glow follows even when the plugin does not
+  recognise `ref` (a notebook migrated from Graphite). PenLab accepts `playbackPosition` only for the live recording, an index in the open notebook's list, or the index of the last seek.
+
+**UI.** The recording pill sits under the left island (full screen keeps it; Present hides it, recording continues): dot, elapsed time, level meter, pause/resume, stop.
+It is the same chrome pill as the islands: palm-ignoring, 48 dp targets, registered in the top-bar hit rects so its taps never leave a stray dot. The glow is drawn by the
+selection layer (off the ink path), covers ink written from 4 s before to 0.3 s after the play position, follows the ink unless the user pans, and goes if the plugin stops
+reporting for 15 s. With several media plugins on, a seek goes to the one that is recording, else the first.
+
+Tests: `MediaTimelineTest` (packing, pauses, stamp rules), `MediaSessionsTest` (start / refs / one at a time / throttling / playback index rules / failed-start removal), `MediaCallerPolicyTest`,
+`RecordingRefsTest` (list round trip through Properties, refused refs), `MediaPagesTest`, `MediaStartRouteTest` (start activity or binder), `ExternalManifestTest` (`startActivity`), `ExternalMediaTest` (wire format, bind flags, crash isolation), `WireTest` (SDK:
+request keys), `MediaPillTest`. Device check: record 20 s while writing, strokes marked, stop, tap ink, plays from there with the glow; uninstall the plugin, ink still fine.
+
 ## Writing a plugin
 
 Copy `sample-plugin/`, depend on `:plugin-sdk`, extend `PenLabPluginService` (`onRun(call)` returns a `PluginResult`),
@@ -223,7 +303,7 @@ list the capabilities in `penlab_plugin.json`. Sign it with the shared PenLab ke
 
 ## Not done yet / test on a device
 
-Recogniser and media capabilities (parsed only), icons for external entries, a Cancel button for a running plugin.
+The recogniser capability (parsed only), icons for external entries, a Cancel button for a running plugin.
 Device checks: install `sample-plugin` (Trusted, on by itself) and see it in Settings → Plugins; select ink, More ▾ → Word count;
 toolbar More ▾ → Hello screen → the text box appears (undo removes it); uninstall → entries vanish; kill the plugin process
 mid-call → one message, PenLab keeps running.

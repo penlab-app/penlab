@@ -32,6 +32,9 @@ object PluginTimeouts {
 
   /** Importers read whole files: longer. */
   const val IMPORT_MS = 180_000L
+
+  /** Recording controls and seeks: a recorder answers at once; a plugin that does not is not worth waiting for. */
+  const val MEDIA_MS = 10_000L
 }
 
 /** Why a call to a plugin app failed (see [ExternalPluginException]). */
@@ -108,6 +111,16 @@ internal fun failureFor(e: Throwable): TransportOutcome.Failed =
     else -> TransportOutcome.Failed(FailureKind.PLUGIN_ERROR, e.message ?: e.javaClass.simpleName, e)
   }
 
+/**
+ * The flags for binding a plugin for one call. Media calls ("media:command", "media:seek") also pass
+ * BIND_INCLUDE_CAPABILITIES: the plugin may be asked to start recording, and a foreground service of type microphone can
+ * only be started if the app has the "while in use" microphone capability, which a plugin gets while a foreground app
+ * (PenLab) is bound to it with this flag. Without it Android refuses the service, or the recording is silent. Only media calls
+ * get it: the other plugins have no reason to inherit PenLab's capabilities.
+ */
+internal fun bindFlagsFor(capabilityId: String): Int =
+  if (capabilityId.startsWith("media:")) Context.BIND_AUTO_CREATE or Context.BIND_INCLUDE_CAPABILITIES else Context.BIND_AUTO_CREATE
+
 /** [ResultFiles] over the Bundle of ParcelFileDescriptors a plugin returned. */
 private class BundleResultFiles(private val bundle: Bundle) : ResultFiles {
   override fun readBytes(name: String, maxBytes: Long): ByteArray? = PluginFiles.readBytes(bundle, name, maxBytes)
@@ -158,7 +171,7 @@ class BoundServiceTransport(private val context: Context, private val component:
       }
     val bound =
       try {
-        context.bindService(Intent().setComponent(component), Context.BIND_AUTO_CREATE, POOL, connection)
+        context.bindService(Intent().setComponent(component), bindFlagsFor(capabilityId), POOL, connection)
       } catch (e: SecurityException) {
         false
       }

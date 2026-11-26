@@ -146,7 +146,8 @@ class ExternalPlugin(
         is CapabilityDecl.PageActionDecl -> ExternalPageAction(name, decl, transport, env)
         is CapabilityDecl.ImporterDecl -> ExternalImporter(name, decl, transport, env)
         is CapabilityDecl.ScreenDecl -> ExternalScreen(name, ComponentName(packageName, className(decl.activity, packageName)), decl.id, decl.label, decl.placement)
-        is CapabilityDecl.RecogniserDecl, is CapabilityDecl.MediaDecl -> null // read, not hosted yet
+        is CapabilityDecl.MediaDecl -> ExternalMedia(name, packageName, decl, transport)
+        is CapabilityDecl.RecogniserDecl -> null // read, not hosted yet
       }
     }
 
@@ -230,6 +231,45 @@ class ExternalImporter(
       } finally {
         files.close()
         session.delete()
+      }
+    }
+}
+
+/**
+ * A plugin's `media` capability (lecture recording): PenLab sends it recording controls ([command]) and finger taps on
+ * marked ink ([seek]) as ordinary bound calls; what the plugin reports back goes the other way, through
+ * `dev.penlab.app.plugins.host.MediaHostService`. Both calls block on the binder, so they run off the main thread.
+ */
+class ExternalMedia(
+  val pluginName: String,
+  /** The plugin app's package: who the host service lets report for this capability. */
+  val packageName: String,
+  val decl: CapabilityDecl.MediaDecl,
+  private val transport: PluginTransport,
+) : Capability {
+  val label get() = decl.label
+  val placement get() = decl.placement
+
+  /** The full class name of the plugin's `startActivity` (see [CapabilityDecl.MediaDecl.startActivity]), or null: then Start goes over the binder. */
+  val startActivityClass: String? = decl.startActivity?.let { ExternalPlugin.className(it, packageName) }
+
+  /** Sends `start`, `pause`, `resume` or `stop` (PenLabBridge.MEDIA_*), with the open notebook in [page] (see [MediaPages.forCommand]). Returns a message for the user if the plugin sent one, else null. A broken or silent plugin throws [ExternalPluginException]. */
+  suspend fun command(command: String, page: PageInfo? = null): String? = send(PenLabBridge.CAP_MEDIA_COMMAND, PluginRequest.mediaCommand(command, page))
+
+  /**
+   * Asks the plugin to play the recording [ref] from [positionMs]; [recordingIndex] is its index in the notebook's list (the
+   * plugin reports it back in `playbackPosition`, so the glow follows even for a reference it does not know). Same answer rules as [command].
+   */
+  suspend fun seek(ref: String, positionMs: Long, recordingIndex: Int = -1): String? = send(PenLabBridge.CAP_MEDIA_SEEK, PluginRequest.mediaSeek(ref, positionMs, recordingIndex))
+
+  private suspend fun send(capability: String, requestJson: String): String? =
+    withContext(Dispatchers.IO) {
+      transport.call(capability, requestJson, Bundle(), PluginTimeouts.MEDIA_MS).orThrow(pluginName).use {
+        when (val result = ResultCodec.decode(it.resultJson)) {
+          is dev.penlab.sdk.PluginResult.Error -> result.message
+          is dev.penlab.sdk.PluginResult.Message -> result.message
+          else -> null
+        }
       }
     }
 }

@@ -62,6 +62,16 @@ class SelectionItem(
 /** The file an importer is asked to read; it is the request file named [file]. */
 class SourceInfo(val displayName: String, val mimeType: String, val suggestedTitle: String, val file: String)
 
+/**
+ * The extra fields of a media call ([PenLabBridge.CAP_MEDIA_COMMAND], [PenLabBridge.CAP_MEDIA_SEEK]): at the top level of the
+ * request JSON, next to `capabilityId`, exactly as the contract names them. [command] is one of the `MEDIA_*` constants;
+ * [ref] and [positionMs] are a seek's target (the recording's reference as the plugin gave it, and milliseconds into it), and
+ * [recordingIndex] is the recording's index in the notebook's list (the one a stroke's mark holds; -1 if unknown): a plugin
+ * reports it back in `playbackPosition` so the glow follows even for a recording whose reference it does not recognise
+ * (a notebook migrated from Graphite). A `media:command` request also carries the open notebook in `page` (its `notebookId`).
+ */
+class MediaRequest(val command: String? = null, val ref: String? = null, val positionMs: Long = 0L, val recordingIndex: Int = -1)
+
 /** What PenLab sends to `run`: which capability, and the context it runs in. Fields not relevant to the capability are null. */
 class PluginRequest(
   val capabilityId: String,
@@ -78,6 +88,8 @@ class PluginRequest(
    * [SelectionInfo.items] and ignores [ResultItem.replaces], so a plugin that wants to replace a selected item checks this first).
    */
   val itemsFormat: Int = 0,
+  /** Only for the media capabilities (`media:command`, `media:seek`). */
+  val media: MediaRequest? = null,
 ) {
   /** The selected page items (empty when nothing is selected or the host is older than items format 1). */
   val selectionItems: List<SelectionItem> get() = selection?.items.orEmpty()
@@ -102,6 +114,14 @@ class PluginRequest(
       source?.let {
         put("source", JSONObject().put("displayName", it.displayName).put("mimeType", it.mimeType).put("suggestedTitle", it.suggestedTitle).put("file", it.file))
       }
+      media?.let {
+        it.command?.let { command -> put("command", command) }
+        it.ref?.let { ref -> put("ref", ref) }
+        if (capabilityId == PenLabBridge.CAP_MEDIA_SEEK) {
+          put("positionMs", it.positionMs)
+          put("recordingIndex", it.recordingIndex)
+        }
+      }
     }.toString()
 
   companion object {
@@ -118,8 +138,22 @@ class PluginRequest(
           o.optJSONObject("source")?.let { SourceInfo(it.getString("displayName"), it.getString("mimeType"), it.getString("suggestedTitle"), it.getString("file")) },
           o.optInt("strokesFormat", 0),
           o.optInt("itemsFormat", 0),
+          if (o.has("command") || o.has("ref")) MediaRequest(o.optString("command").ifEmpty { null }, o.optString("ref").ifEmpty { null }, o.optLong("positionMs", 0L), o.optInt("recordingIndex", -1)) else null,
         )
       }
+
+    /**
+     * The request JSON of a recording control: `{"command": [command], ...}` (see [PenLabBridge.CAP_MEDIA_COMMAND]), with the
+     * open notebook in `page` when [page] is given (so recordings file under the right notebook).
+     */
+    fun mediaCommand(command: String, page: PageInfo? = null): String = PluginRequest(PenLabBridge.CAP_MEDIA_COMMAND, page = page, media = MediaRequest(command = command)).toJson()
+
+    /**
+     * The request JSON of a finger tap on marked ink: `{"ref": [ref], "positionMs": [positionMs], "recordingIndex": [recordingIndex], ...}`
+     * (see [PenLabBridge.CAP_MEDIA_SEEK]). [recordingIndex] is -1 when unknown.
+     */
+    fun mediaSeek(ref: String, positionMs: Long, recordingIndex: Int = -1): String =
+      PluginRequest(PenLabBridge.CAP_MEDIA_SEEK, media = MediaRequest(ref = ref, positionMs = positionMs.coerceAtLeast(0L), recordingIndex = recordingIndex.coerceAtLeast(-1))).toJson()
 
     private fun itemJson(item: SelectionItem): JSONObject =
       JSONObject().put("id", item.id).put("typeId", item.typeId).put("boundsMm", floats(item.boundsMm)).put("rotationDeg", finite(item.rotationDeg)).putOpt("file", item.file).putOpt("mimeType", item.mimeType).putOpt("text", item.text)

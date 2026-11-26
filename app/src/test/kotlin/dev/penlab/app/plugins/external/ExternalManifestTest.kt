@@ -2,6 +2,7 @@ package dev.penlab.app.plugins.external
 
 import dev.penlab.app.plugins.ScreenPlacement
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,5 +91,43 @@ class ExternalManifestTest {
   @Test
   fun aPluginWithNoCapabilitiesIsStillValid() {
     assertEquals(0, ok("""{"id":"a.b","name":"P","apiVersion":2}""").capabilities.size)
+  }
+
+  @Test
+  fun mediaCapabilityReadsItsPlacementAndScreen() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"media","id":"record","label":"Record lecture","icon":"x","placement":"topBar","screen":"recordings"},
+        {"kind":"media","id":"two","label":"Two","placement":"fileMenu"},
+        {"kind":"media","id":"three","label":"Three"},
+        {"kind":"media","id":"four","label":"Four","placement":"somewhereNew","screen":"not a plain id!"}
+      ]}""",
+    )
+    val media = m.capabilities.map { it as CapabilityDecl.MediaDecl }
+    assertEquals(listOf(MediaPlacement.TOP_BAR, MediaPlacement.FILE_MENU, MediaPlacement.MORE_MENU, MediaPlacement.MORE_MENU), media.map { it.placement })
+    assertEquals("recordings", media[0].screenId)
+    assertNull(media[1].screenId)
+    assertNull(media[3].screenId) // not a plain id: dropped, the capability stays
+    assertEquals("Record lecture", media[0].label)
+  }
+
+  @Test
+  fun mediaCapabilityReadsItsStartActivity() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"media","id":"one","label":"One","startActivity":"com.x.StartRecordingActivity"},
+        {"kind":"media","id":"two","label":"Two","startActivity":".StartRecordingActivity"},
+        {"kind":"media","id":"three","label":"Three"},
+        {"kind":"media","id":"four","label":"Four","startActivity":"   "},
+        {"kind":"media","id":"five","label":"Five","startActivity":"not a class!"}
+      ]}""",
+    )
+    val media = m.capabilities.map { it as CapabilityDecl.MediaDecl }
+    assertEquals("com.x.StartRecordingActivity", media[0].startActivity)
+    assertEquals(".StartRecordingActivity", media[1].startActivity)
+    assertNull(media[2].startActivity)
+    assertNull(media[3].startActivity)
+    assertNull(media[4].startActivity) // dropped, the capability stays
+    assertEquals(5, media.size)
   }
 }

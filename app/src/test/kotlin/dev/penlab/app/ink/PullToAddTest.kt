@@ -83,16 +83,27 @@ class PullToAddTest {
     ViewSettle.afterResize(view, pageW, end, oldW, oldH, newW, newH, left, right, 0f, 160f, 0.1f, 8f)
 
   @Test
-  fun landscapeToPortraitOnATallWidePageFitsEdgeToEdgeAndRestsAtTheEnd() {
-    // Landscape 2560x1600, page centred (narrower than the view), scrolled so the end is at the bottom.
-    val tx = (2560f - pageW * scale75) / 2f
-    val view = ViewSettle.Level(scale75, tx, 1600f - end * scale75)
+  fun aFittedViewStaysFittedAfterARotation() {
+    val fit = 2560f / pageW
+    val view = ViewSettle.Level(fit, 0f, 1600f - end * fit) // fitted to landscape, end at the bottom
     val out = resize(view, 2560f, 1600f, 1600f, 2560f)
-    // Wider than the new view: fitted, edges on the screen edges (the reported bug left it 410 px right).
     assertEquals(1600f / pageW, out.scale, 1e-6f)
     assertEquals(0f, out.tx, 0f)
-    // The end of the notebook rests at the bottom of the screen, not at 59% of it.
-    assertEquals(2560f, out.ty + end * out.scale, 0.01f)
+    assertEquals(2560f, out.ty + end * out.scale, 0.01f) // end rests at the bottom
+  }
+
+  @Test
+  fun aCustomZoomIsKeptAndOnlyClampedOnARotationAndBack() {
+    // 75%: narrower than landscape (centred), wider than portrait (1700 > 1600). Zoom is the user's choice.
+    val view = ViewSettle.Level(scale75, (2560f - pageW * scale75) / 2f, 1600f - end * scale75)
+    val portrait = resize(view, 2560f, 1600f, 1600f, 2560f)
+    assertEquals(scale75, portrait.scale, 0f)
+    assertEquals(-50f, portrait.tx, 1f) // same page centre in the middle; edges beyond both screen edges
+    assertTrue(portrait.tx <= 0f && portrait.tx + pageW * scale75 >= 1600f)
+    assertEquals(2560f, portrait.ty + end * scale75, 0.01f) // end rests at the bottom
+    val back = resize(portrait, 1600f, 2560f, 2560f, 1600f)
+    assertEquals(scale75, back.scale, 0f) // not 113%
+    assertEquals((2560f - pageW * scale75) / 2f, back.tx, 0.01f) // centred again
   }
 
   @Test

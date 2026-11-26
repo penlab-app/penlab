@@ -79,8 +79,9 @@ internal object ViewSettle {
 
   /**
    * Where a level view lands after the size went from [oldW]x[oldH] to [newW]x[newH].
-   *  - A page that was fitted to the old width, or no longer fits the new one, is fitted to the new
-   *    width, keeping the part that was in the middle of the screen in the middle.
+   *  - A view that was at the fit zoom for the OLD size (within [FITTED_SHARE]) is fitted to the new width.
+   *  - Any other zoom is the person's own choice and is kept; the page point that was at the top-centre
+   *    of the view stays at the top-centre where the clamp allows.
    *  - The end of the notebook ([contentEnd], page units) is slid back down to the bottom of the
    *    screen above [bottomInset] if the taller screen left it high.
    *  - Then the ordinary pan clamp ([clampX], [clampTop]) has the last word, on both axes.
@@ -96,12 +97,16 @@ internal object ViewSettle {
     var ty = view.ty
     val oldFree = oldW - leftInset - rightInset
     val newFree = newW - leftInset - rightInset
-    val wasFitted = kotlin.math.abs(pageWidth * scale - oldFree) / oldFree < FITTED_SHARE
-    if (newW != oldW && (wasFitted || pageWidth * scale > newFree)) {
+    val fitScale = (oldFree / pageWidth).coerceIn(minZoom, maxZoom)
+    val wasFitted = kotlin.math.abs(scale - fitScale) / fitScale < FITTED_SHARE
+    if (wasFitted) {
       val middleY = (oldH / 2f - ty) / scale
       scale = (newFree / pageWidth).coerceIn(minZoom, maxZoom)
       tx = leftInset
       ty = newH / 2f - middleY * scale
+    } else {
+      val centreX = (oldW / 2f - tx) / scale // the page point at the top-centre; the top edge keeps its ty
+      tx = newW / 2f - centreX * scale
     }
     val pastEnd = ((newH - bottomInset - ty) / scale - contentEnd) * scale
     ty += shiftDown(pastEnd, ty, topLimit)
@@ -109,5 +114,5 @@ internal object ViewSettle {
   }
 
   /** "Fitted" means within this share of the free width. */
-  private const val FITTED_SHARE = 0.08f
+  private const val FITTED_SHARE = 0.02f
 }

@@ -33,6 +33,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.penlab.app.plugins.external.PluginRow
+import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.components.PenLabIconButton
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabSectionHeader
@@ -85,11 +88,20 @@ fun SettingsSheet(
   onWelcomeGuide: (() -> Unit)? = null,
   /** Opens the Bug / idea form (null hides the row). */
   onReport: (() -> Unit)? = null,
+  /** The plugin apps found on the device (Plugins section). */
+  pluginRows: List<PluginRow> = emptyList(),
+  /** Called when the section appears: rescans for plugin apps. */
+  onPluginsShown: () -> Unit = {},
+  /** The user flipped a plugin's switch; false means "ask for consent first" (then [onPluginConsent] runs on accept). */
+  onPluginEnabled: (packageName: String, on: Boolean) -> Boolean = { _, _ -> true },
+  onPluginConsent: (packageName: String) -> Unit = {},
 ) {
   val scheme = MaterialTheme.colorScheme
   val extended = LocalPenLabColors.current
   val systemDark = isSystemInDarkTheme()
   var customizeToolbarExpanded by remember { mutableStateOf(false) }
+  var consentFor by remember { mutableStateOf<PluginRow?>(null) }
+  LaunchedEffect(Unit) { onPluginsShown() }
 
   Dialog(
     onDismissRequest = onDismiss,
@@ -422,6 +434,29 @@ fun SettingsSheet(
             }
           }
 
+          // ---- Plugins ----
+          Spacer(Modifier.height(PenLabSpacing.xl))
+          HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
+          PenLabSectionHeader(title = "Plugins", topPadding = PenLabSpacing.lg, bottomPadding = PenLabSpacing.sm)
+          if (pluginRows.isEmpty()) {
+            Text(
+              text = "No plugins installed. A plugin is a separate app; PenLab finds it by itself and lists it here.",
+              color = scheme.onSurfaceVariant,
+              style = MaterialTheme.typography.bodySmall,
+            )
+          } else {
+            for (row in pluginRows) {
+              PenLabSwitchRow(
+                label = if (row.trusted) "${row.name} · Trusted" else row.name,
+                subtitle = pluginSubtitle(row),
+                checked = row.enabled,
+                enabled = row.problem == null,
+                onCheckedChange = { on -> if (!onPluginEnabled(row.packageName, on)) consentFor = row },
+                horizontalPadding = 0.dp,
+              )
+            }
+          }
+
           // ---- Help & feedback ----
           if (onWelcomeGuide != null || onReport != null) {
             Spacer(Modifier.height(PenLabSpacing.xl))
@@ -452,7 +487,43 @@ fun SettingsSheet(
       }
     }
   }
+
+  consentFor?.let { row ->
+    PenLabDialog(
+      title = "Switch on “${row.name}”?",
+      onDismiss = { consentFor = null },
+      primaryLabel = "Switch on",
+      onPrimaryClick = {
+        consentFor = null
+        onPluginConsent(row.packageName)
+      },
+    ) {
+      Text(
+        text = pluginConsentText(row),
+        color = scheme.onSurface,
+        style = MaterialTheme.typography.bodyMedium,
+      )
+    }
+  }
 }
+
+/** The lines under a plugin's switch in Settings. */
+internal fun pluginSubtitle(row: PluginRow): String =
+  buildList {
+    add(row.problem?.let { "Cannot be used: $it" } ?: if (row.trusted) "Signed with PenLab's own certificate" else "Not verified: from another developer")
+    add(row.packageName)
+    if (row.capabilities.isNotEmpty()) add(row.capabilities.joinToString(", "))
+    add(if (row.permissions.isEmpty()) "Declares no permissions" else "Declares: " + row.permissions.joinToString(", "))
+    if (row.switchedOff) add("Stopped working: off until PenLab restarts")
+  }.joinToString("\n")
+
+/** What the one-time consent dialog says a plugin can reach. */
+internal fun pluginConsentText(row: PluginRow): String =
+  "This plugin comes from another developer (${row.packageName}); PenLab cannot vouch for it.\n\n" +
+    "When you use it, it receives what you give it: the ink and items you select, or the file you import with it. " +
+    "It can add things to your pages. " +
+    (if (row.permissions.isEmpty()) "It declares no extra permissions." else "It declares these permissions: ${row.permissions.joinToString(", ")}.") +
+    "\n\nYou can switch it off here at any time."
 
 @Composable
 private fun SettingFieldLabel(text: String) {

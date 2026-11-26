@@ -293,24 +293,28 @@ class InkCanvasView(
   }
 
   /**
-   * Puts items a plugin returned on the page, as one undo step. With nothing selected when the
-   * action ran ([wasEmpty]) they are centred on the visible page; otherwise they go where their
-   * bounds say. A plugin's own drawing is not used yet: they show as grey boxes with the plugin's id.
+   * Puts items a plugin returned on the page, as one undo step. [items] come from
+   * `PluginItemMaterialiser.stage` (pictures already saved in the notebook's `images/`). With
+   * nothing selected when the action ran ([wasEmpty]) they are centred on the visible page; otherwise
+   * they go where their bounds say.
    */
-  fun placePluginItems(list: List<dev.penlab.plugin.PluginItem>, wasEmpty: Boolean) {
-    if (list.isEmpty()) return
+  fun placePluginItems(items: List<dev.penlab.app.plugins.StagedItem>, wasEmpty: Boolean) {
+    if (items.isEmpty()) return
     val k = itemMm
     var dx = 0f
     var dy = 0f
     if (wasEmpty) {
-      val union = RectF(list[0].boundsMm).apply { list.forEach { union(it.boundsMm) } }
+      val union = RectF(items[0].item.boundsMm).apply { items.forEach { union(it.item.boundsMm) } }
       val visible = RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
       dx = visible.centerX() - (union.centerX() * k)
       dy = visible.centerY() - (union.centerY() * k)
     }
-    val made = list.map { dev.penlab.app.plugins.PluginConvert.toPageItem(it, k, dx, dy) }
+    val made = items.map { dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, k, dx, dy) }
     changeItems { it += made }
   }
+
+  /** The folder the notebook's pictures live in (null for a stress test, which must not write). */
+  val picturesDir: java.io.File? get() = imagesDir
 
   /** The selection has strokes (so Fill has something to fill). */
   val selectionHasStrokes: Boolean

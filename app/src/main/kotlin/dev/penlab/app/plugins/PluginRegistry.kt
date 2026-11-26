@@ -30,8 +30,8 @@ import dev.penlab.plugin.Result as PluginResult
  * must never be used from touch or drawing code: plugins are not called on the ink path.
  */
 class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message: String) -> Unit = {}) {
-  /** A capability together with the plugin that offers it. */
-  class Entry<out T : Capability>(val plugin: Plugin, val capability: T)
+  /** A capability together with the plugin that offers it ([external]: a plugin app found at run time, not built in). */
+  class Entry<out T : Capability>(val plugin: Plugin, val capability: T, val external: Boolean = false)
 
   /**
    * The outcome of a guarded call: its value, or [Failed]. A failure is a crash (the plugin is
@@ -59,18 +59,28 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
     class Failed(val pluginDisabled: Boolean) : ActionOutcome
   }
 
-  private class Loaded(val plugin: Plugin, val capabilities: List<Capability>)
+  private class Loaded(val plugin: Plugin, val capabilities: List<Capability>, val external: Boolean = false)
 
-  private val loaded = ArrayList<Loaded>()
+  private val builtIn = ArrayList<Loaded>()
+
+  /** Plugin apps found at run time; swapped whole by [replaceExternal] (rescans), read from any thread. */
+  @Volatile private var external: List<Loaded> = emptyList()
+  private val loaded: List<Loaded> get() = builtIn + external
   private val disabled: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
   /** Plugins that were not loaded, with the reason (for logs and tests). */
-  val skipped = ArrayList<String>()
+  val skipped: MutableList<String> = java.util.Collections.synchronizedList(ArrayList())
 
   init {
+    builtIn += load(candidates, emptySet(), external = false)
+  }
+
+  /** Loads [candidates]: skips duplicates (of [takenIds] or each other) and plugins of another API version. */
+  private fun load(candidates: List<Plugin>, takenIds: Set<String>, external: Boolean): List<Loaded> {
+    val result = ArrayList<Loaded>()
     for (plugin in candidates) {
       val id = try { plugin.id } catch (e: Throwable) { skipped += "unreadable plugin: $e"; continue }
-      if (loaded.any { it.plugin.id == id }) {
+      if (id in takenIds || result.any { it.plugin.id == id }) {
         skipped += "$id: duplicate id"
         continue
       }
@@ -80,12 +90,22 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
         continue
       }
       try {
-        loaded += Loaded(plugin, plugin.capabilities().toList())
+        result += Loaded(plugin, plugin.capabilities().toList(), external)
       } catch (e: Throwable) {
         skipped += "$id: capabilities() threw $e"
         disable(plugin, e)
       }
     }
+    return result
+  }
+
+  /**
+   * Replaces the plugin apps found at run time (a rescan). Built-in plugins keep their ids: an
+   * external plugin claiming one is skipped. What was switched off this session stays switched off,
+   * so a crashing plugin does not come back on the next rescan.
+   */
+  fun replaceExternal(candidates: List<Plugin>) {
+    external = load(candidates, builtIn.map { it.plugin.id }.toSet(), external = true)
   }
 
   /** The plugins in use (loaded and not switched off). */
@@ -93,6 +113,9 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
     get() = loaded.map { it.plugin }.filter { it.id !in disabled }
 
   fun isEnabled(pluginId: String) = loaded.any { it.plugin.id == pluginId } && pluginId !in disabled
+
+  /** True if [pluginId] crashed or timed out and is off until PenLab restarts. */
+  fun isSwitchedOff(pluginId: String) = pluginId in disabled
 
   /**
    * Switches [plugin] off until PenLab restarts and tells the user once. Idempotent: a second
@@ -106,10 +129,24 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
   }
 
   private inline fun <reified T : Capability> entries(): List<Entry<T>> =
-    loaded.filter { it.plugin.id !in disabled }.flatMap { l -> l.capabilities.filterIsInstance<T>().map { Entry(l.plugin, it) } }
+    loaded.filter { it.plugin.id !in disabled }.flatMap { l -> l.capabilities.filterIsInstance<T>().map { Entry(l.plugin, it, l.external) } }
 
   /** Importers that read [mime] (an exact match, or a wildcard subtype, case-insensitive). */
   fun importers(mime: String): List<Entry<Importer>> = entries<Importer>().filter { e -> e.capability.mimeTypes.any { matches(it, mime) } }
+
+  /**
+   * Importers for a file called [fileName] of type [mime]: those that read the MIME type, plus
+   * [ExtensionImporter]s that claim the file's extension (formats Android has no MIME type for).
+   */
+  fun importersFor(mime: String, fileName: String): List<Entry<Importer>> {
+    val extension = fileName.substringAfterLast('.', "").lowercase()
+    return entries<Importer>().filter { e ->
+      e.capability.mimeTypes.any { matches(it, mime) } || (extension.isNotEmpty() && (e.capability as? ExtensionImporter)?.extensions?.contains(extension) == true)
+    }
+  }
+
+  /** Importers that are built in: what is tried on a file nobody claims (never a plugin app). */
+  fun builtInImporters(): List<Entry<Importer>> = importers().filter { !it.external }
 
   /** Every importer, whatever it reads. */
   fun importers(): List<Entry<Importer>> = entries()
@@ -125,12 +162,17 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
   /** Page actions offered now: [selectionEmpty] picks the "more" menu (true) or the lasso menu (false). */
   fun pageActions(selectionEmpty: Boolean): List<Entry<PageAction>> =
     entries<PageAction>().filter {
+      // A screen placed in the toolbar's More panel is listed by [moreMenuActions] only.
+      if ((it.capability as? ScreenPageAction)?.placement == ScreenPlacement.MORE_MENU) return@filter false
       when (it.capability.enabledWhen) {
         EnabledWhen.ALWAYS -> true
         EnabledWhen.SELECTION_EMPTY -> selectionEmpty
         EnabledWhen.SELECTION_NOT_EMPTY -> !selectionEmpty
       }
     }
+
+  /** Plugin screens that ask to be in the toolbar's More panel. */
+  fun moreMenuActions(): List<Entry<PageAction>> = entries<PageAction>().filter { (it.capability as? ScreenPageAction)?.placement == ScreenPlacement.MORE_MENU }
 
   /**
    * Runs [block] (a call into [plugin]) and catches anything it throws: the plugin is switched
@@ -162,8 +204,16 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
    * builds [selection] on the main thread first (it reads the canvas).
    */
   suspend fun runAction(entry: Entry<PageAction>, selection: Selection, page: PageRef): ActionOutcome =
+    outcome(entry.plugin) { entry.capability.run(selection, page) }
+
+  /**
+   * Like [runAction] for a result that was produced elsewhere (a plugin screen's answer): [block]
+   * turns it into a [PluginResult] off the main thread, under the same crash isolation (a malformed
+   * answer switches the plugin off).
+   */
+  suspend fun outcome(plugin: Plugin, block: suspend () -> PluginResult): ActionOutcome =
     withContext(Dispatchers.Default) {
-      when (val call = guarded(entry.plugin) { entry.capability.run(selection, page) }) {
+      when (val call = guarded(plugin, block)) {
         is Call.Failed -> ActionOutcome.Failed(call.pluginDisabled)
         is Call.Ok ->
           when (val result = call.value) {

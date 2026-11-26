@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="exports" path="exports/" />
+    <!-- Selection files handed to a plugin's screen activity (cache/plugin-io/<id>/), deleted after the call. -->
+    <cache-path name="plugin_io" path="plugin-io/" />
 </paths>

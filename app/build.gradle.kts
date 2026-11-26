@@ -82,6 +82,8 @@ kotlin {
 dependencies {
   // The plugin API (plain data + interfaces); built-in plugins depend on this alone.
   implementation(project(":plugin-api"))
+  // The bridge to plugin APPS (AIDL, wire format, helpers), shared with them.
+  implementation(project(":plugin-sdk"))
 
   val composeBom = platform(libs.androidx.compose.bom)
   implementation(composeBom)
@@ -113,6 +115,8 @@ dependencies {
   // Local tests: jUnit, coroutines, Android runner
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
+  // JSON tests need the real org.json (android.jar's is a stub).
+  testImplementation(libs.org.json)
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)

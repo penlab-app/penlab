@@ -594,6 +594,8 @@ fun MoreToolsPanel(
   onClearPage: () -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  /** Screens that plugin apps placed in this panel; the "Plugins" group is not drawn when empty. */
+  pluginItems: List<MenuAction> = emptyList(),
 ) {
   val scheme = MaterialTheme.colorScheme
   PenLabPopoverSurface(
@@ -639,6 +641,21 @@ fun MoreToolsPanel(
       modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
     )
     PenLabMenuItem(label = "Layers", icon = PenLabIcons.Layers, onClick = onOpenLayers)
+
+    if (pluginItems.isNotEmpty()) {
+      HorizontalDivider(
+        color = scheme.outlineVariant,
+        thickness = 1.dp,
+        modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
+      )
+      Text(
+        text = "Plugins",
+        color = scheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+      )
+      for (action in pluginItems) PenLabMenuItem(label = action.label, icon = action.icon, onClick = action.onClick)
+    }
 
     HorizontalDivider(
       color = scheme.outlineVariant,

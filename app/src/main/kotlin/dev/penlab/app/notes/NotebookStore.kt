@@ -254,8 +254,12 @@ class NotebookStore(private val location: LibraryLocation) {
     write(info)
     if (imported.pages.any { it.items.isNotEmpty() }) {
       val layout = dev.penlab.app.ink.PageLayout.paged(info.pageWidthMm, info.pageHeightMm, pageCount, emptyList(), emptyList())
+      // Pictures are saved into the notebook's images/ and text becomes real text boxes (not grey plugin boxes).
+      val images = imagesDir(info)
       val items = imported.pages.flatMapIndexed { index, page ->
-        page.items.map { dev.penlab.app.plugins.PluginConvert.toPageItem(it, dev.penlab.app.ink.PageLayout.UNITS_PER_MM, 0f, layout.top(index)) }
+        dev.penlab.app.plugins.PluginItemMaterialiser.stage(page.items, images).map {
+          dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, dev.penlab.app.ink.PageLayout.UNITS_PER_MM, 0f, layout.top(index))
+        }
       }
       val identity = FloatArray(9).also { android.graphics.Matrix().getValues(it) }
       pageStore(info).saveNow(dev.penlab.app.ink.PageSnapshot(emptyList(), PageStyle.BLANK, identity, items))

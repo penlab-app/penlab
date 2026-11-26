@@ -157,7 +157,15 @@ import dev.penlab.app.notes.RequestList
 import java.io.File
 import dev.penlab.app.plugins.AppExportSource
 import dev.penlab.app.plugins.BuiltInPlugins
+import dev.penlab.app.plugins.PluginItemMaterialiser
 import dev.penlab.app.plugins.PluginRegistry
+import dev.penlab.app.plugins.external.ConsentStep
+import dev.penlab.app.plugins.external.ExternalPluginManager
+import dev.penlab.app.plugins.external.ExternalScreen
+import dev.penlab.app.plugins.external.PluginConsent
+import dev.penlab.app.plugins.external.PrefsConsentStore
+import dev.penlab.app.plugins.external.ScreenLaunch
+import dev.penlab.app.plugins.external.StagedScreen
 import androidx.lifecycle.lifecycleScope
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.plugin.ImportSource
@@ -213,6 +221,24 @@ class MainActivity : ComponentActivity() {
    * registry, which switches a crashing plugin off and tells the user in the snackbar.
    */
   private val plugins by lazy { PluginRegistry(BuiltInPlugins.all()) { message -> main.post { exportMessage = message } } }
+
+  /**
+   * Plugin apps found on the device (docs/plugin-bridge.md): rescanned on resume, when a package changes and
+   * when Settings opens, and swapped into [plugins] when switched on.
+   */
+  private val externalPlugins by lazy { ExternalPluginManager(applicationContext, plugins, PluginConsent(PrefsConsentStore(applicationContext)), io) }
+
+  /** A plugin screen that was started and has not answered yet (one at a time). */
+  private class PendingScreen(val entry: PluginRegistry.Entry<PageAction>, val screen: ExternalScreen, val notebook: OpenNotebook, val selectionEmpty: Boolean, val staged: StagedScreen)
+
+  private var pendingScreen: PendingScreen? = null
+  private val screenResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result -> onScreenResult(result.resultCode, result.data) }
+
+  /** Rescans for plugin apps when one is installed, updated or removed while PenLab is on screen (a manifest receiver is blocked since Android 8). */
+  private val packageReceiver =
+    object : android.content.BroadcastReceiver() {
+      override fun onReceive(context: android.content.Context, intent: Intent) = externalPlugins.rescan()
+    }
 
   /** A plugin action is running (one at a time), and the text a finished one wants shown. */
   private var pluginBusy = false
@@ -436,6 +462,10 @@ class MainActivity : ComponentActivity() {
             storageShared = !needsStorageAccess,
             onAllowStorage = ::requestStorageAccess,
             onDismiss = { settingsOpen = false },
+            pluginRows = externalPlugins.rows,
+            onPluginsShown = externalPlugins::rescan,
+            onPluginEnabled = externalPlugins::setEnabled,
+            onPluginConsent = externalPlugins::accept,
             // The guide lives on the library screen, so it is only offered there.
             onWelcomeGuide = if (open == null) ({ settingsOpen = false; welcomeRequested = true }) else null,
             onReport = {
@@ -605,7 +635,9 @@ class MainActivity : ComponentActivity() {
               onReport = { where -> reportingFrom = where },
               onInsertImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
               onImportPdf = { pickPdfFromCanvas.launch(arrayOf(*plugins.importMimeTypes().toTypedArray(), "application/pdf")) },
-              pluginActions = plugins::pageActions,
+              // Reading externalPlugins.version here makes the menus redraw after a rescan swaps plugins.
+              pluginActions = { selectionEmpty -> externalPlugins.version.let { plugins.pageActions(selectionEmpty) } },
+              moreMenuActions = { externalPlugins.version.let { plugins.moreMenuActions() } },
               onPluginAction = ::runPluginAction,
               exportMessage = exportMessage,
               onExportMessageShown = { exportMessage = null },
@@ -629,12 +661,21 @@ class MainActivity : ComponentActivity() {
   override fun onStart() {
     super.onStart()
     projector.start()
+    val filter = android.content.IntentFilter().apply {
+      addAction(Intent.ACTION_PACKAGE_ADDED)
+      addAction(Intent.ACTION_PACKAGE_REMOVED)
+      addAction(Intent.ACTION_PACKAGE_REPLACED)
+      addDataScheme("package")
+    }
+    androidx.core.content.ContextCompat.registerReceiver(this, packageReceiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
   }
+
 
   override fun onResume() {
     super.onResume()
     Motion.refreshSystem(this)
     checkStorage()
+    externalPlugins.rescan()
   }
 
   /**
@@ -794,7 +835,8 @@ class MainActivity : ComponentActivity() {
     val name = notebookTitle(fileName)
     return try {
       val mime = mimeOf(fileName, contentResolver.getType(uri))
-      val candidates = plugins.importers(mime).ifEmpty { plugins.importers() }
+      // By type or extension; a file nobody claims is tried with the built-in importers only (never sent to a plugin app).
+      val candidates = plugins.importersFor(mime, fileName).ifEmpty { plugins.builtInImporters() }
       for (entry in candidates) {
         val work = File(cacheDir, "imports/${java.util.UUID.randomUUID()}").apply { mkdirs() }
         try {
@@ -845,7 +887,7 @@ class MainActivity : ComponentActivity() {
               notebooks.createFolder(sub)
               walk(id, sub)
             }
-            plugins.importers(mimeOf(name, mime)).isNotEmpty() -> {
+            plugins.importersFor(mimeOf(name, mime), name).isNotEmpty() -> {
               if ((folder to notebookTitle(name)) in existing) {
                 skipped++
                 continue
@@ -963,11 +1005,12 @@ class MainActivity : ComponentActivity() {
   /**
    * Runs a plugin's page action on the open notebook: gives it the selection (read here, on the
    * main thread), shows "Running..." while it works off the main thread, then places its items or
-   * shows its text or message. One action at a time. A crash is reported by the registry.
+   * shows its text or message. One action at a time. A crash is reported by the registry. A plugin
+   * app's *screen* is not run but opened for a result ([launchScreen]).
    */
   private fun runPluginAction(entry: PluginRegistry.Entry<PageAction>) {
     val notebook = open ?: return
-    if (pluginBusy) return
+    if (pluginBusy || pendingScreen != null) return
     pluginBusy = true
     val canvas = notebook.canvas
     val selection = canvas.pluginSelection()
@@ -976,21 +1019,96 @@ class MainActivity : ComponentActivity() {
     val mmHigh = if (info.kind == NotebookKind.A4) info.pageHeightMm else canvas.height / (resources.displayMetrics.xdpi / 25.4f)
     val page = PageRef(info.id, canvas.currentPage, mmWide, mmHigh)
     val label = entry.capability.label
+    val screen = entry.capability as? ExternalScreen
+    if (screen != null) {
+      launchScreen(entry, screen, notebook, selection, page)
+      return
+    }
     exportMessage = "Running “$label”…"
     lifecycleScope.launch {
       val outcome = plugins.runAction(entry, selection, page)
       pluginBusy = false
-      when (outcome) {
-        is PluginRegistry.ActionOutcome.Place -> {
-          exportMessage = null // takes "Running…" down
-          if (open === notebook) canvas.placePluginItems(outcome.items, selection.isEmpty)
+      handleOutcome(outcome, notebook, selection.isEmpty, label)
+    }
+  }
+
+  /** What to do with the outcome of a plugin action or screen (main thread). */
+  private fun handleOutcome(outcome: PluginRegistry.ActionOutcome, notebook: OpenNotebook, selectionWasEmpty: Boolean, label: String) {
+    when (outcome) {
+      is PluginRegistry.ActionOutcome.Place -> {
+        // Pictures are written to the notebook's images/ off the main thread, then everything is placed as one undo step.
+        val pictures = notebook.canvas.picturesDir
+        io.execute {
+          val staged = PluginItemMaterialiser.stage(outcome.items, pictures)
+          main.post {
+            exportMessage = null // takes "Running…" down
+            if (open === notebook) notebook.canvas.placePluginItems(staged, selectionWasEmpty)
+          }
         }
-        is PluginRegistry.ActionOutcome.ShowText -> { exportMessage = null; pluginText = outcome.text }
-        is PluginRegistry.ActionOutcome.ShowMessage -> exportMessage = outcome.message
-        PluginRegistry.ActionOutcome.Nothing -> exportMessage = null
-        // A crash already told the user (the plugin is switched off); a device failure did not.
-        is PluginRegistry.ActionOutcome.Failed -> if (!outcome.pluginDisabled) exportMessage = "“$label” could not finish."
       }
+      is PluginRegistry.ActionOutcome.ShowText -> { exportMessage = null; pluginText = outcome.text }
+      is PluginRegistry.ActionOutcome.ShowMessage -> exportMessage = outcome.message
+      PluginRegistry.ActionOutcome.Nothing -> exportMessage = null
+      // A crash already told the user (the plugin is switched off); a device failure did not.
+      is PluginRegistry.ActionOutcome.Failed -> if (!outcome.pluginDisabled) exportMessage = "“$label” could not finish."
+    }
+  }
+
+  /**
+   * Opens a plugin app's screen for a result. The selection is written to cache/plugin-io off the main
+   * thread and shared by URI grant (ScreenLaunch); the answer arrives in [onScreenResult].
+   */
+  private fun launchScreen(entry: PluginRegistry.Entry<PageAction>, screen: ExternalScreen, notebook: OpenNotebook, selection: dev.penlab.plugin.Selection, page: PageRef) {
+    val darkPage = resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = notebook.pdf != null)
+    io.execute {
+      val staged =
+        try {
+          ScreenLaunch.stage(applicationContext, screen, page, darkPage, selection, externalPlugins.ioRoot)
+        } catch (e: Exception) {
+          Log.e("Plugins", "Could not prepare ${screen.label}", e)
+          main.post {
+            pluginBusy = false
+            exportMessage = "“${screen.label}” could not be opened."
+          }
+          return@execute
+        }
+      main.post {
+        pluginBusy = false
+        pendingScreen = PendingScreen(entry, screen, notebook, selection.isEmpty, staged)
+        try {
+          screenResult.launch(staged.intent)
+        } catch (e: Exception) {
+          // The plugin app is gone or refuses to open: it counts as a crash (switched off, one message).
+          pendingScreen = null
+          staged.session.delete()
+          plugins.disable(entry.plugin, e)
+        }
+      }
+    }
+  }
+
+  /** A plugin screen finished: cancelling places nothing; an answer is read and placed like an action's result. */
+  private fun onScreenResult(resultCode: Int, data: Intent?) {
+    val pending = pendingScreen ?: return
+    pendingScreen = null
+    val label = pending.screen.label
+    if (resultCode != RESULT_OK || data == null) {
+      pending.staged.session.delete()
+      return
+    }
+    pluginBusy = true
+    exportMessage = "Placing “$label”…"
+    lifecycleScope.launch {
+      val outcome =
+        plugins.outcome(pending.entry.plugin) {
+          kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val (json, files) = ScreenLaunch.read(applicationContext, data, pending.screen.component.packageName) ?: throw dev.penlab.sdk.WireFormatException("the screen returned no result")
+            files.use { dev.penlab.app.plugins.external.ResultMapper.toResult(dev.penlab.sdk.ResultCodec.decode(json), it, pending.screen.pluginName) }
+          }
+        }
+      pending.staged.session.delete()
+      pluginBusy = false
+      handleOutcome(outcome, pending.notebook, pending.selectionEmpty, label)
     }
   }
 
@@ -1352,6 +1470,7 @@ class MainActivity : ComponentActivity() {
   override fun onStop() {
     save()
     projector.stop()
+    runCatching { unregisterReceiver(packageReceiver) }
     super.onStop()
   }
 
@@ -1491,6 +1610,8 @@ private fun NoteScreen(
   onImportPdf: () -> Unit,
   /** Plugin page actions for the "more" menu (true) or the lasso menu (false), and running one. */
   pluginActions: (selectionEmpty: Boolean) -> List<PluginRegistry.Entry<PageAction>>,
+  /** Plugin screens placed in the toolbar's More panel. */
+  moreMenuActions: () -> List<PluginRegistry.Entry<PageAction>>,
   onPluginAction: (PluginRegistry.Entry<PageAction>) -> Unit,
   exportMessage: String?,
   onExportMessageShown: () -> Unit,
@@ -2016,6 +2137,13 @@ private fun NoteScreen(
               openPanel = LAYERS_CELL
             },
             onClearPage = { clearPageWithUndo() },
+            pluginItems =
+              moreMenuActions().map { entry ->
+                MenuAction(IdeaIcon, entry.capability.label, {
+                  openPanel = null
+                  onPluginAction(entry)
+                }, entry.capability.iconRes)
+              },
             isPalm = isPalm,
           )
         }

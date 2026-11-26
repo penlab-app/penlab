@@ -1,0 +1,209 @@
+package dev.penlab.app.plugins.external
+
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.Bundle
+import android.os.DeadObjectException
+import android.os.IBinder
+import android.os.ParcelFileDescriptor
+import android.os.RemoteException
+import android.os.SystemClock
+import android.util.Log
+import dev.penlab.sdk.IPenLabPlugin
+import dev.penlab.sdk.PenLabBridge
+import dev.penlab.sdk.PluginFiles
+import java.io.Closeable
+import java.io.File
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+
+/** How long PenLab waits for a plugin app. */
+object PluginTimeouts {
+  /** Page actions (and screens' mapping). */
+  const val ACTION_MS = 60_000L
+
+  /** Importers read whole files: longer. */
+  const val IMPORT_MS = 180_000L
+}
+
+/** Why a call to a plugin app failed (see [ExternalPluginException]). */
+enum class FailureKind {
+  /** No answer in time (or it never connected). */
+  TIMEOUT,
+
+  /** The plugin's process died (or the binder broke) during the call. */
+  DIED,
+
+  /** Could not bind: not installed any more, not exported, no binder. */
+  UNAVAILABLE,
+
+  /** The plugin speaks another bridge version. */
+  API_MISMATCH,
+
+  /** The plugin refused PenLab as caller (SecurityException). */
+  REJECTED,
+
+  /** The plugin threw something, or answered nonsense. */
+  PLUGIN_ERROR,
+}
+
+/** A failure of the plugin app, not of the device: the registry switches that plugin off and tells the user once. Deliberately not an IOException. */
+class ExternalPluginException(val kind: FailureKind, val pluginName: String, detail: String, cause: Throwable? = null) :
+  RuntimeException("$pluginName: $kind: $detail", cause)
+
+/** The files a result came with, readable by name (closed with the call). */
+interface ResultFiles : Closeable {
+  /** The whole file [name], or null if the result has none by that name. Throws IOException beyond [maxBytes]. */
+  fun readBytes(name: String, maxBytes: Long): ByteArray?
+
+  /** Copies file [name] to [target]; false if there is none. */
+  fun copyTo(name: String, target: File): Boolean
+
+  companion object {
+    val EMPTY =
+      object : ResultFiles {
+        override fun readBytes(name: String, maxBytes: Long): ByteArray? = null
+        override fun copyTo(name: String, target: File) = false
+        override fun close() {}
+      }
+  }
+}
+
+/** What a call to a plugin app came to. */
+sealed interface TransportOutcome {
+  class Ok(val resultJson: String, val files: ResultFiles) : TransportOutcome, Closeable {
+    override fun close() = files.close()
+  }
+
+  class Failed(val kind: FailureKind, val detail: String, val cause: Throwable? = null) : TransportOutcome
+
+  /** The result, or throws [ExternalPluginException] (which the registry's crash isolation handles). */
+  fun orThrow(pluginName: String): Ok =
+    when (this) {
+      is Ok -> this
+      is Failed -> throw ExternalPluginException(kind, pluginName, detail, cause)
+    }
+}
+
+/** One blocking call into a plugin app. Production: [BoundServiceTransport]; tests use fakes. */
+fun interface PluginTransport {
+  /** Never throws: every failure is a [TransportOutcome.Failed]. [files] holds request files as ParcelFileDescriptors; the caller closes them. */
+  fun call(capabilityId: String, requestJson: String, files: Bundle, timeoutMs: Long): TransportOutcome
+}
+
+/** Maps what a binder call threw to a failure. Pure, so it is unit-tested. */
+internal fun failureFor(e: Throwable): TransportOutcome.Failed =
+  when (e) {
+    is DeadObjectException -> TransportOutcome.Failed(FailureKind.DIED, "the plugin's process died", e)
+    is RemoteException -> TransportOutcome.Failed(FailureKind.DIED, "the connection to the plugin broke: ${e.message}", e)
+    is SecurityException -> TransportOutcome.Failed(FailureKind.REJECTED, e.message ?: "refused", e)
+    else -> TransportOutcome.Failed(FailureKind.PLUGIN_ERROR, e.message ?: e.javaClass.simpleName, e)
+  }
+
+/** [ResultFiles] over the Bundle of ParcelFileDescriptors a plugin returned. */
+private class BundleResultFiles(private val bundle: Bundle) : ResultFiles {
+  override fun readBytes(name: String, maxBytes: Long): ByteArray? = PluginFiles.readBytes(bundle, name, maxBytes)
+
+  override fun copyTo(name: String, target: File): Boolean {
+    val input = PluginFiles.inputStream(bundle, name) ?: return false
+    input.use { i -> target.outputStream().use { i.copyTo(it) } }
+    return true
+  }
+
+  @Suppress("DEPRECATION")
+  override fun close() {
+    for (key in bundle.keySet().toList()) (bundle.get(key) as? ParcelFileDescriptor)?.let { runCatching { it.close() } }
+  }
+}
+
+/**
+ * Binds to a plugin's service by its explicit component for the length of one call: bind (on a worker
+ * thread, never the main looper), check the bridge version, call `run`, unbind. A hung plugin cannot be
+ * interrupted from here, so the call runs on its own thread and is waited for with a deadline; after
+ * the deadline PenLab tells the plugin to `cancel`, unbinds and reports [FailureKind.TIMEOUT].
+ */
+class BoundServiceTransport(private val context: Context, private val component: ComponentName) : PluginTransport {
+  override fun call(capabilityId: String, requestJson: String, files: Bundle, timeoutMs: Long): TransportOutcome {
+    val deadline = SystemClock.elapsedRealtime() + timeoutMs
+    fun remaining() = (deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1L)
+
+    val connected = CountDownLatch(1)
+    val binder = AtomicReference<IBinder?>()
+    val gone = AtomicBoolean(false)
+    val connection =
+      object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+          binder.set(service)
+          connected.countDown()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+          gone.set(true) // the plugin's process died; a pending call fails on its own
+        }
+
+        override fun onBindingDied(name: ComponentName) {
+          gone.set(true)
+          connected.countDown()
+        }
+
+        override fun onNullBinding(name: ComponentName) = connected.countDown()
+      }
+    val bound =
+      try {
+        context.bindService(Intent().setComponent(component), Context.BIND_AUTO_CREATE, POOL, connection)
+      } catch (e: SecurityException) {
+        false
+      }
+    try {
+      if (!bound) return TransportOutcome.Failed(FailureKind.UNAVAILABLE, "could not bind ${component.flattenToShortString()}")
+      if (!connected.await(remaining(), TimeUnit.MILLISECONDS)) return TransportOutcome.Failed(FailureKind.TIMEOUT, "did not connect in time")
+      val service = IPenLabPlugin.Stub.asInterface(binder.get() ?: return TransportOutcome.Failed(if (gone.get()) FailureKind.DIED else FailureKind.UNAVAILABLE, "no connection"))
+      val task = POOL.submit(Callable { remote(service, capabilityId, requestJson, files) })
+      return try {
+        task.get(remaining(), TimeUnit.MILLISECONDS)
+      } catch (e: TimeoutException) {
+        task.cancel(true)
+        POOL.execute { runCatching { service.cancel(capabilityId) } } // best effort: the plugin may be hung
+        TransportOutcome.Failed(FailureKind.TIMEOUT, "no answer within ${timeoutMs / 1000} s")
+      } catch (e: ExecutionException) {
+        failureFor(e.cause ?: e)
+      }
+    } finally {
+      try {
+        context.unbindService(connection)
+      } catch (e: IllegalArgumentException) {
+        Log.w(TAG, "unbind: $e") // never bound
+      }
+    }
+  }
+
+  /** The calls into the plugin, on a pool thread. */
+  private fun remote(service: IPenLabPlugin, capabilityId: String, requestJson: String, files: Bundle): TransportOutcome =
+    try {
+      val version = service.apiVersion()
+      if (version != PenLabBridge.API_VERSION) {
+        TransportOutcome.Failed(FailureKind.API_MISMATCH, "plugin speaks bridge API $version, PenLab speaks ${PenLabBridge.API_VERSION}")
+      } else {
+        val answer = service.run(capabilityId, requestJson, files)
+        val json = answer?.getString(PenLabBridge.KEY_RESULT)
+        if (json == null) TransportOutcome.Failed(FailureKind.PLUGIN_ERROR, "the plugin returned no result") else TransportOutcome.Ok(json, BundleResultFiles(answer))
+      }
+    } catch (e: Exception) {
+      failureFor(e)
+    }
+
+  private companion object {
+    const val TAG = "PluginTransport"
+
+    /** Bind callbacks and blocking binder calls; threads exit when idle. */
+    val POOL = Executors.newCachedThreadPool { r -> Thread(r, "penlab-plugin").apply { isDaemon = true } }
+  }
+}

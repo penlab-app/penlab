@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PenLab sample plugin</string>
+    <string name="hello_label">Hello screen</string>
+    <string name="hello_button">Put “Hello” on the page</string>
+    <string name="hello_cancel">Cancel</string>
+    <string name="hello_page">Page %1$d</string>
+    <string name="hello_text">Hello from the sample plugin</string>
+    <plurals name="stroke_count">
+        <item quantity="one">%1$d stroke selected (%2$d points)</item>
+        <item quantity="other">%1$d strokes selected (%2$d points)</item>
+    </plurals>
+</resources>

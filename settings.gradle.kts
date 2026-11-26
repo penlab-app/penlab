@@ -34,3 +34,5 @@ rootProject.name = "PenLab"
 
 include(":app")
 include(":plugin-api")
+include(":plugin-sdk")
+include(":sample-plugin")

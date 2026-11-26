@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Android 11+ hides other apps. A plugin must be able to see PenLab to check who is calling
+      its service (package name and signature), so the SDK asks for that on the plugin's behalf.
+    -->
+    <queries>
+        <package android:name="dev.penlab.app" />
+    </queries>
+
+    <application>
+        <!--
+          Hands result files of a screen activity (an image, say) back to PenLab as content URIs
+          with a one-time read grant. Not exported: only URIs the plugin itself grants work.
+        -->
+        <provider
+            android:name="dev.penlab.sdk.PenLabResultProvider"
+            android:authorities="${applicationId}.penlab-results"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+
+</manifest>

@@ -44,6 +44,9 @@ import dev.penlab.app.ui.components.PenLabPopoverSurface
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
+import dev.penlab.app.ui.theme.PenLabSpacing
+import dev.penlab.app.ui.theme.flatCardSurface
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabTextStyles
 import dev.penlab.app.ui.theme.floatingChromeSurface
@@ -179,47 +182,73 @@ private fun highlighted(hit: HandwritingIndex.Hit) = buildAnnotatedString {
   append(text.substring(match.last + 1))
 }
 
-/** The library's search box: a pill that searches every notebook as you type. */
+/**
+ * The library's search box: a 48dp pill that searches every notebook as you type. While the
+ * handwriting of older notebooks is still being read ([reading] = notebooks read to notebooks
+ * to read) a small spinner and the count sit at the end, so the user knows more matches may come.
+ */
 @Composable
-fun LibrarySearchField(query: String, onQueryChange: (String) -> Unit) {
-  val shape = RoundedCornerShape(20.dp)
+fun PenLabSearchField(
+  query: String,
+  onQueryChange: (String) -> Unit,
+  modifier: Modifier = Modifier,
+  reading: Pair<Int, Int>? = null,
+) {
   androidx.compose.foundation.text.BasicTextField(
     value = query,
     onValueChange = onQueryChange,
     singleLine = true,
-    textStyle = MaterialTheme.typography.bodyMedium.copy(color = PenLabColors.icon),
-    cursorBrush = androidx.compose.ui.graphics.SolidColor(PenLabColors.icon),
+    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+    cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-    modifier = Modifier.width(260.dp).semantics { contentDescription = "Search all notebooks" },
+    modifier = modifier.semantics { contentDescription = "Search all notebooks" },
     decorationBox = { field ->
       Row(
         Modifier
-          .floatingChromeSurface(
-            shape = shape,
-            background = PenLabComponentTokens.chromePillBg,
-            elevation = 4.dp,
-            subtleLightHairline = true,
-            borderColor = PenLabComponentTokens.chromePillBorder,
-            isDark = LocalPenLabColors.current.isDark,
+          .fillMaxWidth()
+          .heightIn(min = PenLabSpacing.touchTarget)
+          .flatCardSurface(
+            shape = PenLabShapes.pill,
+            background = PenLabComponentTokens.cardBg,
+            borderColor = PenLabComponentTokens.cardBorder,
           )
-          .padding(horizontal = 12.dp, vertical = 9.dp),
+          .padding(start = PenLabSpacing.lg, end = PenLabSpacing.xs),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Icon(SearchIcon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 8.dp).size(18.dp))
+        Icon(
+          SearchIcon,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+          modifier = Modifier.padding(end = PenLabSpacing.sm).size(PenLabLayout.iconMedium),
+        )
         androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
-          if (query.isEmpty()) Text("Search handwriting", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+          if (query.isEmpty()) Text("Search handwriting", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
           field()
+        }
+        if (reading != null) {
+          // Indexing: spinner plus "3/12" (tabular so it doesn't jiggle as it counts).
+          androidx.compose.material3.CircularProgressIndicator(
+            modifier = Modifier.size(PenLabLayout.iconSmall).semantics { contentDescription = "Reading handwriting" },
+            strokeWidth = PenLabLayout.ringSelected,
+            color = MaterialTheme.colorScheme.primary,
+          )
+          Text(
+            "${minOf(reading.first + 1, reading.second)}/${reading.second}",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = PenLabTextStyles.tabularSmall,
+            modifier = Modifier.padding(horizontal = PenLabSpacing.sm),
+          )
         }
         if (query.isNotEmpty()) {
           androidx.compose.foundation.layout.Box(
             modifier = Modifier
-              .size(28.dp)
+              .size(PenLabSpacing.touchTarget)
               .clip(PenLabShapes.pill)
-              .clickable { onQueryChange("") }
+              .clickable(role = androidx.compose.ui.semantics.Role.Button) { onQueryChange("") }
               .semantics { contentDescription = "Clear search" },
             contentAlignment = Alignment.Center,
           ) {
-            Icon(PenLabIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+            Icon(PenLabIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(PenLabLayout.iconMedium))
           }
         }
       }
@@ -236,7 +265,7 @@ fun LibrarySearchResults(
   onOpen: (dev.penlab.app.search.LibrarySearch.Result) -> Unit,
 ) {
   val groups = remember(results) { results.groupBy { it.notebook.id }.values.toList() }
-  LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 32.dp)) {
+  LazyColumn(Modifier.fillMaxWidth().padding(horizontal = PenLabLayout.libraryGutter)) {
     item {
       val count = when (results.size) {
         0 -> "No matches for “$query”"

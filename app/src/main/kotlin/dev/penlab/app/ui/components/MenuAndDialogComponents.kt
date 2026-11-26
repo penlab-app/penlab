@@ -55,6 +55,7 @@ import androidx.compose.ui.window.DialogProperties
 import dev.penlab.app.ui.PenLabIcons
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
@@ -386,6 +387,7 @@ fun PenLabDialog(
   secondaryLabel: String? = "Cancel",
   onSecondaryClick: (() -> Unit)? = onDismiss,
   subtitle: String? = null,
+  maxWidth: Dp = PenLabLayout.dialogMaxWidth,
   body: @Composable ColumnScope.() -> Unit,
 ) {
   val scheme = MaterialTheme.colorScheme
@@ -398,7 +400,7 @@ fun PenLabDialog(
         modifier
           .imePadding()
           .padding(horizontal = PenLabSpacing.xl, vertical = 20.dp)
-          .widthIn(min = 320.dp, max = 520.dp)
+          .widthIn(min = 320.dp, max = maxWidth)
           .heightIn(max = 660.dp)
           .fillMaxWidth()
           .softShadow(PenLabShapes.extraLarge, elevation = 16.dp),

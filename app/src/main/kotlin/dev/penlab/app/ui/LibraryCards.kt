@@ -1,0 +1,391 @@
+package dev.penlab.app.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import dev.penlab.app.ink.InkColors
+import dev.penlab.app.ink.PageBackground
+import dev.penlab.app.ink.PageStyle
+import dev.penlab.app.notes.NotebookInfo
+import dev.penlab.app.notes.NotebookKind
+import dev.penlab.app.ui.components.PenLabIconButton
+import dev.penlab.app.ui.components.PenLabMenuItem
+import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
+import dev.penlab.app.ui.theme.PenLabShapes
+import dev.penlab.app.ui.theme.PenLabSpacing
+import dev.penlab.app.ui.theme.PenLabTextStyles
+import dev.penlab.app.ui.theme.flatCardSurface
+import java.text.DateFormat
+import java.util.Date
+
+/*
+ * The library's cards: NotebookCard, FolderCard and CourseShelf. One depth cue each (a 1dp
+ * hairline on the cover, no shadow, no card inside a card), a visible three-dot button that opens
+ * the same menu a long-press does, and tokens only.
+ */
+
+/** Overflow menu surface shared by every card and the header: panel colour, medium radius. */
+@Composable
+internal fun LibraryMenu(expanded: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+  DropdownMenu(
+    expanded = expanded,
+    onDismissRequest = onDismiss,
+    containerColor = PenLabComponentTokens.panelBg,
+    shape = PenLabShapes.medium,
+    modifier = Modifier.widthIn(min = PenLabLayout.menuMinWidth),
+  ) {
+    content()
+  }
+}
+
+/** The visible 48dp three-dot button; [menu] is the menu, anchored here. Long-press shares [open]. */
+@Composable
+private fun CardMenuButton(label: String, open: Boolean, onOpen: () -> Unit, onDismiss: () -> Unit, menu: @Composable () -> Unit) {
+  Box {
+    PenLabIconButton(icon = PenLabIcons.MoreVert, contentDescription = label, onClick = onOpen)
+    LibraryMenu(open, onDismiss, menu)
+  }
+}
+
+/** A notebook: its cover (first page, or a sheet of its paper), PDF badge, title, pages and date. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun NotebookCard(
+  notebook: NotebookInfo,
+  darkPage: Boolean,
+  coverFile: java.io.File,
+  onOpen: () -> Unit,
+  onRename: () -> Unit,
+  onMove: () -> Unit,
+  onDelete: () -> Unit,
+  onExport: () -> Unit,
+  onShare: () -> Unit,
+  onTurn: () -> Unit,
+  modifier: Modifier = Modifier,
+  /** Shown before the date, e.g. the folder on a Continue card. */
+  place: String? = null,
+  /** The folder's colour, as a small mark beside the place. */
+  accent: Int? = null,
+  /** "Today" / "3 days ago" instead of the date (Continue strip). */
+  relativeDate: Boolean = false,
+) {
+  var menu by remember { mutableStateOf(false) }
+  val scheme = MaterialTheme.colorScheme
+  val date =
+    remember(notebook.modified, relativeDate) {
+      val full = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(notebook.modified))
+      if (relativeDate) relativeDayLabel(System.currentTimeMillis(), notebook.modified) ?: full else full
+    }
+  val isPdf = notebook.pdfPages.isNotEmpty()
+  val detail = if (notebook.kind == NotebookKind.INFINITE) "Canvas · $date" else "${pagesLabel(notebook.pageCount)} · $date"
+  Column(
+    modifier
+      .clip(PenLabShapes.medium)
+      .combinedClickable(role = Role.Button, onClick = onOpen, onLongClick = { menu = true })
+      .semantics { contentDescription = "${notebook.title}, $detail. Long press or use the menu for options." }
+  ) {
+    val aspect = if (notebook.kind == NotebookKind.A4) notebook.pageWidthMm / notebook.pageHeightMm else PenLabLayout.canvasAspect
+    Box {
+      // The real first page once there is a cover; the paper style until then.
+      val cover by produceState(Covers.cached(notebook.id), notebook.id, notebook.modified) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Covers.load(notebook.id, coverFile) }
+      }
+      val image = cover
+      if (image != null) {
+        Image(
+          image,
+          contentDescription = null,
+          contentScale = ContentScale.Crop,
+          alignment = Alignment.TopCenter,
+          // On the dark page, plain notebooks look as they do inside (ink inverted); PDFs stay white.
+          colorFilter = if (darkPage && !isPdf) InvertCover else null,
+          modifier = Modifier.fillMaxWidth().aspectRatio(aspect)
+            .flatCardSurface(PenLabShapes.medium, PenLabComponentTokens.cardBg, PenLabComponentTokens.cardBorder),
+        )
+      } else {
+        PaperPreview(notebook.pageStyle, darkPage, pdf = isPdf, modifier = Modifier.fillMaxWidth().aspectRatio(aspect), shape = PenLabShapes.medium)
+      }
+      if (isPdf) {
+        Text(
+          "PDF",
+          color = scheme.onPrimaryContainer,
+          style = MaterialTheme.typography.labelSmall,
+          modifier = Modifier.align(Alignment.TopStart).padding(PenLabSpacing.sm)
+            .clip(PenLabShapes.extraSmall).background(scheme.primaryContainer)
+            .padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.xs),
+        )
+      }
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+      Column(Modifier.weight(1f).padding(top = PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs)) {
+        Text(notebook.title, color = scheme.onSurface, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          if (place != null) {
+            Box(Modifier.size(PenLabLayout.dot).background(accent?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
+            Spacer(Modifier.width(PenLabSpacing.sm))
+          }
+          Text(
+            if (place != null) "$place · $detail" else detail,
+            color = scheme.onSurfaceVariant,
+            style = PenLabTextStyles.tabularMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
+      CardMenuButton("Options for ${notebook.title}", menu, onOpen = { menu = true }, onDismiss = { menu = false }) {
+        PenLabMenuItem("Rename", { menu = false; onRename() }, icon = PenLabIcons.Rename)
+        PenLabMenuItem("Move to folder", { menu = false; onMove() }, icon = PenLabIcons.Move)
+        PenLabMenuItem("Export PDF", { menu = false; onExport() }, icon = PenLabIcons.Pdf)
+        PenLabMenuItem("Share PDF", { menu = false; onShare() }, icon = PenLabIcons.Export)
+        // Plain A4 notebooks can be turned; a PDF's pages keep their own shape.
+        if (notebook.kind == NotebookKind.A4 && !isPdf) {
+          val toLandscape = notebook.pageWidthMm < notebook.pageHeightMm
+          PenLabMenuItem(if (toLandscape) "Turn to landscape" else "Turn to portrait", { menu = false; onTurn() }, icon = PenLabIcons.Rotate)
+        }
+        PenLabMenuItem("Delete", { menu = false; onDelete() }, icon = PenLabIcons.Delete, destructive = true)
+      }
+    }
+  }
+}
+
+/** The folder menu entries, shared by [FolderCard] and [CourseShelf]. */
+@Composable
+private fun FolderMenuItems(
+  onDismiss: () -> Unit,
+  onOpen: (() -> Unit)?,
+  onRename: () -> Unit,
+  onColor: () -> Unit,
+  onMove: () -> Unit,
+  onDelete: () -> Unit,
+) {
+  if (onOpen != null) PenLabMenuItem("Open folder", { onDismiss(); onOpen() }, icon = PenLabIcons.Folder)
+  PenLabMenuItem("Rename", { onDismiss(); onRename() }, icon = PenLabIcons.Rename)
+  PenLabMenuItem("Colour", { onDismiss(); onColor() }, icon = PenLabIcons.Palette)
+  PenLabMenuItem("Move to folder", { onDismiss(); onMove() }, icon = PenLabIcons.Move)
+  PenLabMenuItem("Delete (if empty)", { onDismiss(); onDelete() }, icon = PenLabIcons.Delete, destructive = true)
+}
+
+/** A folder inside a folder: a tinted tile with its icon, name, notebook count and a menu. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun FolderCard(
+  name: String,
+  count: Int,
+  color: Int?,
+  onOpen: () -> Unit,
+  onRename: () -> Unit,
+  onMove: () -> Unit,
+  onColor: () -> Unit,
+  onDelete: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  var menu by remember { mutableStateOf(false) }
+  val scheme = MaterialTheme.colorScheme
+  val accent = color?.let { Color(it) }
+  val body = accent?.let { lerp(PenLabComponentTokens.cardBg, it, 0.14f) } ?: PenLabComponentTokens.cardBg
+  val edge = accent?.copy(alpha = 0.5f) ?: PenLabComponentTokens.cardBorder
+  Column(
+    modifier
+      .clip(PenLabShapes.medium)
+      .combinedClickable(role = Role.Button, onClick = onOpen, onLongClick = { menu = true })
+      .semantics { contentDescription = "Folder $name, ${notebooksLabel(count)}. Long press or use the menu for options." }
+  ) {
+    Box(
+      Modifier.fillMaxWidth().aspectRatio(PenLabLayout.canvasAspect).flatCardSurface(PenLabShapes.medium, body, edge),
+      contentAlignment = Alignment.Center,
+    ) {
+      Icon(PenLabIcons.Folder, contentDescription = null, tint = accent ?: scheme.onSurfaceVariant, modifier = Modifier.size(PenLabLayout.iconFolder))
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+      Column(Modifier.weight(1f).padding(top = PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs)) {
+        Text(name, color = scheme.onSurface, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(notebooksLabel(count), color = scheme.onSurfaceVariant, style = PenLabTextStyles.tabularMedium, maxLines = 1)
+      }
+      CardMenuButton("Options for folder $name", menu, onOpen = { menu = true }, onDismiss = { menu = false }) {
+        FolderMenuItems({ menu = false }, null, onRename, onColor, onMove, onDelete)
+      }
+    }
+  }
+}
+
+/** One course folder as a shelf: colour dot, name, count, an Open action, a menu, and its newest notebooks. */
+@Composable
+internal fun CourseShelf(
+  name: String,
+  parent: String,
+  count: Int,
+  color: Int?,
+  onOpenFolder: () -> Unit,
+  onRename: () -> Unit,
+  onMove: () -> Unit,
+  onColor: () -> Unit,
+  onDelete: () -> Unit,
+  books: @Composable () -> Unit,
+) {
+  var menu by remember { mutableStateOf(false) }
+  val scheme = MaterialTheme.colorScheme
+  Column(Modifier.fillMaxWidth().padding(top = PenLabSpacing.sm), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Row(
+        Modifier.weight(1f).heightIn(min = PenLabSpacing.touchTarget).clip(PenLabShapes.small)
+          .clickable(role = Role.Button, onClick = onOpenFolder).padding(horizontal = PenLabSpacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Box(Modifier.size(PenLabLayout.dotLarge).background(color?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
+        Spacer(Modifier.width(PenLabSpacing.md))
+        Text(name, color = scheme.onSurface, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (parent.isNotEmpty()) {
+          Spacer(Modifier.width(PenLabSpacing.sm))
+          Text(parent, color = scheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(PenLabSpacing.md))
+        Text(notebooksLabel(count), color = scheme.onSurfaceVariant, style = PenLabTextStyles.tabularMedium, maxLines = 1)
+      }
+      TextButton(onClick = onOpenFolder, modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget)) {
+        Text("Open", color = scheme.primary, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Icon(PenLabIcons.ChevronRight, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(PenLabLayout.iconSmall))
+      }
+      CardMenuButton("Options for folder $name", menu, onOpen = { menu = true }, onDismiss = { menu = false }) {
+        FolderMenuItems({ menu = false }, onOpenFolder, onRename, onColor, onMove, onDelete)
+      }
+    }
+    if (count == 0) {
+      Text("Empty", color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = PenLabSpacing.xs))
+    } else {
+      Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.lg)) { books() }
+    }
+  }
+}
+
+/** Covers on the dark page: lightness inverted, hue kept (the same matrix the page uses for ink pictures). */
+private val InvertCover =
+  ColorFilter.colorMatrix(
+    ColorMatrix(floatArrayOf(0.574f, -1.430f, -0.144f, 0f, 255f, -0.426f, -0.430f, -0.144f, 0f, 255f, -0.426f, -1.430f, 0.856f, 0f, 255f, 0f, 0f, 0f, 1f, 0f))
+  )
+
+/**
+ * A blank sheet of a notebook's paper with its ruling, in the active Light/Dark paper tint: the
+ * cover until page thumbnails exist, and the swatches in the New notebook dialog. Ruling scales with
+ * the sheet's width, so a small swatch looks like a shrunken page rather than a different one.
+ */
+@Composable
+internal fun PaperPreview(
+  style: PageStyle,
+  darkPage: Boolean,
+  modifier: Modifier = Modifier,
+  pdf: Boolean = false,
+  shape: Shape = PenLabShapes.small,
+) {
+  val paper = if (pdf) Color.White else Color(InkColors.pageOnScreen(darkPage))
+  val ruling = Color(InkColors.onScreen(PageBackground.RULING_PAPER_COLOR, darkPage))
+  val slideInk = MaterialTheme.colorScheme.outline
+  Canvas(modifier.flatCardSurface(shape, paper, PenLabComponentTokens.cardBorder)) {
+    val step = size.width / 16f
+    val w = size.width
+    val h = size.height
+    if (pdf) {
+      // A stand-in for a slide until real covers exist: a title bar and a few text lines.
+      drawRect(slideInk, topLeft = Offset(w * 0.12f, h * 0.16f), size = androidx.compose.ui.geometry.Size(w * 0.5f, h * 0.09f))
+      for (i in 0 until 4) {
+        val y = h * (0.4f + i * 0.12f)
+        drawLine(slideInk, Offset(w * 0.12f, y), Offset(w * (0.8f - i * 0.1f), y), strokeWidth = 2f)
+      }
+      return@Canvas
+    }
+    when (style) {
+      PageStyle.BLANK -> Unit
+      PageStyle.LINED -> {
+        var y = step * 1.5f
+        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = 1f); y += step }
+      }
+      PageStyle.DOTTED -> {
+        var y = step
+        while (y < h) {
+          var x = step
+          while (x < w) { drawCircle(ruling, radius = 1.2f, center = Offset(x, y)); x += step }
+          y += step
+        }
+      }
+      PageStyle.CORNELL -> {
+        var y = step * 1.5f
+        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = 1f); y += step }
+        drawLine(ruling, Offset(w * 0.3f, step * 1.5f), Offset(w * 0.3f, h * 0.8f), strokeWidth = 2f)
+        drawLine(ruling, Offset(0f, h * 0.8f), Offset(w, h * 0.8f), strokeWidth = 2f)
+      }
+      PageStyle.CP -> {
+        val faint = ruling.copy(alpha = 0.45f)
+        var x = 0f
+        while (x < w) { drawLine(faint, Offset(x, 0f), Offset(x, h), strokeWidth = 0.6f); x += step * 0.6f }
+        var y = 0f
+        while (y < h) { drawLine(faint, Offset(0f, y), Offset(w, y), strokeWidth = 0.6f); y += step * 0.6f }
+        drawLine(ruling, Offset(0f, h * 0.1f), Offset(w, h * 0.1f), strokeWidth = 2f)
+        drawLine(ruling, Offset(w * 0.12f, h * 0.1f), Offset(w * 0.12f, h), strokeWidth = 2f)
+      }
+      PageStyle.ISOMETRIC -> {
+        val gap = step * 0.8f
+        var c = -w
+        while (c < h + w) {
+          drawLine(ruling, Offset(0f, c), Offset(w, c + w * 0.577f), strokeWidth = 1f)
+          drawLine(ruling, Offset(0f, c), Offset(w, c - w * 0.577f), strokeWidth = 1f)
+          c += gap
+        }
+      }
+      PageStyle.GRID, PageStyle.ENGINEERING, PageStyle.GRAPH -> {
+        val cell = if (style == PageStyle.GRAPH) step / 2 else step * 0.6f
+        // Engineering pads and graph paper have a heavier line every fifth rule.
+        val heavyEvery = if (style == PageStyle.GRID) 0 else 5
+        var i = 0
+        var x = 0f
+        while (x < w) { drawLine(ruling, Offset(x, 0f), Offset(x, h), strokeWidth = if (heavyEvery != 0 && i % heavyEvery == 0) 2f else 1f); x += cell; i++ }
+        i = 0
+        var y = 0f
+        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = if (heavyEvery != 0 && i % heavyEvery == 0) 2f else 1f); y += cell; i++ }
+      }
+    }
+  }
+}

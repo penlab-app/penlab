@@ -111,7 +111,11 @@ import dev.penlab.app.ui.IdeaIcon
 import dev.penlab.app.ui.RequestDialog
 import dev.penlab.app.ui.SearchPanel
 import dev.penlab.app.ui.SearchStepper
+import dev.penlab.app.ui.FIRST_LAUNCH_DONE_KEY
+import dev.penlab.app.ui.FirstLaunchAction
+import dev.penlab.app.ui.LOOK_PREFS
 import dev.penlab.app.ui.SettingsSheet
+import dev.penlab.app.ui.firstLaunchAction
 import dev.penlab.app.ui.resolveCanvasDarkPage
 import dev.penlab.app.search.HandwritingIndex
 import dev.penlab.app.ui.FULLSCREEN_EXIT_ALPHA
@@ -208,6 +212,20 @@ class MainActivity : ComponentActivity() {
 
   /** The library's contents, newest first. Loaded off the main thread. */
   private var library by mutableStateOf<List<NotebookInfo>>(emptyList())
+
+  /** The first read of the library has finished: before it, an empty [library] only means "not loaded yet". */
+  private var libraryLoaded by mutableStateOf(false)
+
+  /** The Welcome sheet was seen (or skipped, or not needed); persisted as `first_launch_done` in the `look` prefs. */
+  private var firstLaunchDone by mutableStateOf(false)
+
+  /** Settings > "Welcome guide": show the sheet whatever the first-run rules say. */
+  private var welcomeRequested by mutableStateOf(false)
+
+  private fun markFirstLaunchDone() {
+    firstLaunchDone = true
+    getSharedPreferences(LOOK_PREFS, MODE_PRIVATE).edit().putBoolean(FIRST_LAUNCH_DONE_KEY, true).apply()
+  }
 
   /**
    * Notebook tabs: the last three notebooks opened, newest first, kept across
@@ -320,6 +338,7 @@ class MainActivity : ComponentActivity() {
     toolbarConfig = ToolbarConfig(this)
     toolDock = ToolDock(this)
     Motion.load(this)
+    firstLaunchDone = getSharedPreferences(LOOK_PREFS, MODE_PRIVATE).getBoolean(FIRST_LAUNCH_DONE_KEY, false)
     tabs = tabPrefs.getString("ids", null)?.split(",")?.filter { it.isNotEmpty() }.orEmpty()
     val toolSettings = ToolSettings(this)
     setContent {
@@ -401,6 +420,14 @@ class MainActivity : ComponentActivity() {
             storageShared = !needsStorageAccess,
             onAllowStorage = ::requestStorageAccess,
             onDismiss = { settingsOpen = false },
+            // The guide lives on the library screen, so it is only offered there.
+            onWelcomeGuide = if (open == null) ({ settingsOpen = false; welcomeRequested = true }) else null,
+            onReport = {
+              settingsOpen = false
+              reportingFrom =
+                open?.info?.let { "settings › ${it.title}" }
+                  ?: if (libraryFolder.isEmpty()) "library" else "library › $libraryFolder"
+            },
           )
         }
         val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -441,6 +468,16 @@ class MainActivity : ComponentActivity() {
               }
             }
           }
+          // Welcome sheet: a genuine first run (library read, no notebooks) or asked for in Settings.
+          val welcomeAction = firstLaunchAction(
+            done = firstLaunchDone,
+            libraryLoaded = libraryLoaded,
+            notebookCount = library.size,
+            notebookOpen = open != null,
+            requested = welcomeRequested,
+          )
+          // A returning user (notebooks, flag never set) is recorded once so deleting everything later shows no welcome.
+          LaunchedEffect(welcomeAction) { if (welcomeAction == FirstLaunchAction.MARK_DONE) markFirstLaunchDone() }
           LibraryScreen(
             storageBanner = needsStorageAccess && !storageBannerDismissed,
             onAllowStorage = ::requestStorageAccess,
@@ -483,7 +520,11 @@ class MainActivity : ComponentActivity() {
             onTurn = ::turnNotebook,
             coverFile = { info -> File(notebooks.imagesDir(info).parentFile, COVER_FILE) },
             onOpenSettings = { settingsOpen = true },
-            onReport = { reportingFrom = if (libraryFolder.isEmpty()) "library" else "library › $libraryFolder" },
+            showWelcome = welcomeAction == FirstLaunchAction.SHOW,
+            onWelcomeClosed = {
+              welcomeRequested = false
+              markFirstLaunchDone()
+            },
             onDelete = { info ->
               deleteNotebook(info)
               scope.launch {
@@ -620,6 +661,7 @@ class MainActivity : ComponentActivity() {
     val colors = notebooks.folderColors()
     main.post {
       library = list
+      libraryLoaded = true
       folders = folderList
       folderColors = colors
       backfillCovers()

@@ -80,6 +80,10 @@ fun SettingsSheet(
   storageShared: Boolean,
   onAllowStorage: () -> Unit,
   onDismiss: () -> Unit,
+  /** Replays the Welcome sheet; only offered on the library (null hides the row). */
+  onWelcomeGuide: (() -> Unit)? = null,
+  /** Opens the Bug / idea form (null hides the row). */
+  onReport: (() -> Unit)? = null,
 ) {
   val scheme = MaterialTheme.colorScheme
   val extended = LocalPenLabColors.current
@@ -412,6 +416,31 @@ fun SettingsSheet(
               }
             }
           }
+
+          // ---- Help & feedback ----
+          if (onWelcomeGuide != null || onReport != null) {
+            Spacer(Modifier.height(PenLabSpacing.xl))
+            HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
+            PenLabSectionHeader(title = "Help & feedback", topPadding = PenLabSpacing.lg, bottomPadding = PenLabSpacing.sm)
+            if (onWelcomeGuide != null) {
+              PenLabMenuItem(
+                label = "Welcome guide",
+                subtitle = "Replay the quick look-and-paper setup.",
+                icon = PenLabIcons.Sparkles,
+                showChevron = true,
+                onClick = onWelcomeGuide,
+              )
+            }
+            if (onReport != null) {
+              PenLabMenuItem(
+                label = "Bug / idea",
+                subtitle = "Tell us what broke or what you would like.",
+                icon = PenLabIcons.Idea,
+                showChevron = true,
+                onClick = onReport,
+              )
+            }
+          }
         }
       }
     }
@@ -545,7 +574,7 @@ private fun ToolbarItemCustomizeRow(
  * tokens in the current Light/Dark mode.
  */
 @Composable
-private fun AccentLookTile(
+internal fun AccentLookTile(
   look: AccentTheme,
   isDark: Boolean,
   selected: Boolean,

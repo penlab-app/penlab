@@ -25,7 +25,7 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
   "capabilities": [
     { "kind": "pageAction", "id": "count", "label": "Count", "icon": "@drawable/ic_count", "selection": "required|none|any" },
     { "kind": "importer",   "id": "fmt",   "label": "My format", "mimeTypes": ["application/x-fmt"], "extensions": ["fmt"] },
-    { "kind": "screen",     "id": "chat",  "label": "Chat", "icon": "@drawable/ic_chat", "activity": ".ChatActivity", "placement": "selectionMenu|moreMenu|fileMenu", "inputs": ["page", "notebook", "items"] },
+    { "kind": "screen",     "id": "chat",  "label": "Chat", "icon": "@drawable/ic_chat", "activity": ".ChatActivity", "placement": "selectionMenu|moreMenu|fileMenu|topBar", "inputs": ["page", "notebook", "items"] },
     { "kind": "recogniser", "id": "r", "label": "..." }, { "kind": "media", "id": "m", "label": "...", "icon": "@drawable/ic_mic" }
   ],
   "permissions": ["network", "microphone"] }
@@ -34,7 +34,7 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
 - `apiVersion` must be exactly 2. Unknown kinds (and capabilities with missing or unknown fields) are ignored.
   `recogniser` is read but not hosted yet; `media` is hosted (see "Media").
 - Where entries appear: pageAction `selection: required` in the lasso's More menu, `none` in the file menu, `any` in both;
-  a screen goes where its `placement` says (`moreMenu` = the toolbar's More panel, default).
+  a screen goes where its `placement` says (`moreMenu` = the toolbar's More panel, default; `topBar` = its own icon button in the top-right bar, beside search).
 - Optional `"icon"` on `pageAction`, `screen`, and `media`: `@drawable/<name>` (or `<name>`) matching `[a-z][a-z0-9_]{0,127}`, loaded off the main thread from the plugin package and bounded to 96 px (`ExternalPluginIcons`); rendered tinted to the menu icon colour (monochrome 24 dp vector recommended). Invalid or missing icons are dropped silently and fall back to PenLab's built-in slot/default icon.
 - Importers are matched by MIME type or by extension (formats Android has no MIME type for). A format that is only known by its
   extension should list `extensions` and leave `mimeTypes` empty: claiming `application/octet-stream` or `application/zip` would route

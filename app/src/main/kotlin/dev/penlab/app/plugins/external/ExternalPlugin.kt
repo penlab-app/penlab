@@ -300,7 +300,7 @@ class ExternalScreen(
     when (placement) {
       ScreenPlacement.SELECTION_MENU -> EnabledWhen.SELECTION_NOT_EMPTY
       ScreenPlacement.FILE_MENU -> EnabledWhen.SELECTION_EMPTY
-      ScreenPlacement.MORE_MENU -> EnabledWhen.ALWAYS
+      ScreenPlacement.MORE_MENU, ScreenPlacement.TOP_BAR -> EnabledWhen.ALWAYS
     }
 
   override suspend fun run(selection: Selection, page: PageRef): PluginResult = PluginResult.None

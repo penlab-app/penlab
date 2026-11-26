@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
@@ -442,6 +443,9 @@ fun FileOptionsPopover(
  * Right floating island of the 3-island top chrome:
  * `[ Search | − 100% + | Fullscreen | Page Config ]`.
  */
+/** A plugin screen with its own button in the top-right bar (manifest placement `topBar`). */
+class ChromePluginButton(val label: String, val icon: ImageBitmap?, val onClick: () -> Unit)
+
 @Composable
 fun PageConfigChromePill(
   searchAvailable: Boolean,
@@ -461,6 +465,7 @@ fun PageConfigChromePill(
   onTogglePageConfig: () -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  pluginButtons: List<ChromePluginButton> = emptyList(),
 ) {
   val scheme = MaterialTheme.colorScheme
   val zoom = zoomPercent()
@@ -474,6 +479,11 @@ fun PageConfigChromePill(
     contentPadding = PaddingValues(horizontal = PenLabSpacing.xs),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
   ) {
+    // Plugin buttons first (e.g. Claude AI): one tap from the page instead of a menu.
+    for (b in pluginButtons) {
+      ChromePillIconButton(icon = IdeaIcon, bitmap = b.icon, contentDescription = b.label, onClick = b.onClick)
+    }
+    if (pluginButtons.isNotEmpty()) ChromePillDivider()
     if (searchAvailable) {
       ChromePillIconButton(
         icon = PenLabIcons.Search,
@@ -785,6 +795,8 @@ internal fun ChromePillIconButton(
   onClick: () -> Unit,
   iconSize: Dp = PenLabLayout.iconMedium,
   selected: Boolean = false,
+  /** A plugin's own icon; drawn instead of [icon] when present. */
+  bitmap: ImageBitmap? = null,
 ) {
   val interaction = remember { MutableInteractionSource() }
   val pressed by interaction.collectIsPressedAsState()
@@ -829,12 +841,11 @@ internal fun ChromePillIconButton(
           .background(bg),
       contentAlignment = Alignment.Center,
     ) {
-      Icon(
-        imageVector = icon,
-        contentDescription = null,
-        tint = tint,
-        modifier = Modifier.size(iconSize),
-      )
+      if (bitmap != null) {
+        Icon(bitmap = bitmap, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
+      } else {
+        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(iconSize))
+      }
     }
   }
 }

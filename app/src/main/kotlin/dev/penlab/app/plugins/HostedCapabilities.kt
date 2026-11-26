@@ -13,6 +13,9 @@ enum class ScreenPlacement {
 
   /** The file menu (the notebook's options popover). */
   FILE_MENU,
+
+  /** A button of its own in the top-right bar, beside search (the plugin's icon). */
+  TOP_BAR,
 }
 
 /**

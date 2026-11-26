@@ -696,6 +696,7 @@ class MainActivity : ComponentActivity() {
               // Reading externalPlugins.version here makes the menus redraw after a rescan swaps plugins.
               pluginActions = { selectionEmpty -> externalPlugins.version.let { plugins.pageActions(selectionEmpty) } },
               moreMenuActions = { externalPlugins.version.let { plugins.moreMenuActions() } },
+              topBarActions = { externalPlugins.version.let { plugins.topBarActions() } },
               onPluginAction = ::runPluginAction,
               mediaEntries = { externalPlugins.version.let { plugins.mediaPlugins() } },
               mediaSession = mediaSession,
@@ -1941,6 +1942,8 @@ private fun NoteScreen(
   pluginActions: (selectionEmpty: Boolean) -> List<PluginRegistry.Entry<PageAction>>,
   /** Plugin screens placed in the toolbar's More panel. */
   moreMenuActions: () -> List<PluginRegistry.Entry<PageAction>>,
+  /** Plugin screens with their own button in the top-right bar (Claude AI). */
+  topBarActions: () -> List<PluginRegistry.Entry<PageAction>>,
   onPluginAction: (PluginRegistry.Entry<PageAction>) -> Unit,
   /** The media plugins (lecture recording) in use, and the live recording (null when none). */
   mediaEntries: () -> List<PluginRegistry.Entry<ExternalMedia>>,
@@ -2944,6 +2947,13 @@ private fun NoteScreen(
             closeOverlays(topBarToo = true)
             pageConfigOpen = next
           },
+          pluginButtons =
+            topBarActions().map { entry ->
+              dev.penlab.app.ui.ChromePluginButton(entry.capability.label, (entry.capability as? HasExternalIcon)?.externalIcon) {
+                closeOverlays(topBarToo = true)
+                onPluginAction(entry)
+              }
+            },
           isPalm = isPalm,
           modifier =
             Modifier

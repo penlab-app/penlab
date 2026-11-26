@@ -176,8 +176,9 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
   /** Page actions offered now: [selectionEmpty] picks the "more" menu (true) or the lasso menu (false). */
   fun pageActions(selectionEmpty: Boolean): List<Entry<PageAction>> =
     entries<PageAction>().filter {
-      // A screen placed in the toolbar's More panel is listed by [moreMenuActions] only.
-      if ((it.capability as? ScreenPageAction)?.placement == ScreenPlacement.MORE_MENU) return@filter false
+      // Screens placed in the toolbar's More panel or the top bar are listed by [moreMenuActions] / [topBarActions] only.
+      val placement = (it.capability as? ScreenPageAction)?.placement
+      if (placement == ScreenPlacement.MORE_MENU || placement == ScreenPlacement.TOP_BAR) return@filter false
       when (it.capability.enabledWhen) {
         EnabledWhen.ALWAYS -> true
         EnabledWhen.SELECTION_EMPTY -> selectionEmpty
@@ -190,6 +191,9 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
 
   /** Plugin screens that ask to be in the toolbar's More panel. */
   fun moreMenuActions(): List<Entry<PageAction>> = entries<PageAction>().filter { (it.capability as? ScreenPageAction)?.placement == ScreenPlacement.MORE_MENU }
+
+  /** Plugin screens that ask for a button of their own in the top-right bar. */
+  fun topBarActions(): List<Entry<PageAction>> = entries<PageAction>().filter { (it.capability as? ScreenPageAction)?.placement == ScreenPlacement.TOP_BAR }
 
   /**
    * Runs [block] (a call into [plugin]) and catches anything it throws: the plugin is switched

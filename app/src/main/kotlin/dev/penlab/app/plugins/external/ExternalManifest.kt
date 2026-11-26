@@ -172,6 +172,7 @@ object ManifestParser {
             "selectionMenu" -> ScreenPlacement.SELECTION_MENU
             "moreMenu" -> ScreenPlacement.MORE_MENU
             "fileMenu" -> ScreenPlacement.FILE_MENU
+            "topBar" -> ScreenPlacement.TOP_BAR
             else -> return null
           }
         // Unknown input names are dropped (a newer plugin on an older PenLab simply gets less); the screen stays.

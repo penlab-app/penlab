@@ -123,6 +123,16 @@ class ExternalManifestTest {
   }
 
   @Test
+  fun `screen placement topBar is read`() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"screen","id":"hub","label":"Claude AI","activity":".A","placement":"topBar"}
+      ]}""",
+    )
+    assertEquals(dev.penlab.app.plugins.ScreenPlacement.TOP_BAR, (m.capabilities.single() as CapabilityDecl.ScreenDecl).placement)
+  }
+
+  @Test
   fun mediaCapabilityReadsItsStartActivity() {
     val m = ok(
       """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[

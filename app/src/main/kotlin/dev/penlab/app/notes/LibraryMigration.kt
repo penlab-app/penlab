@@ -22,6 +22,7 @@ import java.io.IOException
 object LibraryMigration {
   private const val STAGING = ".migrating-"
   private const val REMOVING = ".migrated-"
+  private const val TRASH = ".trash"
   private const val FOLDERS = "folders.txt"
   private const val COLORS = "folder-colors.txt"
 
@@ -35,15 +36,20 @@ object LibraryMigration {
     val isEmpty: Boolean get() = copy.isEmpty() && alreadyThere.isEmpty()
   }
 
-  /** [moved] counts notebooks now safely in the target (renamed ones included); [error] is null on success. */
-  data class Result(val moved: Int, val renamed: Int, val error: String?)
+  /** [moved] counts notebooks now safely in the target (renamed ones included); [trashedMoved] counts trashed ones; [error] is null on success. */
+  data class Result(val moved: Int, val renamed: Int, val error: String?, val trashedMoved: Int = 0)
+
+  private data class MoveBatch(val moved: Int, val renamed: Int, val error: String?)
 
   /** Notebook folders of a library: every directory not starting with a dot (.trash, staging). */
   fun notebookDirs(library: File): List<File> =
     library.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.orEmpty().sortedBy { it.name }
 
+  /** Trashed notebook folders in `<library>/.trash/`. */
+  fun trashDirs(library: File): List<File> = notebookDirs(File(library, TRASH))
+
   /** True if there is something in [source] to move. Cheap; safe to call often. */
-  fun pending(source: File): Boolean = notebookDirs(source).isNotEmpty()
+  fun pending(source: File): Boolean = notebookDirs(source).isNotEmpty() || trashDirs(source).isNotEmpty()
 
   /** Decides what to copy and what to call it; touches nothing. */
   fun plan(source: File, target: File): Plan {
@@ -87,26 +93,21 @@ object LibraryMigration {
     return merged.entries.sortedBy { it.key }.map { it.value }
   }
 
-  /**
-   * Runs the move. [source] is the private library, [target] Documents/PenLab (it must exist).
-   * Blocking file work: call off the main thread.
-   */
-  fun run(source: File, target: File): Result {
-    if (source.canonicalFile == target.canonicalFile) return Result(0, 0, null)
+  private fun migrateDir(fromRoot: File, toRoot: File): MoveBatch {
     // Leftovers of an interrupted run: unfinished copies, and originals half-deleted after a copy was verified.
-    target.listFiles { f -> f.name.startsWith(STAGING) }?.forEach { it.deleteRecursively() }
-    source.listFiles { f -> f.name.startsWith(REMOVING) }?.forEach { it.deleteRecursively() }
+    toRoot.listFiles { f -> f.name.startsWith(STAGING) }?.forEach { it.deleteRecursively() }
+    fromRoot.listFiles { f -> f.name.startsWith(REMOVING) }?.forEach { it.deleteRecursively() }
 
     var moved = 0
     var renamed = 0
     var error: String? = null
     try {
-      val plan = plan(source, target)
+      val plan = plan(fromRoot, toRoot)
       for (item in plan.copy) {
-        val staging = File(target, STAGING + item.targetId)
+        val staging = File(toRoot, STAGING + item.targetId)
         copyTree(item.sourceDir, staging)
         if (!sameContents(item.sourceDir, staging)) throw IOException("the copy of ${item.sourceDir.name} does not match the original")
-        if (!staging.renameTo(File(target, item.targetId))) throw IOException("could not put ${item.targetId} in place")
+        if (!staging.renameTo(File(toRoot, item.targetId))) throw IOException("could not put ${item.targetId} in place")
         removeOriginal(item.sourceDir)
         moved++
         if (item.renamed) renamed++
@@ -118,6 +119,33 @@ object LibraryMigration {
     } catch (e: Exception) {
       error = e.message ?: e.javaClass.simpleName
     }
+    return MoveBatch(moved, renamed, error)
+  }
+
+  /**
+   * Runs the move. [source] is the private library, [target] Documents/PenLab (it must exist).
+   * Blocking file work: call off the main thread.
+   */
+  fun run(source: File, target: File): Result {
+    if (source.canonicalFile == target.canonicalFile) return Result(0, 0, null)
+    val main = migrateDir(source, target)
+    var renamed = main.renamed
+    var error = main.error
+    var trashedMoved = 0
+
+    if (error == null && trashDirs(source).isNotEmpty()) {
+      val sourceTrash = File(source, TRASH)
+      val targetTrash = File(target, TRASH)
+      if (!targetTrash.isDirectory && !targetTrash.mkdirs()) {
+        error = "could not create $TRASH"
+      } else {
+        val trash = migrateDir(sourceTrash, targetTrash)
+        trashedMoved = trash.moved
+        renamed += trash.renamed
+        error = trash.error
+        if (error == null && sourceTrash.list().isNullOrEmpty()) sourceTrash.delete()
+      }
+    }
 
     // The folder list and colours are merged either way (a union loses nothing); the private
     // files are removed only after a clean run.
@@ -127,7 +155,7 @@ object LibraryMigration {
     } catch (e: Exception) {
       if (error == null) error = e.message ?: e.javaClass.simpleName
     }
-    return Result(moved, renamed, error)
+    return Result(main.moved, renamed, error, trashedMoved)
   }
 
   /** Renaming first makes the removal all-or-nothing as far as the library listing is concerned. */

@@ -128,7 +128,7 @@ fun LibraryScreen(
   showWelcome: Boolean,
   onWelcomeClosed: () -> Unit,
   /** Where a notebook's cover picture is (it may not exist yet). */
-  coverFile: (NotebookInfo) -> java.io.File,
+  coverFile: (NotebookInfo, Boolean) -> java.io.File,
 ) {
   var creating by remember { mutableStateOf(false) }
   var creatingFolder by remember { mutableStateOf(false) }
@@ -432,7 +432,7 @@ private fun LibraryGrid(
   here: List<NotebookInfo>,
   darkPage: Boolean,
   folderColors: Map<String, Int>,
-  coverFile: (NotebookInfo) -> java.io.File,
+  coverFile: (NotebookInfo, Boolean) -> java.io.File,
   onOpen: (NotebookInfo) -> Unit,
   onFolderChange: (String) -> Unit,
   onRename: (NotebookInfo) -> Unit,
@@ -475,7 +475,7 @@ private fun LibraryGrid(
           Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xl)) {
             for (notebook in recent) {
               NotebookCard(
-                notebook, darkPage, coverFile(notebook),
+                notebook, darkPage, coverFile,
                 onOpen = { onOpen(notebook) }, onRename = { onRename(notebook) }, onMove = { onMove(notebook) },
                 onDelete = { onDelete(notebook) }, onExport = { onExport(notebook) }, onShare = { onShare(notebook) }, onTurn = { onTurn(notebook) },
                 modifier = Modifier.width(PenLabLayout.continueCardWidth),
@@ -510,7 +510,7 @@ private fun LibraryGrid(
         ) {
           for (notebook in inside.take(SHELF_LIMIT)) {
             NotebookCard(
-              notebook, darkPage, coverFile(notebook),
+              notebook, darkPage, coverFile,
               onOpen = { onOpen(notebook) }, onRename = { onRename(notebook) }, onMove = { onMove(notebook) },
               onDelete = { onDelete(notebook) }, onExport = { onExport(notebook) }, onShare = { onShare(notebook) }, onTurn = { onTurn(notebook) },
               modifier = Modifier.width(PenLabLayout.shelfCardWidth),
@@ -541,7 +541,7 @@ private fun LibraryGrid(
     }
     items(here, key = { it.id }, contentType = { "notebook" }) { notebook ->
       NotebookCard(
-        notebook, darkPage, coverFile(notebook),
+        notebook, darkPage, coverFile,
         onOpen = { onOpen(notebook) }, onRename = { onRename(notebook) }, onMove = { onMove(notebook) },
         onDelete = { onDelete(notebook) }, onExport = { onExport(notebook) }, onShare = { onShare(notebook) }, onTurn = { onTurn(notebook) },
       )

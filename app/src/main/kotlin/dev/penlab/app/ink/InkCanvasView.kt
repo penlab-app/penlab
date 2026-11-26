@@ -1424,23 +1424,33 @@ class InkCanvasView(
 
   private val paperRenderer by lazy { CanvasStrokeRenderer.create() }
 
+  /** Draws [strokes] through [matrix] (built fresh, not cached), recolouring for dark paper when [dark] is true. */
+  private fun drawPictureInk(canvas: Canvas, strokes: List<InkStroke>, matrix: Matrix, dark: Boolean) {
+    for (ink in strokes) {
+      if (isHiddenLayer(ink)) continue
+      val brush = if (dark) Brushes.recoloured(ink.brush, InkColors.onScreen(ink.brush.colorIntArgb, true)) else ink.brush
+      paperRenderer.draw(canvas, Stroke(brush, ink.inputBatch()), matrix)
+    }
+  }
+
   /** Draws [strokes] in their paper colours through [matrix] (built fresh, not cached). */
   private fun drawPaperInk(canvas: Canvas, strokes: List<InkStroke>, matrix: Matrix) {
-    for (ink in strokes) if (!isHiddenLayer(ink)) paperRenderer.draw(canvas, Stroke(ink.brush, ink.inputBatch()), matrix)
+    drawPictureInk(canvas, strokes, matrix, dark = false)
   }
 
   /**
-   * A page as it would print (white paper, the PDF slide under it, photos, text, ink), [widthPx]
-   * wide. On an endless canvas: what is on screen.
+   * A page as it would print (or in dark-paper screen colours when [darkPage] is true on a plain
+   * page), [widthPx] wide. On an endless canvas: what is on screen.
    */
-  fun pagePicture(page: Int = currentPage, widthPx: Int = 1200): Bitmap {
+  fun pagePicture(page: Int = currentPage, widthPx: Int = 1200, darkPage: Boolean = false): Bitmap {
     val layout = pageLayout
     val area = if (layout != null) layout.rect(page, RectF()) else RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
     val scale = widthPx / area.width()
     val bitmap = Bitmap.createBitmap(widthPx, (area.height() * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    canvas.drawColor(android.graphics.Color.WHITE)
     val pdfPage = if (layout != null && pdf != null) layout.backgroundOf(page) else -1
+    val effectiveDark = darkPage && pdfPage < 0
+    canvas.drawColor(InkColors.pageOnScreen(effectiveDark))
     if (pdfPage >= 0) {
       pdf?.bitmapFor(pdfPage, widthPx, mayRender = true)?.let {
         canvas.drawBitmap(it, null, RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat()), Paint(Paint.FILTER_BITMAP_FLAG))
@@ -1452,8 +1462,10 @@ class InkCanvasView(
     }
     canvas.save()
     canvas.concat(matrix)
-    for (item in items) if (RectF.intersects(item.bounds(itemBox), area)) itemPainter.draw(canvas, item) { it }
-    drawPaperInk(canvas, history.strokes.filter { RectF.intersects(it.bounds, area) }, matrix)
+    val colorMap: (Int) -> Int = { InkColors.onScreen(it, effectiveDark) }
+    for (item in items) if (RectF.intersects(item.bounds(itemBox), area)) itemPainter.draw(canvas, item, colorMap)
+    val visibleStrokes = history.strokes.filter { RectF.intersects(it.bounds, area) }
+    if (!effectiveDark) drawPaperInk(canvas, visibleStrokes, matrix) else drawPictureInk(canvas, visibleStrokes, matrix, dark = true)
     canvas.restore()
     return bitmap
   }

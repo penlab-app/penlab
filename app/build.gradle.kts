@@ -23,6 +23,11 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    // Optional single-ABI filter (e.g. -Ppenlab.abi=arm64-v8a) for compact wireless deploys
+    // without AGP's android:testOnly flag; normal builds stay universal.
+    providers.gradleProperty("penlab.abi").orNull?.takeIf { it.isNotBlank() }?.let { abi ->
+      ndk { abiFilters += abi }
+    }
   }
 
   signingConfigs {

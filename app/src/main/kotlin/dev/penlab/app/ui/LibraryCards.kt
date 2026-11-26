@@ -99,7 +99,7 @@ private fun CardMenuButton(label: String, open: Boolean, onOpen: () -> Unit, onD
 internal fun NotebookCard(
   notebook: NotebookInfo,
   darkPage: Boolean,
-  coverFile: java.io.File,
+  coverFile: (NotebookInfo, Boolean) -> java.io.File,
   onOpen: () -> Unit,
   onRename: () -> Unit,
   onMove: () -> Unit,
@@ -132,18 +132,26 @@ internal fun NotebookCard(
       val fit = if (coverFillsBoxWidth(aspect)) Modifier.fillMaxWidth() else Modifier.fillMaxHeight()
       Box(fit.aspectRatio(aspect)) {
         // The real first page once there is a cover; the paper style until then.
-        val cover by produceState(Covers.cached(notebook.id), notebook.id, notebook.modified, Covers.revision(notebook.id)) {
-          value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { Covers.load(notebook.id, coverFile) }
+        val cover by produceState(
+          Covers.cachedVariant(notebook.id, darkPage, isPdf),
+          notebook.id,
+          notebook.modified,
+          darkPage,
+          Covers.revision(notebook.id),
+        ) {
+          value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            Covers.loadVariant(notebook.id, darkPage, isPdf) { dark -> coverFile(notebook, dark) }
+          }
         }
-        val image = cover
-        if (image != null) {
+        val resolved = cover
+        if (resolved != null) {
           Image(
-            image,
+            resolved.image,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             alignment = Alignment.TopCenter,
-            // On the dark page, plain notebooks look as they do inside (ink inverted); PDFs stay white.
-            colorFilter = if (darkPage && !isPdf) InvertCover else null,
+            // Fallback for older notebooks without cover-dark.jpg yet; newly saved dark covers already match.
+            colorFilter = if (resolved.invertFallback) InvertCover else null,
             modifier = Modifier.fillMaxSize()
               .flatCardSurface(PenLabShapes.medium, PenLabComponentTokens.cardBg, PenLabComponentTokens.cardBorder),
           )

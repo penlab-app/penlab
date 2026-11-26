@@ -149,4 +149,81 @@ class LibraryMigrationTest {
     assertTrue(File(source, "folders.txt").exists()) // private list kept after a failure
     readOnly.setWritable(true)
   }
+
+  @Test
+  fun pendingIsTrueWhenOnlyTrashedNotebooksExist() {
+    notebook(File(source, ".trash"), "trashed")
+    assertTrue(LibraryMigration.pending(source))
+    assertEquals(listOf("trashed"), LibraryMigration.trashDirs(source).map { it.name })
+  }
+
+  @Test
+  fun runMovesTrashedNotebooksVerifiesThemAndDeletesEmptyTrashDir() {
+    notebook(File(source, ".trash"), "t1")
+    notebook(File(source, ".trash"), "t2")
+
+    val result = LibraryMigration.run(source, target)
+
+    assertNull(result.error)
+    assertEquals(0, result.moved)
+    assertEquals(2, result.trashedMoved)
+    assertEquals(0, result.renamed)
+    assertEquals(listOf("t1", "t2"), LibraryMigration.trashDirs(target).map { it.name })
+    assertEquals("photo t1", File(target, ".trash/t1/images/photo.jpg").readText())
+    assertEquals("strokes of t2", File(target, ".trash/t2/notebook.graphite").readText())
+    assertFalse(File(source, ".trash").exists())
+    assertFalse(LibraryMigration.pending(source))
+  }
+
+  @Test
+  fun runKeepsBothTrashedNotebooksOnAnIdClash() {
+    notebook(File(source, ".trash"), "t1", "mine trashed")
+    notebook(File(target, ".trash"), "t1", "theirs trashed")
+
+    val result = LibraryMigration.run(source, target)
+
+    assertNull(result.error)
+    assertEquals(0, result.moved)
+    assertEquals(1, result.trashedMoved)
+    assertEquals(1, result.renamed)
+    assertEquals("theirs trashed", File(target, ".trash/t1/notebook.graphite").readText())
+    assertEquals("mine trashed", File(target, ".trash/t1-moved/notebook.graphite").readText())
+    assertFalse(File(source, ".trash").exists())
+  }
+
+  @Test
+  fun runRecoversFromInterruptedTrashMoveAndLeavesTrashUntouchedOnReadOnlyFailure() {
+    notebook(File(source, ".trash"), "t1")
+    notebook(File(target, ".trash"), "t1")
+    notebook(File(source, ".trash"), "t2")
+    File(target, ".trash/.migrating-t2/images").mkdirs()
+    File(target, ".trash/.migrating-t2/notebook.properties").writeText("half")
+    File(source, ".trash/.migrated-old").mkdirs()
+
+    val ok = LibraryMigration.run(source, target)
+
+    assertNull(ok.error)
+    assertEquals(2, ok.trashedMoved)
+    assertEquals(0, ok.renamed)
+    assertEquals(listOf("t1", "t2"), LibraryMigration.trashDirs(target).map { it.name })
+    assertEquals("strokes of t2", File(target, ".trash/t2/notebook.graphite").readText())
+    assertFalse(File(source, ".trash").exists())
+
+    // Read-only failure leaves .trash/ intact.
+    val freshSource = tmp.newFolder("private-ro")
+    notebook(File(freshSource, ".trash"), "keep")
+    val readOnly = tmp.newFolder("readonly-trash")
+    assertTrue(readOnly.setWritable(false))
+    val canStillWrite = runCatching { File(readOnly, "probe").createNewFile() }.getOrDefault(false)
+    if (canStillWrite) return
+    val before = LibraryMigration.fingerprint(File(freshSource, ".trash/keep"))
+
+    val failed = LibraryMigration.run(freshSource, readOnly)
+
+    assertTrue(failed.error != null)
+    assertEquals(0, failed.trashedMoved)
+    assertEquals(before, LibraryMigration.fingerprint(File(freshSource, ".trash/keep")))
+    assertTrue(LibraryMigration.pending(freshSource))
+    readOnly.setWritable(true)
+  }
 }

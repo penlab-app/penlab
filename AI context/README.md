@@ -45,6 +45,11 @@
 | `80bc38c` | **Stage 4** | Polished **Pen Settings** (Ballpoint/Pressure/Fountain paper-matched live stroke cards, 5 line patterns, stroke width slider + favorites, 4-col swatches with bare bold check `PenLabIcons.CheckBare`, `More colours` + 1-tap `Pick` eyedropper), **Eraser** (Complete vs Partial segmented control + circle radius preview), **Tools** (icons + subtitles), **More** (Insert / Canvas / destructive Clear groups), **Color & Marker Wheel** (safe-zone `computeColorWheelDiameter`, 0px jump bottom pill, Light/Dark RGB picker, dual-stroke reticles), **Unified Page Config** (fixed 2-row Pages grid height, Light/Dark live paper mini-previews + `"PDF pages stay white"` pill, Layers visible Rename/Delete actions). `ToolPanelHelpersTest.kt` (8 tests). **Tablet QA → Fixer → Re-QA: PASS.** |
 | `b4b4649` | **Stage 5** | Sketch 2 **Lasso Selection Bar** (`[ Copy \| Cut \| Paste \| Dupl. \| Delete \| Mirror H \| Mirror V \| More ▾ ]` with Phosphor Duotone icons, muted disabled Paste when clipboard empty, `More ▾` popover with Fill/Deselect + Plugins section including `Convert to LaTeX` & `Clean up diagram` extensible slots + honest notice toast), upgraded `PasteMenu` & floating lone Paste pill, compact tonal `PDF` badge in `FileChromePill`, upgraded `ExportLookDialog` (visual Light paper vs Dark page preview cards + vector ink note), whisper-quiet translucent Present Mode corner pill (`PenTools` + `Close`) + entry toast + 4s toolbar peek, translucent Fullscreen exit pill. `SelectionAndPresentTest.kt` (9 tests). **Tablet QA: PASS.** |
 
+### Phase 1 Fixes (26 Nov 2026, QA-Verified on Tab S9)
+- **Dark-paper cover photo inversion fixed:** `CoverMaker.make`, `InkCanvasView.pagePicture`, `Covers`, `MainActivity`, `LibraryScreen`, and `LibraryCards` now generate and load `cover-dark.jpg` for non-PDF notebooks on dark paper using `InkColors.onScreen` / `ItemPainter.draw`, keeping `ImageItem(isInk = false)` photos un-inverted while rendering ink, text, and `#18191B` paper properly (falling back to `InvertCover` on `cover.jpg` until `cover-dark.jpg` exists). `CoversTest.kt` (6 tests).
+- **`.trash/` library migration fixed:** `LibraryMigration.run` now also migrates private `.trash/` notebooks into `Documents/PenLab/.trash/` with `sameContents` verification and ID-clash handling (`LibraryMigrationTest` expanded to 13 tests).
+- **Opt-in single-ABI build filter:** `app/build.gradle.kts` supports `-Ppenlab.abi=arm64-v8a` for compact ~13.3 MiB non-`testOnly` release builds without affecting universal default builds.
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)
@@ -166,9 +171,9 @@ done
 | **Canvas Chrome & Toolbar** | `app/src/main/kotlin/dev/penlab/app/ui/{CanvasTopChrome.kt, ToolDock.kt, ToolbarConfig.kt, ToolSettings.kt, ToolPanels.kt}` |
 | **Popovers & Pickers** | `app/src/main/kotlin/dev/penlab/app/ui/{ColorWheel.kt, MarkerWheel.kt, PagesPanel.kt, ViewReadout.kt, ViewSettings.kt, SearchUi.kt}` |
 | **Dialogs, Settings & Modes** | `app/src/main/kotlin/dev/penlab/app/ui/{SettingsSheet.kt, PresentMode.kt, ExportLookDialog.kt, RequestDialog.kt, Motion.kt}` |
-| **Library (Stage 6 target)** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, Covers.kt}` |
+| **Library** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, LibraryCards.kt, Covers.kt}`, `app/src/main/kotlin/dev/penlab/app/notes/{CoverMaker.kt, LibraryMigration.kt}` |
 | **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, StrokeChunkCache.kt}` |
-| **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt}` |
+| **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt, CoversTest.kt}` |
 
 ## Notes from the 25–26 Nov review + plugin work (`AI context/notes/`)
 - `REVIEW-2026-11-26.md` — what landed overnight (merge, Stage 6, wheel fix, Stage 7 craft, review fixes, real bugs found).

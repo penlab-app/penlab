@@ -616,7 +616,7 @@ class MainActivity : ComponentActivity() {
             onExport = { startExport(it, false) },
             onShare = { startExport(it, true) },
             onTurn = ::turnNotebook,
-            coverFile = { info -> File(notebooks.imagesDir(info).parentFile, COVER_FILE) },
+            coverFile = { info, dark -> coverFileFor(info, dark) },
             onOpenSettings = { settingsOpen = true },
             showWelcome = welcomeAction == FirstLaunchAction.SHOW,
             onWelcomeClosed = {
@@ -875,7 +875,12 @@ class MainActivity : ComponentActivity() {
         // After a failure `migrating` stays true: no nagging, the next launch tries again.
         migrating = result.error != null
         val notes = if (result.moved == 1) "1 notebook" else "${result.moved} notebooks"
+        val trashed = if (result.trashedMoved == 1) "1 trashed notebook" else "${result.trashedMoved} trashed notebooks"
         exportMessage = when {
+          result.error == null && result.moved == 0 && result.trashedMoved > 0 && result.renamed > 0 ->
+            "Moved $trashed to Documents/PenLab. ${result.renamed} kept as a separate copy because a different notebook with the same id was already there."
+          result.error == null && result.moved == 0 && result.trashedMoved > 0 ->
+            "Moved $trashed to Documents/PenLab."
           result.error == null && result.renamed > 0 ->
             "Moved $notes to Documents/PenLab. ${result.renamed} kept as a separate copy because a different notebook with the same id was already there."
           result.error == null -> "Moved $notes to Documents/PenLab."
@@ -1555,19 +1560,36 @@ class MainActivity : ComponentActivity() {
     checkStorage() // the permission may have been granted while the notebook was open
   }
 
+  private fun coverFileFor(info: NotebookInfo, dark: Boolean): File =
+    File(notebooks.imagesDir(info).parentFile, if (dark && info.pdfPages.isEmpty()) DARK_COVER_FILE else COVER_FILE)
+
+  private fun writeCoverJpeg(file: File, bitmap: Bitmap) {
+    val tmp = File(file.parentFile, "${file.name}.tmp")
+    try {
+      tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+      if (!tmp.renameTo(file)) tmp.delete()
+    } catch (e: Throwable) {
+      tmp.delete()
+      throw e
+    }
+  }
+
   /**
-   * The library card's cover: the first page as a small picture (`cover.jpg`), redrawn when the
-   * notebook was edited or has none yet. Drawn here (a few ms at this size), written on [io].
+   * The library card's cover: the first page as a small picture (`cover.jpg`, plus `cover-dark.jpg`
+   * for plain notebooks), redrawn when the notebook was edited or a variant is missing. Drawn here
+   * (a few ms at this size), written on [io].
    */
   private fun saveCover(notebook: OpenNotebook) {
-    val file = File(notebooks.imagesDir(notebook.info).parentFile, COVER_FILE)
-    if (!notebook.editedThisVisit && file.exists()) return
-    val picture = try { notebook.canvas.pagePicture(page = 0, widthPx = 360) } catch (e: Exception) { return }
+    val isPlain = notebook.info.pdfPages.isEmpty()
+    val lightFile = coverFileFor(notebook.info, dark = false)
+    val darkFile = coverFileFor(notebook.info, dark = true)
+    if (!notebook.editedThisVisit && lightFile.exists() && (!isPlain || darkFile.exists())) return
+    val light = try { notebook.canvas.pagePicture(page = 0, widthPx = 360, darkPage = false) } catch (e: Exception) { return }
+    val dark = if (isPlain) try { notebook.canvas.pagePicture(page = 0, widthPx = 360, darkPage = true) } catch (e: Exception) { null } else null
     io.execute {
       try {
-        val tmp = File(file.parentFile, "$COVER_FILE.tmp")
-        tmp.outputStream().use { picture.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-        tmp.renameTo(file)
+        writeCoverJpeg(lightFile, light)
+        if (dark != null) writeCoverJpeg(darkFile, dark)
         dev.penlab.app.ui.Covers.forget(notebook.info.id)
         main.post { refreshLibraryQuietly() }
       } catch (e: Exception) {
@@ -1579,15 +1601,21 @@ class MainActivity : ComponentActivity() {
   private fun refreshLibraryQuietly() = io.execute { refreshLibrary() }
 
   /**
-   * Draws a closed notebook's cover from its files and writes `cover.jpg`. False if there is
-   * nothing to show yet. Background thread only (see [dev.penlab.app.notes.CoverMaker]).
+   * Draws a closed notebook's cover from its files and writes `cover.jpg` (plus `cover-dark.jpg`
+   * for plain notebooks). False if there is nothing to show yet. Background thread only (see
+   * [dev.penlab.app.notes.CoverMaker]).
    */
   private fun writeCover(info: NotebookInfo): Boolean {
-    val bitmap = dev.penlab.app.notes.CoverMaker.make(info, notebooks.pageStore(info), notebooks.pdfFile(info), notebooks.imagesDir(info)) ?: return false
-    val file = File(notebooks.imagesDir(info).parentFile, COVER_FILE)
-    val tmp = File(file.parentFile, "$COVER_FILE.tmp")
-    tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-    tmp.renameTo(file)
+    val store = notebooks.pageStore(info)
+    val pdf = notebooks.pdfFile(info)
+    val imagesDir = notebooks.imagesDir(info)
+    val light = dev.penlab.app.notes.CoverMaker.make(info, store, pdf, imagesDir, darkPage = false)
+    if (light != null) writeCoverJpeg(coverFileFor(info, dark = false), light)
+    val dark =
+      if (info.pdfPages.isEmpty()) dev.penlab.app.notes.CoverMaker.make(info, store, pdf, imagesDir, darkPage = true)
+      else null
+    if (dark != null) writeCoverJpeg(coverFileFor(info, dark = true), dark)
+    if (light == null && dark == null) return false
     dev.penlab.app.ui.Covers.forget(info.id)
     return true
   }
@@ -1597,8 +1625,10 @@ class MainActivity : ComponentActivity() {
   private val coversTried = HashSet<String>()
   private fun backfillCovers() {
     if (coversRunning) return
-    val todo = library.filter { "${it.id}@${it.modified}" !in coversTried && !File(notebooks.imagesDir(it).parentFile, COVER_FILE).exists() }
-      .sortedByDescending { it.modified }
+    val todo = library.filter {
+      "${it.id}@${it.modified}" !in coversTried &&
+        (!coverFileFor(it, dark = false).exists() || (it.pdfPages.isEmpty() && !coverFileFor(it, dark = true).exists()))
+    }.sortedByDescending { it.modified }
     if (todo.isEmpty()) return
     coversRunning = true
     todo.forEach { coversTried += "${it.id}@${it.modified}" }
@@ -1776,6 +1806,7 @@ class MainActivity : ComponentActivity() {
 
 private const val AUTOSAVE_DELAY_MS = 400L
 private const val COVER_FILE = "cover.jpg"
+private const val DARK_COVER_FILE = "cover-dark.jpg"
 private const val MAX_TABS = 3
 private const val MAX_RECENT_FILES = 6
 

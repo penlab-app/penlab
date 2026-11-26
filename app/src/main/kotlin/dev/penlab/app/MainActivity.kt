@@ -42,6 +42,9 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemGestures
+import androidx.compose.foundation.layout.mandatorySystemGestures
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.SnackbarDuration
@@ -1773,6 +1776,8 @@ private fun NoteScreen(
     val safe = WindowInsets.safeDrawing
     val statusTopPx = WindowInsets.statusBars.getTop(density)
     val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+    // Back (sides) and Home (bottom) swipe zones: the corner wheel keeps clear of them.
+    val gestureZones = WindowInsets.systemGestures.union(WindowInsets.mandatorySystemGestures)
     val insets =
       with(density) {
         DockInsets(
@@ -1784,6 +1789,9 @@ private fun NoteScreen(
           topRowLeftClearance = leftIslandWidthPx.toDp(),
           topRowRightClearance = rightIslandWidthPx.toDp(),
           topChromeVisible = chrome.topBar,
+          gestureLeft = gestureZones.getLeft(density, layoutDirection).toDp(),
+          gestureRight = gestureZones.getRight(density, layoutDirection).toDp(),
+          gestureBottom = gestureZones.getBottom(density).toDp(),
         )
       }
 
@@ -1855,7 +1863,6 @@ private fun NoteScreen(
       }
     }
 
-    val dockZ = if (dock.dragging || openPanel != null || dock.wheelOpen) 2.5f else 1.5f
     if (chrome.toolbar) DockedToolbar(
       dock = dock,
       items = dockItems,
@@ -1878,7 +1885,7 @@ private fun NoteScreen(
         if (!present) canvas.setSideInsets(left, right) // the peeking toolbar overlays the page
       },
       instrumentsActive = rulerOn || protractorOn,
-      modifier = Modifier.fillMaxSize().zIndex(dockZ),
+      modifier = Modifier.fillMaxSize(), // raises itself above other chrome while open (inside DockedToolbar)
     ) {
       when (shownPanel) {
         MORE_CELL -> {

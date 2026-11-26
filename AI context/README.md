@@ -169,3 +169,10 @@ done
 | **Library (Stage 6 target)** | `app/src/main/kotlin/dev/penlab/app/ui/{LibraryScreen.kt, Covers.kt}` |
 | **Activity & Ink Surface** | `app/src/main/kotlin/dev/penlab/app/MainActivity.kt`, `app/src/main/kotlin/dev/penlab/app/ink/{InkCanvasView.kt, InkTool.kt, InkColors.kt, PageBackground.kt, StrokeChunkCache.kt}` |
 | **UI Unit Tests** | `app/src/test/kotlin/dev/penlab/app/ui/{ThemeTokensTest.kt, ViewSettingsLogicTest.kt, ToolbarConfigTest.kt, ToolPanelHelpersTest.kt, SelectionAndPresentTest.kt, ScreenChromeTest.kt, FingerDrawDefaultTest.kt}` |
+
+## Notes from the 25–26 Nov review + plugin work (`AI context/notes/`)
+- `REVIEW-2026-11-26.md` — what landed overnight (merge, Stage 6, wheel fix, Stage 7 craft, review fixes, real bugs found).
+- `master-findings.md` — every review finding with ID and how it was fixed; pen-speed measurements.
+- `ui-ux-rubric.md` — 192-item UI/UX checklist used for the element-by-element review.
+- `decisions.md` — decisions taken autonomously (reversible).
+- `plugin-bridge-contract.md`, `bridge-proposal-items.md`, `plugin-media-contract.md` — plugin API v2 design (see also docs/plugin-bridge.md).

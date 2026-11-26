@@ -54,6 +54,36 @@ object PenLabBridge {
   /** Request files of the selected pictures are named `item-0`, `item-1`, ...; [SelectionItem.file] says which is which. */
   fun itemFileName(n: Int): String = "item-$n"
 
+  // ---- Screen inputs (a `screen` capability's optional "inputs" list) --------------------------------
+
+  /** `inputs` value: PenLab renders the current page (paper colours, white paper, JPEG) and passes it as [PenLabScreenContract.EXTRA_PAGE_IMAGE]. */
+  const val INPUT_PAGE = "page"
+
+  /**
+   * `inputs` value: PenLab renders the notebook's written pages (at most [MAX_NOTEBOOK_PAGES], [NOTEBOOK_PAGE_WIDTH_PX] px wide, JPEG)
+   * and passes them as [PenLabScreenContract.EXTRA_NOTEBOOK_IMAGES] with their 1-based page numbers (blank pages are skipped).
+   */
+  const val INPUT_NOTEBOOK = "notebook"
+
+  /**
+   * `inputs` value: PenLab passes the selected page items like a page action gets them (`selection.items`, the original pictures as files),
+   * and honours `replaces` in the screen's result for those ids ([PenLabScreenContract.EXTRA_SELECTION_ITEMS]).
+   */
+  const val INPUT_ITEMS = "items"
+
+  /** The most notebook pages PenLab renders for a screen. */
+  const val MAX_NOTEBOOK_PAGES = 60
+
+  /** Width of a rendered notebook page (px). The page picture ([INPUT_PAGE]) is [PAGE_IMAGE_WIDTH_PX] wide. */
+  const val NOTEBOOK_PAGE_WIDTH_PX = 900
+  const val PAGE_IMAGE_WIDTH_PX = 1400
+
+  /** [PenLabScreenContract.EXTRA_HOST_FEATURES] value: this PenLab honours a screen's `inputs` (page, notebook, items). */
+  const val FEATURE_SCREEN_INPUTS = "screen-inputs"
+
+  /** [PenLabScreenContract.EXTRA_HOST_FEATURES] value: this PenLab reads a `{"type":"rename","title":...}` result (a result type an older PenLab rejects as malformed). */
+  const val FEATURE_RENAME = "rename"
+
   /** Request file of an importer: the file the user picked. */
   const val FILE_SOURCE = "source"
 

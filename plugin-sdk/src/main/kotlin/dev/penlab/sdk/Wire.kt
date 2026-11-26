@@ -155,6 +155,12 @@ class PluginRequest(
     fun mediaSeek(ref: String, positionMs: Long, recordingIndex: Int = -1): String =
       PluginRequest(PenLabBridge.CAP_MEDIA_SEEK, media = MediaRequest(ref = ref, positionMs = positionMs.coerceAtLeast(0L), recordingIndex = recordingIndex.coerceAtLeast(-1))).toJson()
 
+    /** The selected items as the JSON array a request has under `selection.items` (a screen gets it as [PenLabScreenContract.EXTRA_SELECTION_ITEMS]). */
+    fun selectionItemsJson(items: List<SelectionItem>): String = JSONArray().also { array -> items.forEach { array.put(itemJson(it)) } }.toString()
+
+    /** Reads what [selectionItemsJson] wrote (items this SDK cannot read are skipped). */
+    fun readSelectionItemsJson(json: String): List<SelectionItem> = readSelectionItems(JSONArray(json))
+
     private fun itemJson(item: SelectionItem): JSONObject =
       JSONObject().put("id", item.id).put("typeId", item.typeId).put("boundsMm", floats(item.boundsMm)).put("rotationDeg", finite(item.rotationDeg)).putOpt("file", item.file).putOpt("mimeType", item.mimeType).putOpt("text", item.text)
 
@@ -319,6 +325,12 @@ sealed interface PluginResult {
 
   /** The plugin could not do it and says why. Not a crash: PenLab shows the message and keeps the plugin on. */
   class Error(val message: String) : PluginResult
+
+  /**
+   * Rename the open notebook ([PenLabBridge.FEATURE_RENAME]; only a screen's result, and only send it when the screen was told the
+   * feature exists: an older PenLab does not know the type and treats the answer as malformed).
+   */
+  class Rename(val title: String) : PluginResult
 }
 
 /** A file in a result: bytes in memory, or a file on disk. */
@@ -348,6 +360,7 @@ object ResultCodec {
       is PluginResult.Message -> o.put("type", "message").put("message", result.message)
       PluginResult.None -> o.put("type", "none")
       is PluginResult.Error -> o.put("type", "error").put("message", result.message)
+      is PluginResult.Rename -> o.put("type", "rename").put("title", result.title)
       is PluginResult.Notebook -> {
         val n = result.notebook
         o.put("type", "notebook").put("title", n.title).put("pageWidthMm", n.pageWidthMm.toDouble()).put("pageHeightMm", n.pageHeightMm.toDouble())
@@ -379,6 +392,7 @@ object ResultCodec {
         "message" -> PluginResult.Message(o.getString("message"))
         "none" -> PluginResult.None
         "error" -> PluginResult.Error(o.optString("message", "failed"))
+        "rename" -> PluginResult.Rename(o.getString("title"))
         "notebook" -> {
           val pages = o.getJSONArray("pages")
           PluginResult.Notebook(

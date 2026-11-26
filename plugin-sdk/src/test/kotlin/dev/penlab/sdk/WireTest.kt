@@ -36,6 +36,38 @@ class WireTest {
   }
 
   @Test
+  fun selectionItemsJsonRoundTrips() {
+    val items = listOf(
+      SelectionItem("a1", PenLabBridge.TYPE_INK_IMAGE, floatArrayOf(1f, 2f, 3f, 4f), 20f, "item-0", "image/png", null),
+      SelectionItem("b2", PenLabBridge.TYPE_TEXT, floatArrayOf(5f, 6f, 7f, 8f), 0f, null, null, "hi"),
+    )
+    val back = PluginRequest.readSelectionItemsJson(PluginRequest.selectionItemsJson(items))
+    assertEquals(listOf("a1", "b2"), back.map { it.id })
+    assertEquals("item-0", back[0].file)
+    assertEquals(20f, back[0].rotationDeg, 0f)
+    assertEquals("hi", back[1].text)
+    assertTrue(PluginRequest.readSelectionItemsJson("[{\"nothing\":1}]").isEmpty())
+  }
+
+  @Test
+  fun renameResultRoundTrips() {
+    val encoded = ResultCodec.encode(PluginResult.Rename("MoM L8: truss deflection"))
+    assertEquals("{\"type\":\"rename\",\"title\":\"MoM L8: truss deflection\"}", encoded.json)
+    assertTrue(encoded.files.isEmpty())
+    assertEquals("MoM L8: truss deflection", (ResultCodec.decode(encoded.json) as PluginResult.Rename).title)
+  }
+
+  @Test
+  fun renameWithoutATitleIsMalformed() {
+    try {
+      ResultCodec.decode("{\"type\":\"rename\"}")
+      fail()
+    } catch (e: WireFormatException) {
+      // expected
+    }
+  }
+
+  @Test
   fun malformedRequestIsAWireFormatException() {
     try {
       PluginRequest.fromJson("{\"nothing\":1}")

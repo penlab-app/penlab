@@ -22,6 +22,21 @@ class ScreenRequest(
   val selectionImage: Uri?,
   /** The selected strokes as [StrokesJson], or null. Readable with [selectionStrokes]. */
   val selectionStrokes: Uri?,
+  /** The selection's box [left, top, right, bottom] in notebook millimetres, or null when nothing is selected (or an older PenLab). */
+  val selectionBoundsMm: FloatArray? = null,
+  /** The notebook's title and folder ("" for none). Empty from an older PenLab. */
+  val notebookTitle: String = "",
+  val notebookFolder: String = "",
+  /** The current page as a JPEG, when the screen asked for [PenLabBridge.INPUT_PAGE] and this PenLab renders it. */
+  val pageImage: Uri? = null,
+  /** The notebook's written pages as JPEGs, with their 1-based page numbers (same length), when the screen asked for [PenLabBridge.INPUT_NOTEBOOK]. */
+  val notebookImages: List<Uri> = emptyList(),
+  val notebookPages: List<Int> = emptyList(),
+  /** The selected items as `selection.items` JSON ([PenLabBridge.INPUT_ITEMS]) and their request files (name to Uri). */
+  val selectionItemsJson: String? = null,
+  val selectionItemFiles: Map<String, Uri> = emptyMap(),
+  /** What this PenLab can do for screens ([PenLabBridge.FEATURE_SCREEN_INPUTS], [PenLabBridge.FEATURE_RENAME]); empty from an older PenLab. */
+  val hostFeatures: Set<String> = emptySet(),
 ) {
   /** Opens the selection PNG (the caller closes it), or returns null. */
   fun openSelectionImage(context: Context): InputStream? = selectionImage?.let { context.contentResolver.openInputStream(it) }
@@ -80,6 +95,33 @@ object PenLabScreenContract {
   /** Uri of the selected strokes ([StrokesJson]); granted for reading. */
   const val EXTRA_SELECTION_STROKES = "dev.penlab.extra.SELECTION_STROKES"
 
+  /** float[4]: the selection's box (left, top, right, bottom) in notebook millimetres; present when something is selected. */
+  const val EXTRA_SELECTION_BOUNDS_MM = "dev.penlab.extra.SELECTION_BOUNDS_MM"
+
+  /** String: the notebook's title. */
+  const val EXTRA_NOTEBOOK_TITLE = "dev.penlab.extra.NOTEBOOK_TITLE"
+
+  /** String: the notebook's folder ("" for none). */
+  const val EXTRA_NOTEBOOK_FOLDER = "dev.penlab.extra.NOTEBOOK_FOLDER"
+
+  /** Uri of the current page as a JPEG; only for a screen that declared the `page` input. */
+  const val EXTRA_PAGE_IMAGE = "dev.penlab.extra.PAGE_IMAGE"
+
+  /** ArrayList of Uri: the notebook's written pages as JPEGs; only for a screen that declared the `notebook` input. */
+  const val EXTRA_NOTEBOOK_IMAGES = "dev.penlab.extra.NOTEBOOK_IMAGES"
+
+  /** int[]: the 1-based page numbers of [EXTRA_NOTEBOOK_IMAGES], same order and length. */
+  const val EXTRA_NOTEBOOK_PAGES = "dev.penlab.extra.NOTEBOOK_PAGES"
+
+  /** String: the selected page items as the JSON array `selection.items` has in a request; only for a screen that declared the `items` input. */
+  const val EXTRA_SELECTION_ITEMS = "dev.penlab.extra.SELECTION_ITEMS"
+
+  /** Bundle: request file name (`item-0`, ...) to Uri, for the pictures listed in [EXTRA_SELECTION_ITEMS]. */
+  const val EXTRA_SELECTION_ITEM_FILES = "dev.penlab.extra.SELECTION_ITEM_FILES"
+
+  /** String[]: what this PenLab can do for screens ([PenLabBridge.FEATURE_SCREEN_INPUTS], [PenLabBridge.FEATURE_RENAME]). Absent in an older PenLab. */
+  const val EXTRA_HOST_FEATURES = "dev.penlab.extra.HOST_FEATURES"
+
   /** Result extra: the [ResultCodec] JSON. */
   const val EXTRA_RESULT_JSON = "dev.penlab.extra.RESULT_JSON"
 
@@ -116,6 +158,15 @@ object PenLabScreenContract {
       darkPage = intent.getBooleanExtra(EXTRA_DARK_PAGE, false),
       selectionImage = intent.getParcelableExtra(EXTRA_SELECTION_IMAGE) as? Uri,
       selectionStrokes = intent.getParcelableExtra(EXTRA_SELECTION_STROKES) as? Uri,
+      selectionBoundsMm = intent.getFloatArrayExtra(EXTRA_SELECTION_BOUNDS_MM)?.takeIf { it.size == 4 },
+      notebookTitle = intent.getStringExtra(EXTRA_NOTEBOOK_TITLE).orEmpty(),
+      notebookFolder = intent.getStringExtra(EXTRA_NOTEBOOK_FOLDER).orEmpty(),
+      pageImage = intent.getParcelableExtra(EXTRA_PAGE_IMAGE) as? Uri,
+      notebookImages = (intent.getParcelableArrayListExtra<Uri>(EXTRA_NOTEBOOK_IMAGES) ?: emptyList<Uri>()).toList(),
+      notebookPages = intent.getIntArrayExtra(EXTRA_NOTEBOOK_PAGES)?.toList().orEmpty(),
+      selectionItemsJson = intent.getStringExtra(EXTRA_SELECTION_ITEMS),
+      selectionItemFiles = intent.getBundleExtra(EXTRA_SELECTION_ITEM_FILES)?.let { b -> b.keySet().mapNotNull { k -> (b.get(k) as? Uri)?.let { k to it } }.toMap() }.orEmpty(),
+      hostFeatures = intent.getStringArrayExtra(EXTRA_HOST_FEATURES)?.toSet().orEmpty(),
     )
 
   /**

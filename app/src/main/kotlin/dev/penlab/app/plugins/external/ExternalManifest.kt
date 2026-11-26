@@ -18,6 +18,11 @@ enum class MediaPlacement {
   FILE_MENU,
 }
 
+/** The `inputs` a screen capability may list (docs/plugin-bridge.md, "Screen inputs"). */
+object ScreenInputs {
+  val KNOWN: Set<String> = setOf(PenLabBridge.INPUT_PAGE, PenLabBridge.INPUT_NOTEBOOK, PenLabBridge.INPUT_ITEMS)
+}
+
 /** Whether a page action needs ink selected. */
 enum class SelectionRule { REQUIRED, NONE, ANY }
 
@@ -50,6 +55,8 @@ sealed interface CapabilityDecl {
     val activity: String,
     val placement: ScreenPlacement,
     override val icon: String? = null,
+    /** What PenLab prepares for the screen besides the selection: a subset of [ScreenInputs.KNOWN] (`page`, `notebook`, `items`). */
+    val inputs: Set<String> = emptySet(),
   ) : CapabilityDecl {
     override val kind get() = "screen"
   }
@@ -167,7 +174,8 @@ object ManifestParser {
             "fileMenu" -> ScreenPlacement.FILE_MENU
             else -> return null
           }
-        CapabilityDecl.ScreenDecl(id, label, activity, placement, icon)
+        // Unknown input names are dropped (a newer plugin on an older PenLab simply gets less); the screen stays.
+        CapabilityDecl.ScreenDecl(id, label, activity, placement, icon, strings(c.optJSONArray("inputs")).filter { it in ScreenInputs.KNOWN }.toSet())
       }
       "recogniser" -> CapabilityDecl.RecogniserDecl(id, label)
       "media" ->

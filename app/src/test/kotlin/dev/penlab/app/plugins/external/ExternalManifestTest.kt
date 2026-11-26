@@ -45,6 +45,17 @@ class ExternalManifestTest {
   }
 
   @Test
+  fun screenInputsKeepOnlyKnownNames() {
+    val m = ok(
+      """{"id":"a.b","name":"P","apiVersion":2,"capabilities":[
+        {"kind":"screen","id":"s","label":"S","activity":".A","inputs":["page","notebook","items","hologram"]},
+        {"kind":"screen","id":"t","label":"T","activity":".A"}]}""",
+    )
+    assertEquals(setOf("page", "notebook", "items"), (m.capabilities[0] as CapabilityDecl.ScreenDecl).inputs)
+    assertTrue((m.capabilities[1] as CapabilityDecl.ScreenDecl).inputs.isEmpty())
+  }
+
+  @Test
   fun unknownKindsAreIgnoredAndTheRestStays() {
     val m = ok("""{"id":"a.b","name":"P","apiVersion":2,"capabilities":[{"kind":"hologram","id":"h","label":"H"},{"kind":"pageAction","id":"p","label":"P"}]}""")
     assertEquals(listOf("p"), m.capabilities.map { it.id })

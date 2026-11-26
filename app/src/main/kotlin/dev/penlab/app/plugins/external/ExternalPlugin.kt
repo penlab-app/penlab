@@ -148,7 +148,7 @@ class ExternalPlugin(
       when (decl) {
         is CapabilityDecl.PageActionDecl -> ExternalPageAction(name, decl, transport, env, icon)
         is CapabilityDecl.ImporterDecl -> ExternalImporter(name, decl, transport, env)
-        is CapabilityDecl.ScreenDecl -> ExternalScreen(name, ComponentName(packageName, className(decl.activity, packageName)), decl.id, decl.label, decl.placement, icon)
+        is CapabilityDecl.ScreenDecl -> ExternalScreen(name, ComponentName(packageName, className(decl.activity, packageName)), decl.id, decl.label, decl.placement, icon, decl.inputs)
         is CapabilityDecl.MediaDecl -> ExternalMedia(name, packageName, decl, transport, icon)
         is CapabilityDecl.RecogniserDecl -> null // read, not hosted yet
       }
@@ -293,6 +293,8 @@ class ExternalScreen(
   override val label: String,
   override val placement: ScreenPlacement,
   override val externalIcon: ImageBitmap? = null,
+  /** What PenLab prepares for this screen besides the selection (see [ScreenInputs]). */
+  val inputs: Set<String> = emptySet(),
 ) : ScreenPageAction, HasExternalIcon {
   override val enabledWhen: EnabledWhen =
     when (placement) {

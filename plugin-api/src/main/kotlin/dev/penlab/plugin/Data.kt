@@ -105,4 +105,7 @@ sealed interface Result {
 
   /** Nothing to show. */
   data object None : Result
+
+  /** Rename the open notebook to [title] (a screen's answer, see the bridge docs; the host cleans the title before using it). */
+  class Rename(val title: String) : Result
 }

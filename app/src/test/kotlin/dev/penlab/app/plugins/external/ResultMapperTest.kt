@@ -41,6 +41,15 @@ class ResultMapperTest {
   }
 
   @Test
+  fun renameBecomesACleanedTitle() {
+    assertEquals("MoM L8: truss deflection", (ResultMapper.toResult(Wire.Rename("  MoM L8:\n truss   deflection \u0007"), Files(), "P") as V1.Rename).title)
+    assertEquals(ResultMapper.MAX_TITLE_CHARS, ResultMapper.cleanTitle("x".repeat(500))!!.length)
+    assertNull(ResultMapper.cleanTitle(" \n\t "))
+    // A title that cleans to nothing is a message, not a blank notebook name.
+    assertTrue(ResultMapper.toResult(Wire.Rename("\n"), Files(), "AI") is V1.Message)
+  }
+
+  @Test
   fun aPluginReportedErrorIsAMessageNotACrash() {
     val result = ResultMapper.toResult(Wire.Error("no network"), Files(), "LaTeX") as V1.Message
     assertEquals("“LaTeX”: no network", result.message)

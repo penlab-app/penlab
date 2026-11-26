@@ -56,8 +56,21 @@ object ResultMapper {
       is WireResult.Message -> PluginResult.Message(wire.message)
       WireResult.None -> PluginResult.None
       is WireResult.Error -> PluginResult.Message("“$pluginName”: ${wire.message}")
+      is WireResult.Rename -> cleanTitle(wire.title)?.let { PluginResult.Rename(it) } ?: PluginResult.Message("“$pluginName” suggested an empty name.")
       is WireResult.Notebook -> throw WireFormatException("a page action answered with a notebook")
     }
+
+  /** Longest notebook title a plugin may set (characters). */
+  const val MAX_TITLE_CHARS = 80
+
+  /**
+   * A notebook title from a plugin: line breaks and other control characters become spaces, runs of spaces collapse, the ends are
+   * trimmed and it is cut to [MAX_TITLE_CHARS]. Null if nothing is left. (The plugin is not trusted with a title that could break a
+   * file name, a list row or a dialog.)
+   */
+  fun cleanTitle(raw: String): String? =
+    raw.map { if (it.isISOControl() || it == '\u2028' || it == '\u2029') ' ' else it }.joinToString("").replace(Regex(" {2,}"), " ").trim()
+      .take(MAX_TITLE_CHARS).trim().ifEmpty { null }
 
   /**
    * An importer's answer. Null means "cannot read this file" (an error answer, or nothing): a failed

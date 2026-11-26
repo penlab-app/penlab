@@ -25,7 +25,7 @@ The plugin app declares an exported service with the action `dev.penlab.PLUGIN` 
   "capabilities": [
     { "kind": "pageAction", "id": "count", "label": "Count", "icon": "@drawable/ic_count", "selection": "required|none|any" },
     { "kind": "importer",   "id": "fmt",   "label": "My format", "mimeTypes": ["application/x-fmt"], "extensions": ["fmt"] },
-    { "kind": "screen",     "id": "chat",  "label": "Chat", "icon": "@drawable/ic_chat", "activity": ".ChatActivity", "placement": "selectionMenu|moreMenu|fileMenu" },
+    { "kind": "screen",     "id": "chat",  "label": "Chat", "icon": "@drawable/ic_chat", "activity": ".ChatActivity", "placement": "selectionMenu|moreMenu|fileMenu", "inputs": ["page", "notebook", "items"] },
     { "kind": "recogniser", "id": "r", "label": "..." }, { "kind": "media", "id": "m", "label": "...", "icon": "@drawable/ic_mic" }
   ],
   "permissions": ["network", "microphone"] }
@@ -77,6 +77,9 @@ Result JSON (`ResultCodec`), returned in the Bundle under `result`, files by nam
   result file of real strokes (next section). Items and strokes together are one undo step; with nothing selected they are
   centred on the visible page as one group.
   `rotationDeg` and `replaces` are explained in "Selected items" below.
+- `{"type":"rename","title"}`: rename the open notebook (a **screen's** answer; PenLab cleans the title: control characters and line breaks become
+  spaces, runs of spaces collapse, at most 80 characters, blank = a message instead). An older PenLab does not know the type and treats it as a malformed
+  answer (the plugin is switched off), so a screen sends it only when `EXTRA_HOST_FEATURES` contains `rename` (see "Screen inputs").
 - `{"type":"text","text"}` (a dialog), `{"type":"message","message"}`, `{"type":"none"}`.
 - `{"type":"error","message"}`: the plugin could not do it. Shown as a message; the plugin stays on. (An importer's
   "cannot read this file" is this or `none`.)
@@ -140,7 +143,7 @@ override fun onRun(call: PluginCall): PluginResult {
 }
 ```
 
-Plugin *screens* do not get items yet (their intent has the selection's PNG and strokes only), so a screen's `replaces` is ignored.
+A plugin *screen* gets items only if its capability lists the `items` input (next section); without it a screen's `replaces` is ignored.
 Tests: `WireTest` (SDK: request items, result fields, older-PenLab defaults), `RequestItemsTest` (host: files, caps, ids),
 `ResultMapperTest` (valid / invalid / missing / duplicate `replaces`), `ItemPicturesTest`, `PluginItemMaterialiserTest` (in-place
 swap, empty-box frame, one-undo-step grouping). Device check: photo on the page, lasso it, run a plugin that replaces it; the photo
@@ -201,6 +204,27 @@ content URIs of PenLab's FileProvider, granted for reading through the intent's 
 `readRequest(intent)`, and answers with `setResult(RESULT_OK, PenLabScreenContract.resultIntent(this, result))`: the result JSON
 and its files as granted content URIs served by the SDK's `PenLabResultProvider`. PenLab only follows URIs of a provider owned by
 the plugin's own package. Cancelling places nothing.
+
+### Screen inputs (what PenLab prepares for a screen)
+
+Every screen launch also carries `EXTRA_NOTEBOOK_TITLE` / `EXTRA_NOTEBOOK_FOLDER` (strings, "" for none), `EXTRA_SELECTION_BOUNDS_MM` (float[4], notebook
+millimetres, only with a selection: a result is placed where its `boundsMm` say, so a screen that puts something beside or under the selection needs
+the box, which strokes alone do not give for a selection of photos) and `EXTRA_HOST_FEATURES` (String[] of what this PenLab can do for screens:
+`screen-inputs`, `rename`; absent in an older PenLab, so a plugin that needs one checks it and otherwise says "update PenLab").
+
+Rendering is not free, so a screen asks for pictures in its manifest, `"inputs": [...]` (unknown names are ignored):
+
+| Input | Extras | What |
+|---|---|---|
+| `page` | `EXTRA_PAGE_IMAGE` (Uri) | the current page, 1400 px wide, as it would print (paper colours on white, PDF slide under it), JPEG quality 90. An endless canvas: what is on screen. |
+| `notebook` | `EXTRA_NOTEBOOK_IMAGES` (ArrayList of Uri), `EXTRA_NOTEBOOK_PAGES` (int[], 1-based, same order) | the written pages (ink, photo, text or PDF slide; blank pages are skipped), at most 60, 900 px wide, JPEG. Drawn one at a time off the main thread (`InkCanvasView.pagesForBackground`), so the ink never freezes. The page numbers matter: blank pages are skipped, so the position in the list is not the page number. An endless canvas gives one picture. |
+| `items` | `EXTRA_SELECTION_ITEMS` (JSON array, the same objects as `selection.items` above), `EXTRA_SELECTION_ITEM_FILES` (Bundle: `item-0`... to Uri) | the selected page items with their original pictures (same limits and scaling as for a page action); the screen's result may then `replaces` those ids (same safety rules: only ids listed here, each once). |
+
+All URIs are PenLab FileProvider URIs granted for reading through the intent's ClipData, and the scratch files are deleted when the screen has answered. Put each
+input on the capability that needs it (a `notebook` input costs up to 60 renders at every open): for example a catch-all panel asks for `page`, and a separate
+file-menu entry asks for `notebook`. In the SDK: `PenLabBridge.INPUT_*`, `PenLabScreenContract.EXTRA_*`, `ScreenRequest.pageImage / notebookImages / notebookPages / selectionBoundsMm / selectionItemsJson / hostFeatures`.
+Tests: `ExternalManifestTest` (inputs), `ResultMapperTest` (rename, `replaces` ids), `WireTest` (rename result, items JSON). Device check: a screen with `notebook` input on a notebook
+with blank pages reports page numbers that skip them; a screen with `items` replaces a selected photo in one undo step.
 
 ### Theme extras
 

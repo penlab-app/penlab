@@ -1270,6 +1270,10 @@ class MainActivity : ComponentActivity() {
       }
       is PluginRegistry.ActionOutcome.ShowText -> { exportMessage = null; pluginText = outcome.text }
       is PluginRegistry.ActionOutcome.ShowMessage -> exportMessage = outcome.message
+      is PluginRegistry.ActionOutcome.Rename -> {
+        exportMessage = null
+        if (open === notebook) renameOpenNotebook(outcome.title)
+      }
       PluginRegistry.ActionOutcome.Nothing -> exportMessage = null
       // A crash already told the user (the plugin is switched off); a device failure did not.
       is PluginRegistry.ActionOutcome.Failed -> if (!outcome.pluginDisabled) exportMessage = "“$label” could not finish."
@@ -1284,10 +1288,23 @@ class MainActivity : ComponentActivity() {
     val darkPage = resolveCanvasDarkPage(Accent.pageThemeMode, isPdfNotebook = notebook.pdf != null)
     // Read on the main thread: Accent is Compose state.
     val theme = dev.penlab.sdk.ScreenTheme(Accent.isDark, Accent.theme.accent.toArgb(), darkPage)
+    // What the screen asked for in its manifest "inputs": the canvas is read here (main thread), the pictures are drawn and written on
+    // the worker below. Paper colours, so a plugin reading the page sees dark ink on white whatever the screen theme.
+    val canvas = notebook.canvas
+    val wantNotebook = dev.penlab.sdk.PenLabBridge.INPUT_NOTEBOOK in screen.inputs
+    val written = if (wantNotebook) canvas.pagesForBackground(dev.penlab.sdk.PenLabBridge.MAX_NOTEBOOK_PAGES, dev.penlab.sdk.PenLabBridge.NOTEBOOK_PAGE_WIDTH_PX) else null
+    val data =
+      dev.penlab.app.plugins.external.ScreenData(
+        title = notebook.info.title,
+        folder = notebook.info.folder,
+        pageImage = if (dev.penlab.sdk.PenLabBridge.INPUT_PAGE in screen.inputs) canvas.pagePicture(widthPx = dev.penlab.sdk.PenLabBridge.PAGE_IMAGE_WIDTH_PX) else null,
+        notebookPages = written?.first.orEmpty(),
+        notebookDraw = written?.second,
+      )
     io.execute {
       val staged =
         try {
-          ScreenLaunch.stage(applicationContext, screen, page, darkPage, selection, externalPlugins.ioRoot, theme)
+          ScreenLaunch.stage(applicationContext, screen, page, darkPage, selection, externalPlugins.ioRoot, theme, data)
         } catch (e: Exception) {
           Log.e("Plugins", "Could not prepare ${screen.label}", e)
           main.post {
@@ -1327,7 +1344,7 @@ class MainActivity : ComponentActivity() {
         plugins.outcome(pending.entry.plugin) {
           kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val (json, files) = ScreenLaunch.read(applicationContext, data, pending.screen.component.packageName) ?: throw dev.penlab.sdk.WireFormatException("the screen returned no result")
-            files.use { dev.penlab.app.plugins.external.ResultMapper.toResult(dev.penlab.sdk.ResultCodec.decode(json), it, pending.screen.pluginName) }
+            files.use { dev.penlab.app.plugins.external.ResultMapper.toResult(dev.penlab.sdk.ResultCodec.decode(json), it, pending.screen.pluginName, pending.staged.replaceable) }
           }
         }
       pending.staged.session.delete()

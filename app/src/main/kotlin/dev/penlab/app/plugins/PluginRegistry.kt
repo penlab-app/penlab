@@ -54,6 +54,9 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
 
     class ShowMessage(val message: String) : ActionOutcome
 
+    /** Rename the open notebook to [title] (already cleaned). Only a plugin screen's answer asks for it. */
+    class Rename(val title: String) : ActionOutcome
+
     /** The action had nothing to show. */
     data object Nothing : ActionOutcome
 
@@ -234,6 +237,7 @@ class PluginRegistry(candidates: List<Plugin>, private val onDisabled: (message:
             is PluginResult.Items -> if (result.items.isEmpty() && result.strokes.isEmpty()) ActionOutcome.Nothing else ActionOutcome.Place(result.items, result.strokes)
             is PluginResult.Text -> ActionOutcome.ShowText(result.text)
             is PluginResult.Message -> ActionOutcome.ShowMessage(result.message)
+            is PluginResult.Rename -> ActionOutcome.Rename(result.title)
             PluginResult.None -> ActionOutcome.Nothing
           }
       }

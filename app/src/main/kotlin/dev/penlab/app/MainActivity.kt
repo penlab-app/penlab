@@ -2100,6 +2100,8 @@ private fun NoteScreen(
         if (chrome.topBar) statusTopPx + (TOP_BUTTONS_HEIGHT + 4.dp).roundToPx()
         else statusTopPx + 12.dp.roundToPx()
       }
+    // The canvas flips the rotate knob below the box when it would sit under the top buttons.
+    androidx.compose.runtime.SideEffect { canvas.setTopObstruction(selectionTopClearancePx.toFloat()) }
     val selectionBottomClearancePx =
       with(density) {
         safe.getBottom(density) + (if (dock.side == DockSide.BOTTOM) BarHeight + 24.dp else 12.dp).roundToPx()
@@ -2134,12 +2136,6 @@ private fun NoteScreen(
               iconRes = entry.capability.iconRes,
             )
           },
-        onUnavailablePlugin = { slot ->
-          scope.launch {
-            messages.currentSnackbarData?.dismiss()
-            messages.showSnackbar(slot.unavailableNotice, duration = SnackbarDuration.Short)
-          }
-        },
         isPalm = isPalm,
         modifier =
           Modifier

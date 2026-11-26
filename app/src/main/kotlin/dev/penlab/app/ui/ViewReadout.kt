@@ -14,81 +14,30 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabPopoverSurface
 import dev.penlab.app.ui.components.PenLabSwitchRow
-import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
-import dev.penlab.app.ui.theme.floatingChromeSurface
-
-/**
- * The small readout in the top-right corner: zoom and angle of the page.
- * [zoomPercent] and [angleDegrees] are read inside, so only this pill redraws while zooming.
- * Tap it for presets and locks. A lock icon shows when something is locked.
- */
-@Composable
-fun ViewReadout(
-  zoomPercent: () -> Int,
-  angleDegrees: () -> Int,
-  settings: ViewSettings,
-  onClick: () -> Unit,
-  modifier: Modifier = Modifier,
-) {
-  val shape = RoundedCornerShape(12.dp)
-  val zoom = zoomPercent()
-  val angle = angleDegrees()
-  Row(
-    modifier
-      .floatingChromeSurface(
-        shape = shape,
-        background = PenLabComponentTokens.chromePillBg,
-        elevation = 8.dp,
-        subtleLightHairline = true,
-        borderColor = PenLabComponentTokens.chromePillBorder,
-        isDark = LocalPenLabColors.current.isDark,
-      )
-      .clickable(onClick = onClick)
-      .heightIn(min = PenLabSpacing.touchTarget)
-      .padding(horizontal = PenLabSpacing.md)
-      .semantics { contentDescription = "Zoom $zoom percent, rotation $angle degrees. Double tap for presets and locks." },
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    ReadoutValue("$zoom%", settings.zoomLocked)
-    Spacer(Modifier.width(10.dp))
-    ReadoutValue("$angle°", settings.rotationLocked)
-  }
-}
-
-@Composable
-private fun ReadoutValue(text: String, locked: Boolean) {
-  val scheme = MaterialTheme.colorScheme
-  if (locked) {
-    Icon(LockIcon, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
-    Spacer(Modifier.width(3.dp))
-  }
-  Text(text, color = scheme.onSurface, style = PenLabTextStyles.tabularLabel)
-}
 
 /**
  * Opens under the readout: a row each for zoom and rotation, with a lock, the presets (tap to
@@ -156,13 +105,16 @@ fun ViewPanel(
     HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
     PenLabSwitchRow(
       label = "Draw with finger",
+      icon = PenLabIcons.Hand,
+      // The menu rows pad by md, the switch row by xs: add the difference so icons and labels line up.
+      modifier = Modifier.padding(horizontal = PenLabSpacing.sm),
       checked = settings.drawWithFinger,
       onCheckedChange = settings::setDrawWithFinger,
     )
     if (onOpenSettings != null) {
       HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
       PenLabMenuItem(
-        label = "Settings…",
+        label = "Settings",
         icon = PenLabIcons.Settings,
         showChevron = true,
         onClick = onOpenSettings,
@@ -189,15 +141,27 @@ private fun PresetRow(
   Column {
     Row(verticalAlignment = Alignment.CenterVertically) {
       Text(title, color = scheme.onSurface, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-      IconButton(
-        onClick = onLock,
-        modifier = Modifier.size(PenLabSpacing.touchTarget).semantics { stateDescription = if (locked) "Locked" else "Unlocked" },
+      // Icon plus a word, so the padlock says what it does: "Lock" / "Locked".
+      Row(
+        modifier =
+          Modifier.heightIn(min = PenLabSpacing.touchTarget)
+            .clip(PenLabShapes.small)
+            .toggleable(value = locked, role = Role.Switch, onValueChange = { onLock() })
+            .semantics { contentDescription = "Lock $title" }
+            .padding(horizontal = PenLabSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
       ) {
         Icon(
           if (locked) LockIcon else LockOpenIcon,
-          contentDescription = "Lock $title",
+          contentDescription = null,
           tint = if (locked) scheme.primary else scheme.onSurfaceVariant,
-          modifier = Modifier.size(PenLabLayout.iconMedium),
+          modifier = Modifier.size(PenLabLayout.iconCompact),
+        )
+        Spacer(Modifier.width(PenLabSpacing.xs))
+        Text(
+          if (locked) "Locked" else "Lock",
+          color = if (locked) scheme.primary else scheme.onSurfaceVariant,
+          style = MaterialTheme.typography.labelMedium,
         )
       }
     }

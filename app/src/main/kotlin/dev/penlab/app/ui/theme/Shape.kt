@@ -12,6 +12,11 @@ object PenLabShapes {
   val extraSmall = RoundedCornerShape(6.dp)
   val small = RoundedCornerShape(10.dp)
   val medium = RoundedCornerShape(14.dp)
+  /**
+   * [medium] on the top corners only. A library card clips its ripple to this: the text under the
+   * cover sits at the card's bottom-left, and a rounded bottom corner cut off its first glyph.
+   */
+  val mediumTop = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)
   val large = RoundedCornerShape(18.dp)
   val extraLarge = RoundedCornerShape(24.dp)
   val pill = CircleShape

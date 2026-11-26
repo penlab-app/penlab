@@ -1186,7 +1186,7 @@ class InkCanvasView(
     val layout = pageLayout ?: return
     val point = floatArrayOf(layout.pageWidth / 2f, layout.top(page.coerceIn(0, layout.count - 1)))
     pageToScreen.mapPoints(point)
-    pageToScreen.postTranslate(width / 2f - point[0], topClearancePx(presenting, density) - point[1])
+    pageToScreen.postTranslate(width / 2f - point[0], topClearance() - point[1])
     viewMoved()
   }
 
@@ -1515,6 +1515,18 @@ class InkCanvasView(
     viewMoved()
   }
 
+  /**
+   * Room above the first page: the top buttons' clearance, but never less than the visible status
+   * bar plus a small gap, so the page edge does not rest under the clock. Present mode: none.
+   */
+  private fun topClearance(): Float {
+    val base = topClearancePx(presenting, density)
+    if (presenting) return base
+    val status = androidx.core.view.ViewCompat.getRootWindowInsets(this)
+      ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars())?.top ?: 0
+    return maxOf(base, status + STATUS_GAP_DP * density)
+  }
+
   private var leftInset = 0f
   private var rightInset = 0f
 
@@ -1529,7 +1541,7 @@ class InkCanvasView(
     var tx = oldTx
     val free = width - leftInset - rightInset
     tx = if (pageWidth <= free) leftInset + (free - pageWidth) / 2f else tx.coerceIn(width - rightInset - pageWidth, leftInset)
-    val topLimit = topClearancePx(presenting, density)
+    val topLimit = topClearance()
     val ty = matrixValues[Matrix.MTRANS_Y].coerceAtMost(topLimit)
     if (tx != matrixValues[Matrix.MTRANS_X] || ty != matrixValues[Matrix.MTRANS_Y]) {
       matrixValues[Matrix.MTRANS_X] = tx
@@ -1607,7 +1619,7 @@ class InkCanvasView(
     val zoom = ((width - 2 * margin) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
     pageToScreen.setScale(zoom, zoom)
     // Start below the back / page / zoom buttons along the top.
-    pageToScreen.postTranslate((width - layout.pageWidth * zoom) / 2f, topClearancePx(presenting, density))
+    pageToScreen.postTranslate((width - layout.pageWidth * zoom) / 2f, topClearance())
     viewMoved()
   }
 
@@ -3132,11 +3144,32 @@ class InkCanvasView(
     matrix.mapPoints(out)
   }
 
-  /** The rotate handle: a little above the middle of the box's top edge. */
+  /** Screen space covered by the top buttons (pixels); the rotate knob must stay clear of it. */
+  private var topObstruction = 0f
+
+  fun setTopObstruction(px: Float) {
+    if (px == topObstruction) return
+    topObstruction = px
+    if (hasAnySelection) {
+      selectionView.invalidate()
+      reportSelection()
+    }
+  }
+
+  /**
+   * The rotate handle: a little above the middle of the box's top edge, or, when that spot would
+   * be under the top buttons (a selection near the top of the screen), the same distance below
+   * the bottom edge. Which side is decided from the unmoved view so it does not jump mid-gesture.
+   */
   private fun rotateHandlePoint(matrix: Matrix, out: FloatArray) {
     val zoom = pageToScreen.mapRadius(1f)
+    val offset = (SELECTION_PAD_DP + ROTATE_HANDLE_OFFSET_DP) * density / zoom
     out[0] = selectionBounds.centerX()
-    out[1] = selectionBounds.top - (SELECTION_PAD_DP + ROTATE_HANDLE_OFFSET_DP) * density / zoom
+    out[1] = selectionBounds.top - offset
+    pageToScreen.mapPoints(out)
+    val hidden = out[1] < topObstruction
+    out[0] = selectionBounds.centerX()
+    out[1] = if (hidden) selectionBounds.bottom + offset else selectionBounds.top - offset
     matrix.mapPoints(out)
   }
 
@@ -3735,6 +3768,8 @@ class InkCanvasView(
 
     /** Margin round a page when fitting it to the screen width (dp). */
     const val FIT_MARGIN_DP = 24f
+    /** Gap kept between the status bar and the top of the first page (dp). */
+    const val STATUS_GAP_DP = 16f
 
     /** How long the pen must hold still at the end of a stroke to turn it into a shape. */
     const val HOLD_MS = 500L

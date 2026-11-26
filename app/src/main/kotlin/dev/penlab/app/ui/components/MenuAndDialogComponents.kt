@@ -187,6 +187,8 @@ fun PenLabSwitchRow(
   icon: ImageVector? = null,
   subtitle: String? = null,
   enabled: Boolean = true,
+  /** Side padding; 0 where the row sits in a column of labels that start at the edge (Settings). */
+  horizontalPadding: Dp = PenLabSpacing.xs,
 ) {
   val scheme = MaterialTheme.colorScheme
   Row(
@@ -201,7 +203,7 @@ fun PenLabSwitchRow(
           role = Role.Switch,
           onValueChange = onCheckedChange,
         )
-        .padding(horizontal = PenLabSpacing.xs, vertical = PenLabSpacing.xs),
+        .padding(horizontal = horizontalPadding, vertical = PenLabSpacing.xs),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     if (icon != null) {

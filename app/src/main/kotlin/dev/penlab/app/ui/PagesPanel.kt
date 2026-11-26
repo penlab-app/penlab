@@ -53,45 +53,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.ui.components.PenLabPopoverSurface
-import dev.penlab.app.ui.theme.LocalPenLabColors
-import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
-import dev.penlab.app.ui.theme.floatingChromeSurface
-
-/** "Page 3 / 10" next to the back button in an A4 notebook. Tap for the page grid. */
-@Composable
-fun PageCounter(page: () -> Int, count: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(12.dp)
-  val current = page() + 1
-  Row(
-    modifier
-      .floatingChromeSurface(
-        shape = shape,
-        background = PenLabComponentTokens.chromePillBg,
-        elevation = 8.dp,
-        subtleLightHairline = true,
-        borderColor = PenLabComponentTokens.chromePillBorder,
-        isDark = LocalPenLabColors.current.isDark,
-      )
-      .clickable(onClick = onClick)
-      .heightIn(min = PenLabSpacing.touchTarget)
-      .padding(horizontal = PenLabSpacing.md)
-      .semantics { contentDescription = "Page $current of $count. Double tap for all pages." },
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Icon(PagesIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconCompact))
-    Spacer(Modifier.width(PenLabSpacing.sm))
-    Text("$current / $count", color = PenLabColors.icon, style = PenLabTextStyles.tabularLabel)
-  }
-}
 
 /**
  * Every page as a thumbnail. Tap to go there, tap the ribbon to bookmark, long-press for
- * insert before / after and delete. "Bookmarked" filters to bookmarked pages.
+ * insert before / after and delete. The "Bookmarks only" toggle filters to bookmarked pages.
  *
  * [version] changes whenever the notebook's content changes, so thumbnails are redrawn.
  */
@@ -196,7 +166,7 @@ fun PagesPanelContent(
             .clickable(role = Role.Switch) { onlyBookmarked = !onlyBookmarked }
             .padding(horizontal = PenLabSpacing.md)
             .semantics {
-              contentDescription = if (onlyBookmarked) "Showing bookmarked pages. Tap for all pages." else "Filter to bookmarked pages"
+              contentDescription = if (onlyBookmarked) "Showing bookmarked pages. Tap for all pages." else "Bookmarks only: show only bookmarked pages"
               selected = onlyBookmarked
             },
         verticalAlignment = Alignment.CenterVertically,
@@ -209,7 +179,7 @@ fun PagesPanelContent(
           modifier = Modifier.size(PenLabLayout.iconSmall),
         )
         Text(
-          text = "Bookmarked",
+          text = "Bookmarks only",
           color = filterFg,
           style =
             MaterialTheme.typography.labelLarge.copy(

@@ -19,17 +19,14 @@ class SelectionAndPresentTest {
   }
 
   @Test
-  fun builtInPluginSlotsAppearWhenNoPluginsRegistered() {
+  fun noPluginEntriesWhenNoPluginIsRegistered() {
     val state = resolveSelectionBarState(hasClipboard = false, canFillSelection = true, registeredPlugins = emptyList())
-    val unavailable = state.pluginEntries.filterIsInstance<SelectionPluginMenuEntry.UnavailableSlot>()
 
-    assertEquals(2, state.pluginEntries.size)
-    assertEquals(listOf(BuiltInSelectionPluginSlot.LATEX, BuiltInSelectionPluginSlot.DIAGRAMS), unavailable.map { it.slot })
-    assertTrue(unavailable.all { it.slot.unavailableNotice.isNotBlank() })
+    assertTrue(state.pluginEntries.isEmpty())
   }
 
   @Test
-  fun matchingRegisteredPluginReplacesBuiltInSlotWithoutDuplication() {
+  fun matchingRegisteredPluginGetsItsSlotAndIsTheOnlyEntry() {
     var invoked = false
     val latexPlugin =
       SelectionPluginAction(
@@ -44,18 +41,15 @@ class SelectionAndPresentTest {
         registeredPlugins = listOf(latexPlugin),
       )
 
-    assertEquals(2, state.pluginEntries.size)
+    assertEquals(1, state.pluginEntries.size)
     val first = state.pluginEntries[0] as SelectionPluginMenuEntry.Registered
     assertEquals(BuiltInSelectionPluginSlot.LATEX, first.matchedSlot)
     first.action.onClick()
     assertTrue(invoked)
-
-    val second = state.pluginEntries[1] as SelectionPluginMenuEntry.UnavailableSlot
-    assertEquals(BuiltInSelectionPluginSlot.DIAGRAMS, second.slot)
   }
 
   @Test
-  fun customRegisteredPluginCoexistsWithBuiltInPluginSlots() {
+  fun customRegisteredPluginIsListedWithoutASlot() {
     val custom = SelectionPluginAction(id = "dev.example.ocr", label = "Extract summary", onClick = {})
     val state =
       resolveSelectionBarState(
@@ -64,14 +58,10 @@ class SelectionAndPresentTest {
         registeredPlugins = listOf(custom),
       )
 
-    assertEquals(3, state.pluginEntries.size)
+    assertEquals(1, state.pluginEntries.size)
     val first = state.pluginEntries[0] as SelectionPluginMenuEntry.Registered
     assertNull(first.matchedSlot)
     assertEquals("Extract summary", first.action.label)
-    assertEquals(
-      listOf(BuiltInSelectionPluginSlot.LATEX, BuiltInSelectionPluginSlot.DIAGRAMS),
-      state.pluginEntries.drop(1).map { (it as SelectionPluginMenuEntry.UnavailableSlot).slot },
-    )
   }
 
   @Test

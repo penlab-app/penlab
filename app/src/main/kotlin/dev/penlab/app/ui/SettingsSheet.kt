@@ -209,14 +209,15 @@ fun SettingsSheet(
           Spacer(Modifier.height(PenLabSpacing.xl))
           HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
 
-          // ---- Writing & Input ----
-          PenLabSectionHeader(title = "Writing & Input", topPadding = PenLabSpacing.lg, bottomPadding = PenLabSpacing.sm)
+          // ---- Writing & input ----
+          PenLabSectionHeader(title = "Writing & input", topPadding = PenLabSpacing.lg, bottomPadding = PenLabSpacing.sm)
 
           PenLabSwitchRow(
             label = "Draw with finger",
             subtitle = "Use a single finger to write and draw instead of panning.",
             checked = viewSettings.drawWithFinger,
             onCheckedChange = viewSettings::setDrawWithFinger,
+            horizontalPadding = 0.dp,
           )
           Spacer(Modifier.height(PenLabSpacing.xs))
           PenLabSwitchRow(
@@ -224,6 +225,7 @@ fun SettingsSheet(
             subtitle = "Hold the stylus still at the end of a stroke to tidy lines and shapes.",
             checked = viewSettings.shapeSnapping,
             onCheckedChange = viewSettings::setShapeSnapping,
+            horizontalPadding = 0.dp,
           )
 
           Spacer(Modifier.height(PenLabSpacing.md))
@@ -300,7 +302,7 @@ fun SettingsSheet(
 
           Spacer(Modifier.height(PenLabSpacing.md))
           PenLabMenuItem(
-            label = "Customize toolbar items",
+            label = "Customise toolbar items",
             subtitle = "${toolbarConfig.visibleOrderedItems.size} items visible · tap to toggle or reorder",
             icon = PenLabIcons.PenTools,
             onClick = { customizeToolbarExpanded = !customizeToolbarExpanded },
@@ -650,7 +652,7 @@ internal fun AccentLookTile(
     if (selected) {
       Spacer(Modifier.width(PenLabSpacing.sm))
       Icon(
-        imageVector = PenLabIcons.Check,
+        imageVector = PenLabIcons.CheckBare,
         contentDescription = null,
         tint = scheme.primary,
         modifier = Modifier.size(PenLabLayout.iconMedium),

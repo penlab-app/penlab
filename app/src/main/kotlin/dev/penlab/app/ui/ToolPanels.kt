@@ -33,7 +33,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -57,7 +56,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -86,14 +84,11 @@ import dev.penlab.app.ui.components.insetPillClickable
 import dev.penlab.app.ui.theme.Accent
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PageThemeMode
-import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
-import dev.penlab.app.ui.theme.floatingChromeSurface
-import dev.penlab.app.ui.theme.softShadow
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
@@ -571,7 +566,8 @@ fun InstrumentsPanel(
 /**
  * The panel behind the More button on the center toolbar, grouped cleanly into:
  *  - **Insert**: Add from PDF, Add image, Text box
- *  - **Canvas**: Highlighter, Layers
+ *  - **Pens**: Highlighter (a drawing tool outside the pen slots, so it is not "Canvas")
+ *  - **Canvas**: Layers
  *  - **Destructive**: Clear page
  */
 @Composable
@@ -610,12 +606,25 @@ fun MoreToolsPanel(
     )
 
     Text(
-      text = "Canvas",
+      text = "Pens",
       color = scheme.onSurfaceVariant,
       style = MaterialTheme.typography.labelMedium,
       modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
     )
     PenLabMenuItem(label = "Highlighter", icon = PenLabIcons.Highlighter, onClick = onSelectHighlighter)
+
+    HorizontalDivider(
+      color = scheme.outlineVariant,
+      thickness = 1.dp,
+      modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
+    )
+
+    Text(
+      text = "Canvas",
+      color = scheme.onSurfaceVariant,
+      style = MaterialTheme.typography.labelMedium,
+      modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+    )
     PenLabMenuItem(label = "Layers", icon = PenLabIcons.Layers, onClick = onOpenLayers)
 
     HorizontalDivider(
@@ -1211,29 +1220,22 @@ data class SelectionPluginAction(
 )
 
 /**
- * Extensible built-in plugin slots showcased in the Lasso `More ▾` popover (from Sketch 2:
- * LaTeX & Diagrams). When a registered plugin matches a slot, tapping invokes that plugin;
- * otherwise tapping surfaces an honest notice explaining that the plugin is not installed yet.
+ * Plugin kinds the Lasso `More ▾` popover knows how to give a fitting icon (LaTeX, diagrams).
+ * Nothing is shown for a slot unless a registered plugin provides it.
  */
 enum class BuiltInSelectionPluginSlot(
   val id: String,
   val label: String,
-  val subtitle: String,
-  val unavailableNotice: String,
   val matchKeywords: List<String>,
 ) {
   LATEX(
     id = "latex",
     label = "Convert to LaTeX",
-    subtitle = "Plugin · Handwritten maths to LaTeX",
-    unavailableNotice = "Install the LaTeX plugin to enable this action.",
     matchKeywords = listOf("latex", "tex", "math", "equation"),
   ),
   DIAGRAMS(
     id = "diagrams",
     label = "Clean up diagram",
-    subtitle = "Plugin · Neat geometric diagrams",
-    unavailableNotice = "Install the Diagrams plugin to enable this action.",
     matchKeywords = listOf("diagram", "figure", "geometry", "clean"),
   );
 
@@ -1249,8 +1251,6 @@ sealed interface SelectionPluginMenuEntry {
     val action: SelectionPluginAction,
     val matchedSlot: BuiltInSelectionPluginSlot? = null,
   ) : SelectionPluginMenuEntry
-
-  data class UnavailableSlot(val slot: BuiltInSelectionPluginSlot) : SelectionPluginMenuEntry
 }
 
 /** Pure resolved state for [SelectionActions] (unit-tested without Android runtime). */
@@ -1261,9 +1261,9 @@ data class SelectionBarState(
 )
 
 /**
- * Resolves the enabled state and `More ▾` plugin entries for the Lasso selection bar.
- * Any registered plugin matching a built-in slot replaces that slot cleanly with zero duplicates;
- * unmatched built-in slots remain discoverable as honest unavailable plugin slots.
+ * Resolves the enabled state and `More ▾` plugin entries for the Lasso selection bar. Only
+ * registered plugins appear (a plugin matching a built-in slot gets that slot's icon); with none
+ * installed the list is empty and the Plugins section is not drawn.
  */
 internal fun resolveSelectionBarState(
   hasClipboard: Boolean,
@@ -1276,11 +1276,6 @@ internal fun resolveSelectionBarState(
       val slot = BuiltInSelectionPluginSlot.entries.firstOrNull { it !in claimedSlots && it.matches(plugin) }
       if (slot != null) claimedSlots += slot
       add(SelectionPluginMenuEntry.Registered(plugin, matchedSlot = slot))
-    }
-    for (slot in BuiltInSelectionPluginSlot.entries) {
-      if (slot !in claimedSlots) {
-        add(SelectionPluginMenuEntry.UnavailableSlot(slot))
-      }
     }
   }
   return SelectionBarState(
@@ -1344,7 +1339,7 @@ internal fun shouldShowFloatingPastePill(
 
 /**
  * Floating Lasso selection bar faithful to Sketch 2:
- * `[ Copy | Cut | Paste | Dupl. | Delete | Mirror H | Mirror V | More ▾ ]`.
+ * `[ Copy | Cut | Paste | Duplicate | Delete | Flip H | Flip V | More ▾ ]`.
  *
  * Uses [PenLabChromePill] with Phosphor Duotone icons, >=48dp touch targets, muted disabled Paste
  * when clipboard is empty (so layout never jumps), destructive error tint on Delete, and an
@@ -1365,7 +1360,6 @@ fun SelectionActions(
   onFill: () -> Unit,
   onDeselect: () -> Unit,
   pluginActions: List<SelectionPluginAction>,
-  onUnavailablePlugin: (BuiltInSelectionPluginSlot) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
 ) {
@@ -1410,7 +1404,7 @@ fun SelectionActions(
       },
     )
     SelectionPillAction(
-      label = "Dupl.",
+      label = "Duplicate",
       icon = PenLabIcons.Duplicate,
       contentDescription = "Duplicate selection",
       onClick = {
@@ -1430,19 +1424,19 @@ fun SelectionActions(
 
     SelectionPillDivider()
 
-    PenLabIconButton(
+    SelectionPillAction(
+      label = "Flip H",
       icon = PenLabIcons.FlipHorizontal,
       contentDescription = "Mirror horizontally",
-      iconSize = PenLabLayout.iconMedium,
       onClick = {
         onMoreExpandedChange(false)
         onMirror(true)
       },
     )
-    PenLabIconButton(
+    SelectionPillAction(
+      label = "Flip V",
       icon = PenLabIcons.FlipVertical,
       contentDescription = "Mirror vertically",
-      iconSize = PenLabLayout.iconMedium,
       onClick = {
         onMoreExpandedChange(false)
         onMirror(false)
@@ -1485,10 +1479,6 @@ fun SelectionActions(
               onMoreExpandedChange(false)
               action.onClick()
             },
-            onUnavailablePlugin = { slot ->
-              onMoreExpandedChange(false)
-              onUnavailablePlugin(slot)
-            },
             isPalm = isPalm,
           )
         }
@@ -1504,7 +1494,6 @@ private fun SelectionMorePopover(
   onFill: () -> Unit,
   onDeselect: () -> Unit,
   onRunRegisteredPlugin: (SelectionPluginAction) -> Unit,
-  onUnavailablePlugin: (BuiltInSelectionPluginSlot) -> Unit,
   isPalm: () -> Boolean,
 ) {
   val scheme = MaterialTheme.colorScheme
@@ -1527,80 +1516,68 @@ private fun SelectionMorePopover(
       }
       PenLabMenuItem(
         label = "Deselect",
-        icon = PenLabIcons.Check,
+        icon = PenLabIcons.Close,
         onClick = onDeselect,
       )
 
-      HorizontalDivider(
-        color = scheme.outlineVariant,
-        thickness = 1.dp,
-        modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.xs),
-      )
+      if (pluginEntries.isNotEmpty()) {
+        HorizontalDivider(
+          color = scheme.outlineVariant,
+          thickness = 1.dp,
+          modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.xs),
+        )
 
-      Text(
-        text = "Plugins",
-        color = scheme.onSurfaceVariant,
-        style = MaterialTheme.typography.labelMedium,
-        modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
-      )
+        Text(
+          text = "Plugins",
+          color = scheme.onSurfaceVariant,
+          style = MaterialTheme.typography.labelMedium,
+          modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+        )
 
-      for (entry in pluginEntries) {
-        when (entry) {
-          is SelectionPluginMenuEntry.Registered -> {
-            val action = entry.action
-            if (action.iconRes != 0) {
-              Row(
-                modifier =
-                  Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = PenLabSpacing.touchTarget)
-                    .clip(PenLabShapes.small)
-                    .clickable(role = Role.Button) { onRunRegisteredPlugin(action) }
-                    .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-              ) {
-                Icon(
-                  painter = painterResource(action.iconRes),
-                  contentDescription = null,
-                  tint = scheme.onSurfaceVariant,
-                  modifier = Modifier.size(PenLabLayout.iconMedium),
-                )
-                Spacer(Modifier.width(PenLabSpacing.md))
-                Text(
-                  text = action.label,
-                  color = scheme.onSurface,
-                  style = MaterialTheme.typography.labelLarge,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                )
-              }
-            } else {
-              val icon =
-                when (entry.matchedSlot) {
-                  BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
-                  BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
-                  null -> PenLabIcons.Sparkles
+        for (entry in pluginEntries) {
+          when (entry) {
+            is SelectionPluginMenuEntry.Registered -> {
+              val action = entry.action
+              if (action.iconRes != 0) {
+                Row(
+                  modifier =
+                    Modifier
+                      .fillMaxWidth()
+                      .heightIn(min = PenLabSpacing.touchTarget)
+                      .clip(PenLabShapes.small)
+                      .clickable(role = Role.Button) { onRunRegisteredPlugin(action) }
+                      .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
+                  verticalAlignment = Alignment.CenterVertically,
+                ) {
+                  Icon(
+                    painter = painterResource(action.iconRes),
+                    contentDescription = null,
+                    tint = scheme.onSurfaceVariant,
+                    modifier = Modifier.size(PenLabLayout.iconMedium),
+                  )
+                  Spacer(Modifier.width(PenLabSpacing.md))
+                  Text(
+                    text = action.label,
+                    color = scheme.onSurface,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                  )
                 }
-              PenLabMenuItem(
-                label = action.label,
-                icon = icon,
-                onClick = { onRunRegisteredPlugin(action) },
-              )
-            }
-          }
-          is SelectionPluginMenuEntry.UnavailableSlot -> {
-            val slot = entry.slot
-            val icon =
-              when (slot) {
-                BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
-                BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
+              } else {
+                val icon =
+                  when (entry.matchedSlot) {
+                    BuiltInSelectionPluginSlot.LATEX -> PenLabIcons.Function
+                    BuiltInSelectionPluginSlot.DIAGRAMS -> PenLabIcons.Shapes
+                    null -> PenLabIcons.Sparkles
+                  }
+                PenLabMenuItem(
+                  label = action.label,
+                  icon = icon,
+                  onClick = { onRunRegisteredPlugin(action) },
+                )
               }
-            PenLabMenuItem(
-              label = slot.label,
-              subtitle = slot.subtitle,
-              icon = icon,
-              onClick = { onUnavailablePlugin(slot) },
-            )
+            }
           }
         }
       }
@@ -1807,74 +1784,6 @@ fun PasteMenu(
   }
 }
 
-/** Top-left on a notebook: back to the library, with the notebook's title. */
-@Composable
-fun BackToLibrary(title: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(12.dp)
-  Row(
-    modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.accent)
-      .clickable(onClick = onClick)
-      .semantics { contentDescription = "Back to notebooks. Open notebook: $title" }
-      .padding(start = PenLabSpacing.sm, end = 14.dp)
-      .heightIn(min = PenLabSpacing.touchTarget),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Icon(BackIcon, contentDescription = null, tint = PenLabColors.onAccent, modifier = Modifier.size(PenLabLayout.iconMedium))
-    Spacer(Modifier.width(PenLabSpacing.xs))
-    Text(title, color = PenLabColors.onAccent, style = MaterialTheme.typography.titleSmall, maxLines = 1)
-  }
-}
-
-/**
- * Another open notebook, as a tab beside the open one's name: tap to switch, long press to close
- * the tab. Quieter than the current notebook's pill, with its folder's colour as a dot.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun NotebookTab(title: String, folderColor: Int?, onClick: () -> Unit, onClose: () -> Unit) {
-  val shape = RoundedCornerShape(12.dp)
-  Row(
-    Modifier.clip(shape)
-      .background(PenLabColors.toolbar.copy(alpha = 0.75f))
-      .border(1.dp, PenLabColors.hairline.copy(alpha = 0.6f), shape)
-      .combinedClickable(onClick = onClick, onLongClick = onClose)
-      .semantics { contentDescription = "Switch to $title. Long press to close this tab." }
-      .padding(horizontal = PenLabSpacing.md)
-      .heightIn(min = PenLabSpacing.touchTarget)
-      .widthIn(max = 180.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Box(Modifier.size(8.dp).background(folderColor?.let { Color(it) } ?: PenLabColors.iconDisabled, CircleShape))
-    Spacer(Modifier.width(PenLabSpacing.sm))
-    Text(title, color = PenLabColors.icon.copy(alpha = 0.8f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-  }
-}
-
-/** A small round-cornered button with just an icon, matching the pills along the top. */
-@Composable
-fun TopIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(12.dp)
-  Box(
-    modifier
-      .floatingChromeSurface(
-        shape = shape,
-        background = PenLabComponentTokens.chromePillBg,
-        elevation = 8.dp,
-        subtleLightHairline = true,
-        borderColor = PenLabComponentTokens.chromePillBorder,
-        isDark = LocalPenLabColors.current.isDark,
-      )
-      .clickable(onClick = onClick)
-      .size(PenLabSpacing.touchTarget)
-      .semantics { contentDescription = label },
-    contentAlignment = Alignment.Center,
-  ) {
-    Icon(icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
-  }
-}
-
 /** One entry of the top bar's "more" menu. */
 class MenuAction(
   val icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -1883,67 +1792,6 @@ class MenuAction(
   /** A drawable resource shown instead of [icon] (plugins bring their own); 0 = use [icon]. */
   val iconRes: Int = 0,
 )
-
-/** The three-dot button at the end of the top bar: the actions you don't need while writing. */
-@Composable
-fun TopMoreMenu(actions: List<MenuAction>, expanded: Boolean, onExpandedChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-  Box(modifier) {
-    TopIconButton(MoreIcon, "More: save, share, present, photo, settings", onClick = { onExpandedChange(true) })
-    androidx.compose.material3.DropdownMenu(
-      expanded = expanded,
-      onDismissRequest = { onExpandedChange(false) },
-      containerColor = PenLabComponentTokens.panelBg,
-    ) {
-      for (a in actions) {
-        androidx.compose.material3.DropdownMenuItem(
-          text = { Text(a.label, color = PenLabColors.icon) },
-          leadingIcon = {
-            if (a.iconRes != 0) Icon(androidx.compose.ui.res.painterResource(a.iconRes), contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
-            else Icon(a.icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
-          },
-          onClick = {
-            onExpandedChange(false)
-            a.onClick()
-          },
-        )
-      }
-    }
-  }
-}
-
-/** Next to the page counter: share this notebook as a PDF (WhatsApp, Drive, mail, ...). */
-@Composable
-fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(12.dp)
-  Box(
-    modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
-      .clickable(onClick = onClick)
-      .size(PenLabSpacing.touchTarget)
-      .semantics { contentDescription = "Share as PDF" },
-    contentAlignment = Alignment.Center,
-  ) {
-    Icon(ExportIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
-  }
-}
-
-/** Next to the page counter: save this notebook as a PDF (to Drive or any folder). */
-@Composable
-fun ExportButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-  val shape = RoundedCornerShape(12.dp)
-  Box(
-    modifier
-      .softShadow(shape).clip(shape)
-      .background(PenLabColors.toolbar)
-      .clickable(onClick = onClick)
-      .size(PenLabSpacing.touchTarget)
-      .semantics { contentDescription = "Save as PDF" },
-    contentAlignment = Alignment.Center,
-  ) {
-    Icon(SaveIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
-  }
-}
 
 // ---- Layers popover ---------------------------------------------------------------------------
 
@@ -2105,7 +1953,8 @@ fun LayersPanelContent(
           .fillMaxWidth()
           .heightIn(min = PenLabSpacing.touchTarget)
           .clip(PenLabShapes.small)
-          .background(scheme.primaryContainer)
+          // Outlined, not tinted: the tinted fill is what marks the selected layer row above.
+          .border(PenLabLayout.hairline, scheme.outline, PenLabShapes.small)
           .clickable(role = Role.Button, onClick = onAdd)
           .padding(horizontal = PenLabSpacing.md)
           .semantics { contentDescription = "Add new layer" },
@@ -2115,13 +1964,13 @@ fun LayersPanelContent(
       Icon(
         imageVector = PenLabIcons.Plus,
         contentDescription = null,
-        tint = scheme.onPrimaryContainer,
+        tint = scheme.onSurfaceVariant,
         modifier = Modifier.size(PenLabLayout.iconCompact),
       )
       Spacer(Modifier.width(PenLabSpacing.sm))
       Text(
         text = "New layer",
-        color = scheme.onPrimaryContainer,
+        color = scheme.onSurface,
         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
       )
     }

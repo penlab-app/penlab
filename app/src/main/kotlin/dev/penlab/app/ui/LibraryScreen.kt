@@ -1,6 +1,7 @@
 package dev.penlab.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -315,6 +316,7 @@ private fun LibraryHeader(
           onClick = onNewNotebook,
           shape = PenLabShapes.pill,
           colors = ButtonDefaults.filledTonalButtonColors(containerColor = PenLabComponentTokens.chipIdleBg, contentColor = scheme.onSurface),
+          border = BorderStroke(PenLabLayout.hairline, scheme.outline),
           modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
           contentPadding = buttonPadding,
           content = label,
@@ -350,6 +352,7 @@ private fun ImportMenuButton(current: String, onImportPdf: () -> Unit, onImportF
       onClick = { open = true },
       shape = PenLabShapes.pill,
       colors = ButtonDefaults.filledTonalButtonColors(containerColor = PenLabComponentTokens.chipIdleBg, contentColor = scheme.onSurface),
+      border = BorderStroke(PenLabLayout.hairline, scheme.outline), // the pale fill alone is ~1.1:1 on the page
       modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget).semantics { contentDescription = "Import" },
       contentPadding = PaddingValues(start = PenLabSpacing.lg, end = PenLabSpacing.md, top = PenLabSpacing.sm, bottom = PenLabSpacing.sm),
     ) {

@@ -26,6 +26,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -205,6 +208,7 @@ private fun highlighted(hit: HandwritingIndex.Hit) = buildAnnotatedString {
  * handwriting of older notebooks is still being read ([reading] = notebooks read to notebooks
  * to read) a small spinner and the count sit at the end, so the user knows more matches may come.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PenLabSearchField(
   query: String,
@@ -218,6 +222,21 @@ fun PenLabSearchField(
   // touched (and forgets the touch once focus leaves). Clearing focus after it arrived instead
   // made Android hand it straight back: an endless loop and a StackOverflowError (26 Nov).
   var touched by remember { mutableStateOf(false) }
+  // BACK only hides the keyboard; the field would keep focus and its cursor. So once the keyboard
+  // that this focus brought up goes away again, let go of focus. This runs in an effect after the
+  // keyboard change, never inside onFocusChanged (see above).
+  var focused by remember { mutableStateOf(false) }
+  var keyboardSeen by remember { mutableStateOf(false) }
+  val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+  val imeVisible = WindowInsets.isImeVisible
+  LaunchedEffect(imeVisible, focused) {
+    if (imeVisible) keyboardSeen = true
+    else if (focused && keyboardSeen) {
+      keyboardSeen = false
+      focusManager.clearFocus()
+    }
+    if (!focused) keyboardSeen = false
+  }
   androidx.compose.foundation.text.BasicTextField(
     value = query,
     onValueChange = onQueryChange,
@@ -235,7 +254,10 @@ fun PenLabSearchField(
         }
       }
       .focusProperties { canFocus = touched }
-      .onFocusChanged { if (!it.isFocused && !it.hasFocus) touched = false }
+      .onFocusChanged {
+        focused = it.isFocused
+        if (!it.isFocused && !it.hasFocus) touched = false
+      }
       .semantics { contentDescription = "Search all notebooks" },
     decorationBox = { field ->
       Row(

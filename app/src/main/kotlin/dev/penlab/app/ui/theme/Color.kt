@@ -36,12 +36,14 @@ object PenLabPrimitives {
   val Slate50 = Color(0xFFF6F8FB)
   val Slate100 = Color(0xFFECEFF5)
   val Slate200 = Color(0xFFDCE2EC)
-  val Slate300 = Color(0xFF9AA5B5)
+  // Blueprint `outline`: 3.3:1 on the canvas, 3.0:1 on the pale chip fill (WCAG 1.4.11 UI boundaries).
+  val Slate300 = Color(0xFF7F8A9C)
   val Slate400 = Color(0xFF8E99A8)
   val Slate450 = Color(0xFF9CA5B3)
   val Slate500 = Color(0xFF525D6D)
   val Slate600 = Color(0xFF3E4856)
-  val Slate650 = Color(0xFF535E6F)
+  // Dark `outline`: 4.2:1 on the canvas, 3.2:1 on the translucent chip fill.
+  val Slate650 = Color(0xFF707B8D)
   val Slate700 = Color(0xFF353D49)
   val Slate750 = Color(0xFF2B313B)
   val Slate800 = Color(0xFF232830)
@@ -56,12 +58,14 @@ object PenLabPrimitives {
   val Stone75 = Color(0xFFF8F4F0)
   val Stone100 = Color(0xFFF1ECE6)
   val Stone200 = Color(0xFFE2D9D0)
-  val Stone300 = Color(0xFFABA096)
+  // Copper `outline`: 3.1:1 on the pale chip fill, 3.4:1 on the canvas (WCAG 1.4.11 UI boundaries).
+  val Stone300 = Color(0xFF8F857B)
   val Stone400 = Color(0xFF9B9189)
   val Stone450 = Color(0xFFAFA59D)
   val Stone500 = Color(0xFF625851)
   val Stone600 = Color(0xFF4E4640)
-  val Stone650 = Color(0xFF645B54)
+  // Dark Copper `outline`: 4.2:1 on the canvas, 3.2:1 on the chip fill.
+  val Stone650 = Color(0xFF827870)
   val Stone700 = Color(0xFF403934)
   val Stone750 = Color(0xFF35302C)
   val Stone800 = Color(0xFF2C2825)

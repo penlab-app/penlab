@@ -256,7 +256,6 @@ fun FileQuickMenuPopover(
               .fillMaxWidth()
               .heightIn(min = PenLabSpacing.touchTarget)
               .clip(PenLabShapes.small)
-              .background(if (isCurrent) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent)
               .clickable(role = Role.Button) { if (!isCurrent) onSwitchNotebook(info) }
               .padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm)
               .semantics {
@@ -266,27 +265,29 @@ fun FileQuickMenuPopover(
               },
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          if (accentInt != null) {
-            Box(
-              Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(Color(accentInt)),
-            )
-            Spacer(Modifier.width(PenLabSpacing.md))
-          } else {
-            Icon(
-              imageVector = if (info.pdfPages.isNotEmpty()) PenLabIcons.Pdf else PenLabIcons.Paper,
-              contentDescription = null,
-              tint = if (isCurrent) scheme.primary else scheme.onSurfaceVariant,
-              modifier = Modifier.size(PenLabLayout.iconCompact),
-            )
-            Spacer(Modifier.width(PenLabSpacing.md))
+          // Same 20 dp slot as the icons of PenLabMenuItem below, so the titles start at the same x.
+          Box(Modifier.size(PenLabLayout.iconMedium), contentAlignment = Alignment.Center) {
+            if (accentInt != null) {
+              Box(
+                Modifier
+                  .size(10.dp)
+                  .clip(CircleShape)
+                  .background(Color(accentInt)),
+              )
+            } else {
+              Icon(
+                imageVector = if (info.pdfPages.isNotEmpty()) PenLabIcons.Pdf else PenLabIcons.Paper,
+                contentDescription = null,
+                tint = scheme.onSurfaceVariant,
+                modifier = Modifier.size(PenLabLayout.iconMedium),
+              )
+            }
           }
+          Spacer(Modifier.width(PenLabSpacing.md))
           Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
               text = info.title,
-              color = if (isCurrent) scheme.onPrimaryContainer else scheme.onSurface,
+              color = scheme.onSurface,
               style = MaterialTheme.typography.labelLarge.copy(fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium),
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
@@ -294,7 +295,7 @@ fun FileQuickMenuPopover(
             if (info.folder.isNotEmpty()) {
               Text(
                 text = info.folder.replace("/", " › "),
-                color = if (isCurrent) scheme.onPrimaryContainer.copy(alpha = 0.8f) else scheme.onSurfaceVariant,
+                color = scheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -303,8 +304,9 @@ fun FileQuickMenuPopover(
           }
           if (isCurrent) {
             Spacer(Modifier.width(PenLabSpacing.sm))
+            // Selection is the bare check alone (as in the swatches), not check plus a fill.
             Icon(
-              imageVector = PenLabIcons.Check,
+              imageVector = PenLabIcons.CheckBare,
               contentDescription = null,
               tint = scheme.primary,
               modifier = Modifier.size(PenLabLayout.iconCompact),
@@ -349,8 +351,8 @@ fun FileQuickMenuPopover(
 }
 
 /**
- * Anchored popover under [FileChromePill]'s `⋮` button: Export PDF, Share, Sync to Google Drive,
- * Present mode, Settings, Report bugs, plus any registered `SELECTION_EMPTY` plugin actions.
+ * Anchored popover under [FileChromePill]'s `⋮` button: Export PDF, Share, Save to Google Drive,
+ * Present mode, Settings, Bug / idea, plus any registered `SELECTION_EMPTY` plugin actions.
  */
 @Composable
 fun FileOptionsPopover(
@@ -389,7 +391,7 @@ fun FileOptionsPopover(
         onClick = onShare,
       )
       PenLabMenuItem(
-        label = "Sync to Google Drive",
+        label = "Save to Google Drive",
         subtitle = "Save PDF via Drive picker",
         icon = PenLabIcons.CloudSync,
         onClick = onSyncGoogleDrive,
@@ -418,7 +420,7 @@ fun FileOptionsPopover(
         onClick = onOpenSettings,
       )
       PenLabMenuItem(
-        label = "Report bugs",
+        label = "Bug / idea",
         icon = PenLabIcons.Idea,
         onClick = onReportBugs,
       )

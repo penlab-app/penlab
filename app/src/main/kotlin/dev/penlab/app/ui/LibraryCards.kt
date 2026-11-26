@@ -119,7 +119,7 @@ internal fun NotebookCard(
   val detail = cardMeta(null, endless, notebook.pageCount, date)
   Column(
     modifier
-      .clip(PenLabShapes.medium)
+      .clip(PenLabShapes.mediumTop)
       .combinedClickable(role = Role.Button, onClick = onOpen, onLongClick = { menu = true })
       .semantics { contentDescription = "${notebook.title}, $detail. Long press or use the menu for options." }
   ) {
@@ -234,7 +234,7 @@ internal fun FolderCard(
   val edge = accent?.copy(alpha = 0.5f) ?: PenLabComponentTokens.cardBorder
   Column(
     modifier
-      .clip(PenLabShapes.medium)
+      .clip(PenLabShapes.mediumTop)
       .combinedClickable(role = Role.Button, onClick = onOpen, onLongClick = { menu = true })
       .semantics { contentDescription = "Folder $name, ${notebooksLabel(count)}. Long press or use the menu for options." }
   ) {

@@ -5,7 +5,10 @@ import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Bold
 import com.adamglin.phosphoricons.Duotone
 import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.bold.Check as BoldCheck
+import com.adamglin.phosphoricons.regular.Minus as RegularMinus
+import com.adamglin.phosphoricons.regular.Plus as RegularPlus
 import com.adamglin.phosphoricons.duotone.ArrowArcLeft
 import com.adamglin.phosphoricons.duotone.ArrowArcRight
 import com.adamglin.phosphoricons.duotone.ArrowsClockwise
@@ -45,6 +48,7 @@ import com.adamglin.phosphoricons.duotone.FolderSimple
 import com.adamglin.phosphoricons.duotone.FolderSimplePlus
 import com.adamglin.phosphoricons.duotone.Function
 import com.adamglin.phosphoricons.duotone.GearSix
+import com.adamglin.phosphoricons.duotone.Hand
 import com.adamglin.phosphoricons.duotone.Highlighter
 import com.adamglin.phosphoricons.duotone.House
 import com.adamglin.phosphoricons.duotone.Image
@@ -53,14 +57,12 @@ import com.adamglin.phosphoricons.duotone.Lightbulb
 import com.adamglin.phosphoricons.duotone.LockSimple
 import com.adamglin.phosphoricons.duotone.LockSimpleOpen
 import com.adamglin.phosphoricons.duotone.MagnifyingGlass
-import com.adamglin.phosphoricons.duotone.Minus
 import com.adamglin.phosphoricons.duotone.Moon
 import com.adamglin.phosphoricons.duotone.PaintBucket
 import com.adamglin.phosphoricons.duotone.Palette
 import com.adamglin.phosphoricons.duotone.PenNib
 import com.adamglin.phosphoricons.duotone.PencilSimple
 import com.adamglin.phosphoricons.duotone.PencilSimpleLine
-import com.adamglin.phosphoricons.duotone.Plus
 import com.adamglin.phosphoricons.duotone.Presentation
 import com.adamglin.phosphoricons.duotone.Ruler
 import com.adamglin.phosphoricons.duotone.Scissors
@@ -89,6 +91,7 @@ object PenLabIcons {
   val Eraser: ImageVector get() = PhosphorIcons.Duotone.Eraser
   val Lasso: ImageVector get() = PhosphorIcons.Duotone.Lasso
   val Pen: ImageVector get() = PhosphorIcons.Duotone.PenNib
+  val Hand: ImageVector get() = PhosphorIcons.Duotone.Hand
   val Highlighter: ImageVector get() = PhosphorIcons.Duotone.Highlighter
   val PenTools: ImageVector get() = PhosphorIcons.Duotone.PencilSimple
   val Text: ImageVector get() = PhosphorIcons.Duotone.TextT
@@ -120,8 +123,9 @@ object PenLabIcons {
   val More: ImageVector get() = PhosphorIcons.Duotone.DotsThree
   val MoreVert: ImageVector get() = PhosphorIcons.Duotone.DotsThreeVertical
   val DragHandle: ImageVector get() = PhosphorIcons.Duotone.DotsSixVertical
-  val Plus: ImageVector get() = PhosphorIcons.Duotone.Plus
-  val Minus: ImageVector get() = PhosphorIcons.Duotone.Minus
+  /** Regular weight on purpose: the duotone Plus/Minus fill a translucent box and read as a heavy double bar. */
+  val Plus: ImageVector get() = PhosphorIcons.Regular.RegularPlus
+  val Minus: ImageVector get() = PhosphorIcons.Regular.RegularMinus
   val ChevronDown: ImageVector get() = PhosphorIcons.Duotone.CaretDown
   val ChevronUp: ImageVector get() = PhosphorIcons.Duotone.CaretUp
   val ChevronRight: ImageVector get() = PhosphorIcons.Duotone.CaretRight
@@ -171,63 +175,15 @@ val ClearIcon: ImageVector get() = PenLabIcons.Clear
 val EraserIcon: ImageVector get() = PenLabIcons.Eraser
 val LassoIcon: ImageVector get() = PenLabIcons.Lasso
 val CloseIcon: ImageVector get() = PenLabIcons.Close
-val MirrorIcon: ImageVector get() = PenLabIcons.FlipHorizontal
 val LockIcon: ImageVector get() = PenLabIcons.Lock
 val LockOpenIcon: ImageVector get() = PenLabIcons.LockOpen
-val BackIcon: ImageVector get() = PenLabIcons.Back
-val BookmarkIcon: ImageVector get() = PenLabIcons.BookmarkFilled
-val BookmarkOutlineIcon: ImageVector get() = PenLabIcons.BookmarkOutline
-val PagesIcon: ImageVector get() = PenLabIcons.Pages
-val MoreIcon: ImageVector get() = PenLabIcons.More
-val SaveIcon: ImageVector get() = PenLabIcons.Save
-val ExportIcon: ImageVector get() = PenLabIcons.Export
 val RulerIcon: ImageVector get() = PenLabIcons.Ruler
-val FitWidthIcon: ImageVector get() = PenLabIcons.FitWidth
 val IdeaIcon: ImageVector get() = PenLabIcons.Idea
 val TextIcon: ImageVector get() = PenLabIcons.Text
 val FillIcon: ImageVector get() = PenLabIcons.Fill
-val ImageIcon: ImageVector get() = PenLabIcons.Image
-val DeleteIcon: ImageVector get() = PenLabIcons.Delete
 val PaperIcon: ImageVector get() = PenLabIcons.Paper
-val EyedropperIcon: ImageVector get() = PenLabIcons.Eyedropper
-val WheelIcon: ImageVector get() = PenLabIcons.ColorWheel
-val HomeIcon: ImageVector get() = PenLabIcons.Home
-val LayersIcon: ImageVector get() = PenLabIcons.Layers
-val EyeIcon: ImageVector get() = PenLabIcons.Eye
-val EyeOffIcon: ImageVector get() = PenLabIcons.EyeOff
 val SearchIcon: ImageVector get() = PenLabIcons.Search
 val FullScreenIcon: ImageVector get() = PenLabIcons.FullScreen
 val FullScreenExitIcon: ImageVector get() = PenLabIcons.FullScreenExit
 val PresentIcon: ImageVector get() = PenLabIcons.Present
 val PenToolsIcon: ImageVector get() = PenLabIcons.PenTools
-
-// Additional icons for Stages 2–6.
-val PenIcon: ImageVector get() = PenLabIcons.Pen
-val HighlighterIcon: ImageVector get() = PenLabIcons.Highlighter
-val ProtractorIcon: ImageVector get() = PenLabIcons.Protractor
-val CopyIcon: ImageVector get() = PenLabIcons.Copy
-val CutIcon: ImageVector get() = PenLabIcons.Cut
-val PasteIcon: ImageVector get() = PenLabIcons.Paste
-val DuplicateIcon: ImageVector get() = PenLabIcons.Duplicate
-val FlipHorizontalIcon: ImageVector get() = PenLabIcons.FlipHorizontal
-val FlipVerticalIcon: ImageVector get() = PenLabIcons.FlipVertical
-val SettingsIcon: ImageVector get() = PenLabIcons.Settings
-val FolderIcon: ImageVector get() = PenLabIcons.Folder
-val FolderPlusIcon: ImageVector get() = PenLabIcons.FolderPlus
-val FilePlusIcon: ImageVector get() = PenLabIcons.FilePlus
-val PdfIcon: ImageVector get() = PenLabIcons.Pdf
-val CloudSyncIcon: ImageVector get() = PenLabIcons.CloudSync
-val DragHandleIcon: ImageVector get() = PenLabIcons.DragHandle
-val PlusIcon: ImageVector get() = PenLabIcons.Plus
-val MinusIcon: ImageVector get() = PenLabIcons.Minus
-val ChevronDownIcon: ImageVector get() = PenLabIcons.ChevronDown
-val SparklesIcon: ImageVector get() = PenLabIcons.Sparkles
-val FunctionIcon: ImageVector get() = PenLabIcons.Function
-val ShapesIcon: ImageVector get() = PenLabIcons.Shapes
-val SunIcon: ImageVector get() = PenLabIcons.Sun
-val MoonIcon: ImageVector get() = PenLabIcons.Moon
-val PaletteIcon: ImageVector get() = PenLabIcons.Palette
-val CheckIcon: ImageVector get() = PenLabIcons.Check
-val RenameIcon: ImageVector get() = PenLabIcons.Rename
-val MoveIcon: ImageVector get() = PenLabIcons.Move
-val MoreVertIcon: ImageVector get() = PenLabIcons.MoreVert

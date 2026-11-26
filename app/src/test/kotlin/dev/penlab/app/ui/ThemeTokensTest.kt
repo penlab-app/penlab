@@ -94,6 +94,22 @@ class ThemeTokensTest {
   }
 
   @Test
+  fun secondaryHeaderChipsAndPdfBadgeStayReadableInAllFourThemes() {
+    for ((accent, isDark) in allCombos) {
+      val label = "${accent.name}/${if (isDark) "DARK" else "LIGHT"}"
+      val s = penLabColorScheme(accent, isDark)
+      val e = penLabExtendedColors(accent, isDark)
+      // Library header chips (Import, New notebook) draw an `outline` border: UI boundary >= 3:1
+      // against the page and against their own pale fill.
+      val fill = e.chipIdle.compositeOver(s.background)
+      assertContrastAtLeast("$label chip border on page", s.outline, s.background, 3.0)
+      assertContrastAtLeast("$label chip border on chip fill", s.outline, fill, 3.0)
+      // The PDF badge: small text on the primary container.
+      assertContrastAtLeast("$label PDF badge text", s.onPrimaryContainer, s.primaryContainer, 4.5)
+    }
+  }
+
+  @Test
   fun extendedColorsMatchLightAndDarkModes() {
     val palettes = allCombos.map { (accent, isDark) -> penLabExtendedColors(accent, isDark) }
     assertEquals(4, palettes.toSet().size)

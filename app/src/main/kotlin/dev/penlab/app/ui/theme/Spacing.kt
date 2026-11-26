@@ -57,6 +57,20 @@ object PenLabLayout {
   val iconLarge = 24.dp
   val iconFolder = 40.dp
 
+  /** Icon glyph sizes inside 48dp controls: compact (18) and the default control icon (22). */
+  val iconCompact = 18.dp
+  val iconDefault = 22.dp
+
+  /**
+   * The tinted round "visual" drawn inside a 48dp hit box (chrome icon buttons, dock cells, the
+   * bookmark toggle): smaller than the touch target on purpose, so neighbours do not look crowded.
+   */
+  val controlVisual = 36.dp
+  val controlVisualSmall = 28.dp
+
+  /** Round colour swatch used in the pen panel's 4-column palette (inside its 48dp cell). */
+  val swatchSizeCompact = 36.dp
+
   /** Paper mini-preview tile (New notebook dialog): width-to-height of the paper swatch. */
   const val paperPreviewAspect = 1.9f
 

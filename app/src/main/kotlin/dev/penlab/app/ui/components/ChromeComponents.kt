@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -93,6 +94,35 @@ fun PenLabChromePill(
 }
 
 /**
+ * A tappable pill inside a [BarHeight]-tall row whose **hit area is the full bar height** while the
+ * visible shape (background and pressed ripple) stays inset by [PenLabSpacing.xs] top and bottom.
+ *
+ * Chain order is the point: the (invisible) clickable comes first so it spans the whole height; then
+ * the inset, clip, background and a ripple driven by the same [interactionSource]. Callers add their
+ * own horizontal padding, semantics and press scale after this modifier, and a `widthIn(min = 48.dp)`
+ * before it when the content could be narrower than a touch target.
+ */
+@Composable
+fun Modifier.insetPillClickable(
+  interactionSource: MutableInteractionSource,
+  onClick: () -> Unit,
+  background: Color = Color.Transparent,
+  enabled: Boolean = true,
+): Modifier =
+  this
+    .clickable(
+      enabled = enabled,
+      interactionSource = interactionSource,
+      indication = null,
+      role = Role.Button,
+      onClick = onClick,
+    )
+    .padding(vertical = PenLabSpacing.xs)
+    .clip(PenLabShapes.pill)
+    .background(background)
+    .indication(interactionSource, ripple(bounded = true))
+
+/**
  * Ergonomic 48dp Phosphor Duotone icon button with crisp press scale feedback (read in
  * [graphicsLayer] so animation frames never recompose), tonal [MaterialTheme.colorScheme.primaryContainer]
  * highlight when [selected], and semantic accessibility metadata.
@@ -105,7 +135,7 @@ fun PenLabIconButton(
   modifier: Modifier = Modifier,
   selected: Boolean = false,
   enabled: Boolean = true,
-  iconSize: Dp = 22.dp,
+  iconSize: Dp = PenLabLayout.iconDefault,
   tint: Color? = null,
   isPalm: (() -> Boolean)? = null,
 ) {
@@ -258,7 +288,7 @@ fun <T> PenLabSegmentedControl(
               imageVector = optionIcon,
               contentDescription = null,
               tint = fgColor,
-              modifier = Modifier.size(18.dp),
+              modifier = Modifier.size(PenLabLayout.iconCompact),
             )
             Spacer(Modifier.width(6.dp))
           }

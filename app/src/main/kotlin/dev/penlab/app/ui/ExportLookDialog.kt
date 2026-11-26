@@ -45,6 +45,7 @@ import dev.penlab.app.ink.PageBackground
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 
@@ -104,7 +105,7 @@ fun ExportLookDialog(onPick: (dark: Boolean) -> Unit, onDismiss: () -> Unit) {
         imageVector = PenLabIcons.Pdf,
         contentDescription = null,
         tint = scheme.primary,
-        modifier = Modifier.size(18.dp),
+        modifier = Modifier.size(PenLabLayout.iconCompact),
       )
       Text(
         text = "Vector ink is embedded cleanly in the exported PDF at full resolution.",
@@ -163,7 +164,7 @@ private fun ExportLookCard(
         imageVector = icon,
         contentDescription = null,
         tint = if (isSelected) scheme.primary else scheme.onSurfaceVariant,
-        modifier = Modifier.size(18.dp),
+        modifier = Modifier.size(PenLabLayout.iconCompact),
       )
       Text(
         text = title,

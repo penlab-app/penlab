@@ -138,4 +138,26 @@ object PenLabTextStyles {
   val tabularMedium: TextStyle = PenLabTypography.labelMedium.copy(fontFeatureSettings = "tnum")
   val tabularSmall: TextStyle = PenLabTypography.labelSmall.copy(fontFeatureSettings = "tnum")
   val tabularBody: TextStyle = PenLabTypography.bodyMedium.copy(fontFeatureSettings = "tnum")
+
+  /**
+   * Tiny uppercase-style badge text ("PDF" on the file pill). 11 sp is the floor for any text in
+   * PenLab, so a compact badge gets weight and tracking instead of a smaller size.
+   */
+  val badge: TextStyle =
+    PenLabTypography.labelSmall.copy(
+      fontSize = 11.sp,
+      lineHeight = 12.sp,
+      fontWeight = FontWeight.SemiBold,
+      letterSpacing = 0.4.sp,
+    )
+
+  /** Caption under a line-type preview in the pen panel (Solid, Dashed, ...). 11 sp, medium. */
+  val lineTypeLabel: TextStyle = PenLabTypography.labelSmall.copy(letterSpacing = 0.sp)
+
+  /**
+   * Live "Aa" preview in the pen-size panel: the font grows with the pen size, 11 sp up to 19 sp.
+   * Lives here so no composable has to write a literal `.sp`.
+   */
+  fun sizePreview(penSizeDp: Float): TextStyle =
+    PenLabTypography.labelLarge.copy(fontSize = (11f + (penSizeDp - 2f) * 0.45f).coerceIn(11f, 19f).sp)
 }

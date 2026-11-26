@@ -108,7 +108,7 @@ fun PenLabMenuItem(
         imageVector = icon,
         contentDescription = null,
         tint = if (destructive || !enabled) primaryTint else scheme.onSurfaceVariant,
-        modifier = Modifier.size(20.dp),
+        modifier = Modifier.size(PenLabLayout.iconMedium),
       )
       Spacer(Modifier.width(PenLabSpacing.md))
     }
@@ -149,7 +149,7 @@ fun PenLabMenuItem(
         imageVector = PenLabIcons.ChevronRight,
         contentDescription = null,
         tint = secondaryTint,
-        modifier = Modifier.size(18.dp),
+        modifier = Modifier.size(PenLabLayout.iconCompact),
       )
     }
   }
@@ -214,7 +214,7 @@ fun PenLabSwitchRow(
             checked -> scheme.primary
             else -> scheme.onSurfaceVariant
           },
-        modifier = Modifier.size(22.dp),
+        modifier = Modifier.size(PenLabLayout.iconDefault),
       )
       Spacer(Modifier.width(PenLabSpacing.md))
     }
@@ -362,7 +362,7 @@ fun PenLabSliderRow(
               imageVector = PenLabIcons.Plus,
               contentDescription = null,
               tint = scheme.onSurface,
-              modifier = Modifier.size(18.dp),
+              modifier = Modifier.size(PenLabLayout.iconCompact),
             )
           }
         }
@@ -598,7 +598,7 @@ fun PenLabEmptyState(
             Icon(
               imageVector = primaryActionIcon,
               contentDescription = null,
-              modifier = Modifier.size(18.dp),
+              modifier = Modifier.size(PenLabLayout.iconCompact),
             )
             Spacer(Modifier.width(PenLabSpacing.sm))
           }

@@ -80,7 +80,7 @@ fun SearchPanel(
   PenLabPopoverSurface(
     isPalm = isPalm,
     modifier = modifier.width(320.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
   ) {
     Text("Search handwriting", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
     OutlinedTextField(
@@ -114,7 +114,7 @@ fun SearchPanel(
     LazyColumn(Modifier.heightIn(max = 360.dp)) {
       itemsIndexed(hits) { index, hit ->
         Row(
-          Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpen(index) }.padding(horizontal = 8.dp, vertical = 10.dp)
+          Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpen(index) }.heightIn(min = PenLabSpacing.touchTarget).padding(horizontal = PenLabSpacing.sm, vertical = 10.dp)
             .semantics { contentDescription = (if (paged) "Page ${hit.line.page + 1}: " else "") + hit.line.text },
           verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -142,11 +142,11 @@ fun SearchStepper(index: Int, count: Int, onStep: (Int) -> Unit, onClose: () -> 
         isDark = LocalPenLabColors.current.isDark,
       )
       .ignorePalm(isPalm)
-      .padding(horizontal = 6.dp, vertical = 4.dp),
+      .padding(horizontal = 6.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     StepperIconButton(PenLabIcons.Back, "Previous match", enabled = index > 0) { onStep(index - 1) }
-    Text("${index + 1} of $count", color = MaterialTheme.colorScheme.onSurface, style = PenLabTextStyles.tabularLabel, modifier = Modifier.padding(horizontal = 8.dp))
+    Text("${index + 1} of $count", color = MaterialTheme.colorScheme.onSurface, style = PenLabTextStyles.tabularLabel, modifier = Modifier.padding(horizontal = PenLabSpacing.sm))
     StepperIconButton(PenLabIcons.ChevronRight, "Next match", enabled = index < count - 1) { onStep(index + 1) }
     StepperIconButton(PenLabIcons.Close, "Close search", enabled = true, onClick = onClose)
   }
@@ -156,7 +156,7 @@ fun SearchStepper(index: Int, count: Int, onStep: (Int) -> Unit, onClose: () -> 
 private fun StepperIconButton(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
   androidx.compose.foundation.layout.Box(
     modifier = Modifier
-      .size(36.dp)
+      .size(PenLabSpacing.touchTarget)
       .clip(PenLabShapes.pill)
       .clickable(enabled = enabled, onClick = onClick)
       .semantics { contentDescription = label },
@@ -166,7 +166,7 @@ private fun StepperIconButton(icon: ImageVector, label: String, enabled: Boolean
       imageVector = icon,
       contentDescription = null,
       tint = if (enabled) MaterialTheme.colorScheme.onSurface else PenLabComponentTokens.toolIconDisabled,
-      modifier = Modifier.size(18.dp),
+      modifier = Modifier.size(PenLabLayout.iconCompact),
     )
   }
 }
@@ -309,7 +309,7 @@ fun LibrarySearchResults(
   LazyColumn(Modifier.fillMaxWidth().padding(horizontal = PenLabLayout.libraryGutter)) {
     item {
       val count = searchSummary(query, titleHits.size, results.size, groups.size)
-      Column(Modifier.padding(vertical = 8.dp)) {
+      Column(Modifier.padding(vertical = PenLabSpacing.sm)) {
         Text(count, color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall)
         if (reading != null) {
           Text(
@@ -357,13 +357,13 @@ fun LibrarySearchResults(
           (if (notebook.folder.isNotEmpty()) notebook.folder.replace("/", " › ") + " › " else "") + notebook.title,
           color = PenLabColors.iconDisabled,
           style = MaterialTheme.typography.labelLarge,
-          modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+          modifier = Modifier.padding(top = PenLabSpacing.lg, bottom = PenLabSpacing.xs),
         )
       }
       itemsIndexed(group, key = { i, r -> notebook.id + "/" + i + "/" + r.hit.line.signature }) { _, result ->
         val paged = result.notebook.kind == dev.penlab.app.notes.NotebookKind.A4
         Row(
-          Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpen(result) }.padding(horizontal = 8.dp, vertical = 10.dp),
+          Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { onOpen(result) }.heightIn(min = PenLabSpacing.touchTarget).padding(horizontal = PenLabSpacing.sm, vertical = 10.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           Text(if (paged) "p. ${result.hit.line.page + 1}" else "canvas", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))

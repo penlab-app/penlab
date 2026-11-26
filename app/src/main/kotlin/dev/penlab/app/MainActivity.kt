@@ -154,6 +154,7 @@ import dev.penlab.app.plugins.AppExportSource
 import dev.penlab.app.plugins.BuiltInPlugins
 import dev.penlab.app.plugins.PluginRegistry
 import androidx.lifecycle.lifecycleScope
+import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.plugin.ImportSource
 import dev.penlab.plugin.PageAction
 import dev.penlab.plugin.PageRef
@@ -2196,7 +2197,7 @@ private fun NoteScreen(
             .align(Alignment.TopCenter)
             .zIndex(2f)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = if (chrome.topBar) TOP_BUTTONS_HEIGHT + 4.dp else 12.dp),
+            .padding(top = if (chrome.topBar) TOP_BUTTONS_HEIGHT + PenLabSpacing.xs else PenLabSpacing.md),
       )
     }
 
@@ -2210,7 +2211,7 @@ private fun NoteScreen(
             .align(Alignment.TopStart)
             .zIndex(topChromeZ)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = 12.dp, start = 12.dp + railLeft),
+            .padding(top = PenLabSpacing.md, start = PenLabSpacing.md + railLeft),
         horizontalAlignment = Alignment.Start,
       ) {
         FileChromePill(
@@ -2238,7 +2239,7 @@ private fun NoteScreen(
         )
 
         if (fileQuickMenuOpen) {
-          Spacer(Modifier.height(8.dp))
+          Spacer(Modifier.height(PenLabSpacing.sm))
           FileQuickMenuPopover(
             current = notebookInfo,
             recentNotebooks = recentNotebooks,
@@ -2265,7 +2266,7 @@ private fun NoteScreen(
             modifier = Modifier.onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
           )
         } else if (fileOptionsOpen) {
-          Spacer(Modifier.height(8.dp))
+          Spacer(Modifier.height(PenLabSpacing.sm))
           FileOptionsPopover(
             onExportPdf = {
               closeOverlays(topBarToo = true)
@@ -2316,7 +2317,7 @@ private fun NoteScreen(
             .align(Alignment.TopEnd)
             .zIndex(topChromeZ)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = 12.dp, end = 12.dp + railRight),
+            .padding(top = PenLabSpacing.md, end = PenLabSpacing.md + railRight),
         horizontalAlignment = Alignment.End,
       ) {
         PageConfigChromePill(
@@ -2363,7 +2364,7 @@ private fun NoteScreen(
         )
 
         if (searchOpen) {
-          Spacer(Modifier.height(8.dp))
+          Spacer(Modifier.height(PenLabSpacing.sm))
           SearchPanel(
             query = searchQuery,
             onQueryChange = {
@@ -2379,7 +2380,7 @@ private fun NoteScreen(
             modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
           )
         } else if (viewPanelOpen) {
-          Spacer(Modifier.height(8.dp))
+          Spacer(Modifier.height(PenLabSpacing.sm))
           ViewPanel(
             settings = viewSettings,
             zoomPercent = viewZoom,
@@ -2396,7 +2397,7 @@ private fun NoteScreen(
             modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
           )
         } else if (pageConfigOpen) {
-          Spacer(Modifier.height(8.dp))
+          Spacer(Modifier.height(PenLabSpacing.sm))
           PageConfigPopover(
             isPaged = isPaged,
             isPdfNotebook = isPdfNotebook,
@@ -2449,7 +2450,7 @@ private fun NoteScreen(
           )
         } else {
           searchShown?.let { shown ->
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(PenLabSpacing.sm))
             SearchStepper(
               index = shown,
               count = searchHits.size,
@@ -2486,7 +2487,7 @@ private fun NoteScreen(
             .align(Alignment.TopEnd)
             .zIndex(3f)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = 12.dp, end = 12.dp + railRight)
+            .padding(top = PenLabSpacing.md, end = PenLabSpacing.md + railRight)
             .graphicsLayer { alpha = FULLSCREEN_EXIT_ALPHA },
       ) {
         PenLabIconButton(
@@ -2511,7 +2512,7 @@ private fun NoteScreen(
             .align(Alignment.BottomEnd)
             .zIndex(3f)
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(end = 16.dp + railRight, bottom = 16.dp)
+            .padding(end = PenLabSpacing.lg + railRight, bottom = PenLabSpacing.lg)
             .graphicsLayer { alpha = presentPillAlphaAnim },
       ) {
         PenLabIconButton(
@@ -2646,7 +2647,7 @@ private fun NoteScreen(
 
     SnackbarHost(
       hostState = messages,
-      modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 16.dp),
+      modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = PenLabSpacing.lg),
     ) { data ->
       if (chrome.messages) ToolbarMessage(data.visuals.message, data.visuals.actionLabel, onAction = data::performAction)
     }

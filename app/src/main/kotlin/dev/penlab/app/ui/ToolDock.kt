@@ -74,7 +74,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.InkTool
@@ -83,6 +82,8 @@ import dev.penlab.app.ink.PenStyle
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
+import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.floatingChromeSurface
 import dev.penlab.app.ui.theme.softShadow
 import kotlinx.coroutines.CoroutineScope
@@ -1408,7 +1409,7 @@ private fun ActionCell(
   ) {
     Box(
       Modifier
-        .size(if (round) 42.dp else 36.dp)
+        .size(if (round) 42.dp else PenLabLayout.controlVisual)
         .graphicsLayer { alpha = activeAlpha }
         .clip(CircleShape)
         .background(PenLabComponentTokens.toolCellSelectedBg),
@@ -1418,7 +1419,7 @@ private fun ActionCell(
       Box(
         Modifier
           .align(Alignment.TopEnd)
-          .padding(top = 8.dp, end = 6.dp)
+          .padding(top = PenLabSpacing.sm, end = 6.dp)
           .size(6.dp)
           .background(MaterialTheme.colorScheme.primary, CircleShape),
       )
@@ -1492,7 +1493,7 @@ private fun ToolCellView(
     // Active tonal halo + crisp 2dp primary ring (read in graphicsLayer: zero recomposition per frame).
     Box(
       Modifier
-        .size(if (round) 42.dp else 36.dp)
+        .size(if (round) 42.dp else PenLabLayout.controlVisual)
         .graphicsLayer { alpha = pick }
         .clip(CircleShape)
         .background(activeBg)
@@ -1531,7 +1532,7 @@ private fun ToolCellView(
       val color = Color(InkColors.onScreen(tool.paperColor or 0xFF000000.toInt(), darkPage))
       val icon = if (tool.isFill) PenLabIcons.Fill else PenLabIcons.Highlighter
       Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(PenLabLayout.iconCompact))
         Box(
           Modifier
             .padding(top = 2.dp)
@@ -1546,7 +1547,7 @@ private fun ToolCellView(
         tool.isText -> PenLabIcons.Text
         else -> PenLabIcons.Eraser
       }
-      Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+      Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(PenLabLayout.iconMedium))
     }
     }
   }
@@ -1576,7 +1577,7 @@ internal fun ToolGlyph(tool: InkTool, darkPage: Boolean, mmPerDp: Float, modifie
     val fill = Color(InkColors.onScreen(tool.paperColor or 0xFF000000.toInt(), darkPage))
     Box(modifier, contentAlignment = Alignment.Center) {
       Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(FillIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(18.dp))
+        Icon(FillIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconCompact))
         Box(Modifier.padding(top = 2.dp).size(18.dp, 4.dp).background(fill, RoundedCornerShape(2.dp)).border(0.5.dp, PenLabColors.swatchEdge, RoundedCornerShape(2.dp)))
       }
     }
@@ -1589,7 +1590,7 @@ internal fun ToolGlyph(tool: InkTool, darkPage: Boolean, mmPerDp: Float, modifie
       else -> EraserIcon
     }
     Box(modifier, contentAlignment = Alignment.Center) {
-      Icon(icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(22.dp))
+      Icon(icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconDefault))
     }
     return
   }
@@ -1617,9 +1618,9 @@ internal fun ToolGlyph(tool: InkTool, darkPage: Boolean, mmPerDp: Float, modifie
 
 internal val RailWidth = 58.dp
 internal val BarHeight = 48.dp
-private val HorizontalCellWidth = 42.dp
+private val HorizontalCellWidth = PenLabSpacing.touchTarget
 private val RailCellWidth = 54.dp
-private val RailCellHeight = 46.dp
+private val RailCellHeight = PenLabSpacing.touchTarget
 private val HubSize = WheelGeometry.HUB_DP.dp
 private val BallSize = 56.dp
 private val CornerReach = 150.dp

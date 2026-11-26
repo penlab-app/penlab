@@ -53,7 +53,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.notes.NotebookInfo
 import dev.penlab.app.notes.NotebookKind
@@ -61,9 +60,11 @@ import dev.penlab.app.ui.components.PenLabChromePill
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabPopoverSurface
+import dev.penlab.app.ui.components.insetPillClickable
 import dev.penlab.app.ui.components.PenLabChoiceChip
 import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
@@ -99,31 +100,26 @@ fun FileChromePill(
     label = "fileTitleBg",
   )
 
+  val titleInteraction = remember { MutableInteractionSource() }
+
   PenLabChromePill(
     modifier = modifier.height(BarHeight),
     isPalm = isPalm,
-    contentPadding = PaddingValues(horizontal = 4.dp),
+    contentPadding = PaddingValues(horizontal = PenLabSpacing.xs),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
   ) {
     ChromePillIconButton(
       icon = PenLabIcons.Back,
       contentDescription = "Back to library",
       onClick = onBack,
-      width = 42.dp,
     )
     Box(
       modifier =
         Modifier
           .height(BarHeight)
-          .padding(vertical = 4.dp)
-          .clip(PenLabShapes.pill)
-          .background(titleBg)
-          .clickable(
-            role = Role.Button,
-            onClick = onToggleQuickMenu,
-          )
           .widthIn(min = 64.dp, max = 160.dp)
-          .padding(horizontal = 8.dp)
+          .insetPillClickable(titleInteraction, onToggleQuickMenu, titleBg)
+          .padding(horizontal = PenLabSpacing.sm)
           .semantics {
             val pdfPrefix = if (isPdfNotebook) "PDF notebook, " else ""
             contentDescription =
@@ -134,7 +130,7 @@ fun FileChromePill(
     ) {
       Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
       ) {
         Column(
           modifier = Modifier.weight(1f, fill = false),
@@ -181,7 +177,6 @@ fun FileChromePill(
       contentDescription = "File options",
       selected = optionsOpen,
       onClick = onToggleOptions,
-      width = 42.dp,
     )
   }
 }
@@ -199,7 +194,7 @@ private fun PdfNotebookBadge(inverted: Boolean) {
       Modifier
         .clip(PenLabShapes.extraSmall)
         .background(badgeBg)
-        .padding(horizontal = 4.dp, vertical = 1.dp),
+        .padding(horizontal = PenLabSpacing.xs, vertical = 1.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(2.dp),
   ) {
@@ -212,13 +207,7 @@ private fun PdfNotebookBadge(inverted: Boolean) {
     Text(
       text = "PDF",
       color = badgeFg,
-      style =
-        MaterialTheme.typography.labelSmall.copy(
-          fontSize = 9.5.sp,
-          lineHeight = 11.sp,
-          fontWeight = FontWeight.SemiBold,
-          letterSpacing = 0.4.sp,
-        ),
+      style = PenLabTextStyles.badge,
       maxLines = 1,
       softWrap = false,
     )
@@ -290,7 +279,7 @@ fun FileQuickMenuPopover(
               imageVector = if (info.pdfPages.isNotEmpty()) PenLabIcons.Pdf else PenLabIcons.Paper,
               contentDescription = null,
               tint = if (isCurrent) scheme.primary else scheme.onSurfaceVariant,
-              modifier = Modifier.size(18.dp),
+              modifier = Modifier.size(PenLabLayout.iconCompact),
             )
             Spacer(Modifier.width(PenLabSpacing.md))
           }
@@ -318,7 +307,7 @@ fun FileQuickMenuPopover(
               imageVector = PenLabIcons.Check,
               contentDescription = null,
               tint = scheme.primary,
-              modifier = Modifier.size(18.dp),
+              modifier = Modifier.size(PenLabLayout.iconCompact),
             )
           }
         }
@@ -455,7 +444,7 @@ fun FileOptionsPopover(
                 painter = painterResource(action.iconRes),
                 contentDescription = null,
                 tint = scheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(PenLabLayout.iconMedium),
               )
               Spacer(Modifier.width(PenLabSpacing.md))
               Text(
@@ -506,11 +495,13 @@ fun PageConfigChromePill(
   val scheme = MaterialTheme.colorScheme
   val zoom = zoomPercent()
   val pageNum = currentPage() + 1
+  val zoomInteraction = remember { MutableInteractionSource() }
+  val pageConfigInteraction = remember { MutableInteractionSource() }
 
   PenLabChromePill(
     modifier = modifier.height(BarHeight),
     isPalm = isPalm,
-    contentPadding = PaddingValues(horizontal = 4.dp),
+    contentPadding = PaddingValues(horizontal = PenLabSpacing.xs),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
   ) {
     if (searchAvailable) {
@@ -519,7 +510,6 @@ fun PageConfigChromePill(
         contentDescription = "Search handwriting",
         selected = searchOpen,
         onClick = onToggleSearch,
-        width = 40.dp,
       )
       ChromePillDivider()
     }
@@ -529,18 +519,18 @@ fun PageConfigChromePill(
       icon = PenLabIcons.Minus,
       contentDescription = "Zoom out",
       onClick = onZoomOut,
-      width = 36.dp,
-      iconSize = 18.dp,
+      iconSize = PenLabLayout.iconCompact,
     )
     Box(
       modifier =
         Modifier
           .height(BarHeight)
-          .padding(vertical = 4.dp)
-          .clip(PenLabShapes.pill)
-          .background(if (viewPanelOpen) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent)
-          .clickable(role = Role.Button, onClick = onToggleViewPanel)
-          .widthIn(min = 48.dp)
+          .widthIn(min = PenLabSpacing.touchTarget)
+          .insetPillClickable(
+            zoomInteraction,
+            onToggleViewPanel,
+            if (viewPanelOpen) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent,
+          )
           .padding(horizontal = 6.dp)
           .semantics {
             contentDescription = "Zoom $zoom percent. Double tap for zoom presets and view locks."
@@ -573,8 +563,7 @@ fun PageConfigChromePill(
       icon = PenLabIcons.Plus,
       contentDescription = "Zoom in",
       onClick = onZoomIn,
-      width = 36.dp,
-      iconSize = 18.dp,
+      iconSize = PenLabLayout.iconCompact,
     )
 
     ChromePillDivider()
@@ -583,7 +572,6 @@ fun PageConfigChromePill(
       icon = PenLabIcons.FullScreen,
       contentDescription = "Full screen",
       onClick = onEnterFullScreen,
-      width = 40.dp,
     )
 
     ChromePillDivider()
@@ -593,10 +581,12 @@ fun PageConfigChromePill(
       modifier =
         Modifier
           .height(BarHeight)
-          .padding(vertical = 4.dp)
-          .clip(PenLabShapes.pill)
-          .background(if (pageConfigOpen) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent)
-          .clickable(role = Role.Button, onClick = onTogglePageConfig)
+          .widthIn(min = PenLabSpacing.touchTarget)
+          .insetPillClickable(
+            pageConfigInteraction,
+            onTogglePageConfig,
+            if (pageConfigOpen) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent,
+          )
           .padding(horizontal = if (isPaged) 10.dp else 11.dp)
           .semantics {
             contentDescription =
@@ -820,8 +810,7 @@ private fun ChromePillIconButton(
   icon: ImageVector,
   contentDescription: String,
   onClick: () -> Unit,
-  width: Dp = 42.dp,
-  iconSize: Dp = 20.dp,
+  iconSize: Dp = PenLabLayout.iconMedium,
   selected: Boolean = false,
 ) {
   val interaction = remember { MutableInteractionSource() }
@@ -841,7 +830,7 @@ private fun ChromePillIconButton(
   Box(
     modifier =
       Modifier
-        .size(width = width, height = BarHeight)
+        .size(width = PenLabSpacing.touchTarget, height = BarHeight)
         .clip(CircleShape)
         .clickable(
           interactionSource = interaction,
@@ -862,7 +851,7 @@ private fun ChromePillIconButton(
     Box(
       modifier =
         Modifier
-          .size(36.dp)
+          .size(PenLabLayout.controlVisual)
           .clip(CircleShape)
           .background(bg),
       contentAlignment = Alignment.Center,

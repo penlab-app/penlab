@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
@@ -83,11 +82,13 @@ import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.components.PenLabSliderRow
 import dev.penlab.app.ui.components.PenLabSnackbar
 import dev.penlab.app.ui.components.PenLabSwitchRow
+import dev.penlab.app.ui.components.insetPillClickable
 import dev.penlab.app.ui.theme.Accent
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PageThemeMode
 import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
@@ -229,7 +230,7 @@ fun ToolOptionsPanel(
                     else Modifier
                   )
                   .selectable(selected = isSelected, role = Role.RadioButton, onClick = { onStylePicked(style) })
-                  .padding(horizontal = 6.dp, vertical = 8.dp)
+                  .padding(horizontal = 6.dp, vertical = PenLabSpacing.sm)
                   .semantics {
                     contentDescription = style.label
                     if (isSelected) selected = true
@@ -260,7 +261,7 @@ fun ToolOptionsPanel(
               .fillMaxWidth()
               .selectableGroup()
               .semantics { contentDescription = "Line pattern" },
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
+          horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
         ) {
           for (line in LineType.entries) {
             val isSelected = line == tool.line
@@ -284,16 +285,14 @@ fun ToolOptionsPanel(
                     if (isSelected) selected = true
                   },
               horizontalAlignment = Alignment.CenterHorizontally,
-              verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+              verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs, Alignment.CenterVertically),
             ) {
               LinePreview(line, tool.paperColor, darkPage, modifier = Modifier.size(width = 38.dp, height = 16.dp))
               Text(
                 text = line.label,
                 color = fg,
                 style =
-                  MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 10.sp,
-                    letterSpacing = 0.sp,
+                  PenLabTextStyles.lineTypeLabel.copy(
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                   ),
                 maxLines = 1,
@@ -370,7 +369,7 @@ fun ToolOptionsPanel(
           val lightCheckTint = if (LocalPenLabColors.current.isDark) scheme.onSurface else scheme.surface
           val darkCheckTint = if (LocalPenLabColors.current.isDark) scheme.surface else scheme.onSurface
 
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+          Column(verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs)) {
             for (row in colors.chunked(4)) {
               Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -409,7 +408,7 @@ fun ToolOptionsPanel(
                       Box(
                         modifier =
                           Modifier
-                            .size(36.dp)
+                            .size(PenLabLayout.swatchSizeCompact)
                             .clip(swatchShape)
                             .background(displayColor)
                             .border(1.dp, swatchEdge, swatchShape),
@@ -420,7 +419,7 @@ fun ToolOptionsPanel(
                             imageVector = PenLabIcons.CheckBare,
                             contentDescription = null,
                             tint = swatchCheckTint(displayColor, lightCheckTint, darkCheckTint),
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(PenLabLayout.iconCompact),
                           )
                         }
                       }
@@ -456,7 +455,7 @@ fun ToolOptionsPanel(
                 imageVector = PenLabIcons.Palette,
                 contentDescription = null,
                 tint = scheme.primary,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(PenLabLayout.iconMedium),
               )
               Spacer(Modifier.width(PenLabSpacing.sm))
               Text(
@@ -485,7 +484,7 @@ fun ToolOptionsPanel(
                   imageVector = PenLabIcons.Eyedropper,
                   contentDescription = null,
                   tint = scheme.onSurface,
-                  modifier = Modifier.size(20.dp),
+                  modifier = Modifier.size(PenLabLayout.iconMedium),
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
@@ -714,7 +713,7 @@ fun PaperPanelContent(
             imageVector = PenLabIcons.Pdf,
             contentDescription = null,
             tint = scheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(PenLabLayout.iconCompact),
           )
           Text(
             text = "PDF pages stay white",
@@ -750,12 +749,12 @@ fun PaperPanelContent(
           .fillMaxWidth()
           .selectableGroup()
           .semantics { contentDescription = "Paper style" },
-      verticalArrangement = Arrangement.spacedBy(8.dp),
+      verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
     ) {
       for (row in PageStyle.entries.chunked(3)) {
         Row(
           modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
         ) {
           for (option in row) {
             val isSelected = option == style
@@ -777,7 +776,7 @@ fun PaperPanelContent(
                     role = Role.RadioButton,
                     onClick = { onStylePicked(option) },
                   )
-                  .padding(horizontal = 4.dp, vertical = 8.dp)
+                  .padding(horizontal = PenLabSpacing.xs, vertical = PenLabSpacing.sm)
                   .semantics {
                     contentDescription = option.label
                     if (isSelected) selected = true
@@ -831,7 +830,7 @@ fun PaperPanelContent(
               icon = PenLabIcons.Minus,
               contentDescription = "Decrease ruling spacing",
               enabled = current > MIN_SPACING_MM + 0.05f,
-              iconSize = 18.dp,
+              iconSize = PenLabLayout.iconCompact,
               onClick = { onSpacing(stepPaperSpacingMm(current, -0.5f)) },
             )
             Text(
@@ -845,7 +844,7 @@ fun PaperPanelContent(
               icon = PenLabIcons.Plus,
               contentDescription = "Increase ruling spacing",
               enabled = current < MAX_SPACING_MM - 0.05f,
-              iconSize = 18.dp,
+              iconSize = PenLabLayout.iconCompact,
               onClick = { onSpacing(stepPaperSpacingMm(current, 0.5f)) },
             )
           }
@@ -1025,7 +1024,7 @@ private fun SizePreview(tool: InkTool, sizeDp: Float, darkPage: Boolean) {
       Text(
         text = "Aa",
         color = color,
-        style = MaterialTheme.typography.labelLarge.copy(fontSize = (11f + (sizeDp - 2f) * 0.45f).coerceIn(11f, 19f).sp),
+        style = PenLabTextStyles.sizePreview(sizeDp),
       )
     }
     return
@@ -1434,7 +1433,7 @@ fun SelectionActions(
     PenLabIconButton(
       icon = PenLabIcons.FlipHorizontal,
       contentDescription = "Mirror horizontally",
-      iconSize = 20.dp,
+      iconSize = PenLabLayout.iconMedium,
       onClick = {
         onMoreExpandedChange(false)
         onMirror(true)
@@ -1443,7 +1442,7 @@ fun SelectionActions(
     PenLabIconButton(
       icon = PenLabIcons.FlipVertical,
       contentDescription = "Mirror vertically",
-      iconSize = 20.dp,
+      iconSize = PenLabLayout.iconMedium,
       onClick = {
         onMoreExpandedChange(false)
         onMirror(false)
@@ -1564,7 +1563,7 @@ private fun SelectionMorePopover(
                   painter = painterResource(action.iconRes),
                   contentDescription = null,
                   tint = scheme.onSurfaceVariant,
-                  modifier = Modifier.size(20.dp),
+                  modifier = Modifier.size(PenLabLayout.iconMedium),
                 )
                 Spacer(Modifier.width(PenLabSpacing.md))
                 Text(
@@ -1671,15 +1670,7 @@ private fun SelectionPillAction(
       Modifier
         .height(BarHeight)
         .widthIn(min = PenLabSpacing.touchTarget)
-        .padding(vertical = 4.dp)
-        .clip(PenLabShapes.pill)
-        .clickable(
-          enabled = enabled,
-          interactionSource = interaction,
-          indication = ripple(bounded = true),
-          role = Role.Button,
-          onClick = onClick,
-        )
+        .insetPillClickable(interaction, onClick, enabled = enabled)
         .padding(horizontal = 9.dp)
         .semantics { this.contentDescription = contentDescription }
         .graphicsLayer {
@@ -1738,15 +1729,7 @@ private fun SelectionMoreTrigger(
       Modifier
         .height(BarHeight)
         .widthIn(min = PenLabSpacing.touchTarget)
-        .padding(vertical = 4.dp)
-        .clip(PenLabShapes.pill)
-        .background(bg)
-        .clickable(
-          interactionSource = interaction,
-          indication = ripple(bounded = true),
-          role = Role.Button,
-          onClick = onClick,
-        )
+        .insetPillClickable(interaction, onClick, background = bg)
         .padding(horizontal = 10.dp)
         .semantics {
           contentDescription = "More selection actions"
@@ -1757,7 +1740,7 @@ private fun SelectionMoreTrigger(
           scaleY = pressScale
         },
     verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+    horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs, Alignment.CenterHorizontally),
   ) {
     Text(
       text = "More",
@@ -1818,7 +1801,7 @@ fun PasteMenu(
     PenLabIconButton(
       icon = PenLabIcons.Close,
       contentDescription = "Clear clipboard",
-      iconSize = 18.dp,
+      iconSize = PenLabLayout.iconCompact,
       onClick = onClear,
     )
   }
@@ -1834,12 +1817,12 @@ fun BackToLibrary(title: String, onClick: () -> Unit, modifier: Modifier = Modif
       .background(PenLabColors.accent)
       .clickable(onClick = onClick)
       .semantics { contentDescription = "Back to notebooks. Open notebook: $title" }
-      .padding(start = 8.dp, end = 14.dp)
-      .size(height = 36.dp, width = Dp.Unspecified),
+      .padding(start = PenLabSpacing.sm, end = 14.dp)
+      .heightIn(min = PenLabSpacing.touchTarget),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    Icon(BackIcon, contentDescription = null, tint = PenLabColors.onAccent, modifier = Modifier.size(20.dp))
-    Spacer(Modifier.width(4.dp))
+    Icon(BackIcon, contentDescription = null, tint = PenLabColors.onAccent, modifier = Modifier.size(PenLabLayout.iconMedium))
+    Spacer(Modifier.width(PenLabSpacing.xs))
     Text(title, color = PenLabColors.onAccent, style = MaterialTheme.typography.titleSmall, maxLines = 1)
   }
 }
@@ -1858,13 +1841,13 @@ fun NotebookTab(title: String, folderColor: Int?, onClick: () -> Unit, onClose: 
       .border(1.dp, PenLabColors.hairline.copy(alpha = 0.6f), shape)
       .combinedClickable(onClick = onClick, onLongClick = onClose)
       .semantics { contentDescription = "Switch to $title. Long press to close this tab." }
-      .padding(horizontal = 12.dp)
-      .size(height = 36.dp, width = Dp.Unspecified)
+      .padding(horizontal = PenLabSpacing.md)
+      .heightIn(min = PenLabSpacing.touchTarget)
       .widthIn(max = 180.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     Box(Modifier.size(8.dp).background(folderColor?.let { Color(it) } ?: PenLabColors.iconDisabled, CircleShape))
-    Spacer(Modifier.width(8.dp))
+    Spacer(Modifier.width(PenLabSpacing.sm))
     Text(title, color = PenLabColors.icon.copy(alpha = 0.8f), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
   }
 }
@@ -1884,11 +1867,11 @@ fun TopIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: 
         isDark = LocalPenLabColors.current.isDark,
       )
       .clickable(onClick = onClick)
-      .size(width = 44.dp, height = 36.dp)
+      .size(PenLabSpacing.touchTarget)
       .semantics { contentDescription = label },
     contentAlignment = Alignment.Center,
   ) {
-    Icon(icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(20.dp))
+    Icon(icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
   }
 }
 
@@ -1915,8 +1898,8 @@ fun TopMoreMenu(actions: List<MenuAction>, expanded: Boolean, onExpandedChange: 
         androidx.compose.material3.DropdownMenuItem(
           text = { Text(a.label, color = PenLabColors.icon) },
           leadingIcon = {
-            if (a.iconRes != 0) Icon(androidx.compose.ui.res.painterResource(a.iconRes), contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(20.dp))
-            else Icon(a.icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(20.dp))
+            if (a.iconRes != 0) Icon(androidx.compose.ui.res.painterResource(a.iconRes), contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
+            else Icon(a.icon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
           },
           onClick = {
             onExpandedChange(false)
@@ -1937,11 +1920,11 @@ fun ShareButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
       .softShadow(shape).clip(shape)
       .background(PenLabColors.toolbar)
       .clickable(onClick = onClick)
-      .size(width = 44.dp, height = 36.dp)
+      .size(PenLabSpacing.touchTarget)
       .semantics { contentDescription = "Share as PDF" },
     contentAlignment = Alignment.Center,
   ) {
-    Icon(ExportIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(20.dp))
+    Icon(ExportIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
   }
 }
 
@@ -1954,11 +1937,11 @@ fun ExportButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
       .softShadow(shape).clip(shape)
       .background(PenLabColors.toolbar)
       .clickable(onClick = onClick)
-      .size(width = 44.dp, height = 36.dp)
+      .size(PenLabSpacing.touchTarget)
       .semantics { contentDescription = "Save as PDF" },
     contentAlignment = Alignment.Center,
   ) {
-    Icon(SaveIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(20.dp))
+    Icon(SaveIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconMedium))
   }
 }
 
@@ -2067,7 +2050,7 @@ fun LayersPanelContent(
         PenLabIconButton(
           icon = if (shown) PenLabIcons.Eye else PenLabIcons.EyeOff,
           contentDescription = if (shown) "Hide ${names[index]}" else "Show ${names[index]}",
-          iconSize = 20.dp,
+          iconSize = PenLabLayout.iconMedium,
           tint =
             when {
               !shown -> PenLabComponentTokens.toolIconDisabled
@@ -2099,7 +2082,7 @@ fun LayersPanelContent(
         PenLabIconButton(
           icon = PenLabIcons.Rename,
           contentDescription = "Rename ${names[index]}",
-          iconSize = 18.dp,
+          iconSize = PenLabLayout.iconCompact,
           tint = if (isCurrent) PenLabComponentTokens.chipSelectedContent else scheme.onSurfaceVariant,
           onClick = { onRename(index) },
         )
@@ -2107,7 +2090,7 @@ fun LayersPanelContent(
           PenLabIconButton(
             icon = PenLabIcons.Delete,
             contentDescription = "Delete ${names[index]} and its ink",
-            iconSize = 18.dp,
+            iconSize = PenLabLayout.iconCompact,
             tint = scheme.error,
             onClick = { onDelete(index) },
           )
@@ -2133,7 +2116,7 @@ fun LayersPanelContent(
         imageVector = PenLabIcons.Plus,
         contentDescription = null,
         tint = scheme.onPrimaryContainer,
-        modifier = Modifier.size(18.dp),
+        modifier = Modifier.size(PenLabLayout.iconCompact),
       )
       Spacer(Modifier.width(PenLabSpacing.sm))
       Text(

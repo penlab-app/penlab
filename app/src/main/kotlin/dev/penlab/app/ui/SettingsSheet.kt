@@ -59,6 +59,7 @@ import dev.penlab.app.ui.theme.AccentTheme
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PageThemeMode
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
@@ -264,7 +265,7 @@ fun SettingsSheet(
                 contentDescription = "Fewer pen slots",
                 enabled = toolbarConfig.penCount > MIN_PEN_COUNT,
                 onClick = { toolbarConfig.setPenCount(toolbarConfig.penCount - 1) },
-                iconSize = 18.dp,
+                iconSize = PenLabLayout.iconCompact,
               )
               Text(
                 text = "${toolbarConfig.penCount}",
@@ -278,7 +279,7 @@ fun SettingsSheet(
                 contentDescription = "More pen slots",
                 enabled = toolbarConfig.penCount < MAX_PEN_COUNT,
                 onClick = { toolbarConfig.setPenCount(toolbarConfig.penCount + 1) },
-                iconSize = 18.dp,
+                iconSize = PenLabLayout.iconCompact,
               )
             }
           }
@@ -308,7 +309,7 @@ fun SettingsSheet(
                 imageVector = if (customizeToolbarExpanded) PenLabIcons.ChevronUp else PenLabIcons.ChevronDown,
                 contentDescription = null,
                 tint = scheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(PenLabLayout.iconCompact),
               )
             },
           )
@@ -375,7 +376,7 @@ fun SettingsSheet(
                 imageVector = PenLabIcons.Folder,
                 contentDescription = null,
                 tint = if (storageShared) scheme.primary else scheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(PenLabLayout.iconDefault),
               )
             }
             Spacer(Modifier.width(PenLabSpacing.md))
@@ -542,14 +543,14 @@ private fun ToolbarItemCustomizeRow(
       contentDescription = "Move ${item.label} up",
       enabled = canMoveUp,
       onClick = onMoveUp,
-      iconSize = 16.dp,
+      iconSize = PenLabLayout.iconSmall,
     )
     PenLabIconButton(
       icon = PenLabIcons.ChevronDown,
       contentDescription = "Move ${item.label} down",
       enabled = canMoveDown,
       onClick = onMoveDown,
-      iconSize = 16.dp,
+      iconSize = PenLabLayout.iconSmall,
     )
     Spacer(Modifier.width(PenLabSpacing.xs))
     Switch(
@@ -652,7 +653,7 @@ internal fun AccentLookTile(
         imageVector = PenLabIcons.Check,
         contentDescription = null,
         tint = scheme.primary,
-        modifier = Modifier.size(20.dp),
+        modifier = Modifier.size(PenLabLayout.iconMedium),
       )
     }
   }

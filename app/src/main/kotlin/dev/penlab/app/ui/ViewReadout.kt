@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +36,7 @@ import dev.penlab.app.ui.components.PenLabPopoverSurface
 import dev.penlab.app.ui.components.PenLabSwitchRow
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
@@ -67,8 +69,8 @@ fun ViewReadout(
         isDark = LocalPenLabColors.current.isDark,
       )
       .clickable(onClick = onClick)
-      .heightIn(min = 36.dp)
-      .padding(horizontal = 12.dp)
+      .heightIn(min = PenLabSpacing.touchTarget)
+      .padding(horizontal = PenLabSpacing.md)
       .semantics { contentDescription = "Zoom $zoom percent, rotation $angle degrees. Double tap for presets and locks." },
     verticalAlignment = Alignment.CenterVertically,
   ) {
@@ -195,7 +197,7 @@ private fun PresetRow(
           if (locked) LockIcon else LockOpenIcon,
           contentDescription = "Lock $title",
           tint = if (locked) scheme.primary else scheme.onSurfaceVariant,
-          modifier = Modifier.size(20.dp),
+          modifier = Modifier.size(PenLabLayout.iconMedium),
         )
       }
     }
@@ -219,7 +221,8 @@ private fun Chip(text: String, modifier: Modifier) {
       Modifier.clip(shape)
         .background(PenLabComponentTokens.chipIdleBg, shape)
         .then(modifier)
-        .heightIn(min = 40.dp)
+        .heightIn(min = PenLabSpacing.touchTarget)
+        .widthIn(min = PenLabSpacing.touchTarget)
         .padding(horizontal = 14.dp, vertical = 10.dp),
   )
 }

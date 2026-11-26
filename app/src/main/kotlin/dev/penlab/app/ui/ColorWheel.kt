@@ -153,7 +153,7 @@ fun ColorWheel(
           .fillMaxSize()
           .statusBarsPadding()
           .navigationBarsPadding()
-          .padding(bottom = 16.dp),
+          .padding(bottom = PenLabSpacing.lg),
     ) {
       // Safe vertical picker zone between the top floating toolbar and the fixed bottom pill.
       BoxWithConstraints(
@@ -161,7 +161,7 @@ fun ColorWheel(
           Modifier
             .weight(1f)
             .fillMaxWidth()
-            .padding(top = TopChromeClearance, bottom = 16.dp, start = 24.dp, end = 24.dp),
+            .padding(top = TopChromeClearance, bottom = PenLabSpacing.lg, start = PenLabSpacing.xl, end = PenLabSpacing.xl),
         contentAlignment = Alignment.Center,
       ) {
         if (mode != ColorPickerMode.MARKERS) {
@@ -190,7 +190,7 @@ fun ColorWheel(
       PenLabChromePill(
         modifier =
           Modifier
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = PenLabSpacing.lg)
             .pointerInput(Unit) { detectTapGestures { } }
             .horizontalScroll(rememberScrollState()),
         elevation = 14.dp,
@@ -209,7 +209,7 @@ fun ColorWheel(
 
         Row(
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
         ) {
           Box(
             Modifier
@@ -229,7 +229,7 @@ fun ColorWheel(
         if (recent.isNotEmpty()) {
           Box(Modifier.size(width = 1.dp, height = 24.dp).background(scheme.outlineVariant))
           Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
           ) {
             for (c in recent.take(8)) {
@@ -238,7 +238,7 @@ fun ColorWheel(
               Box(
                 modifier =
                   Modifier
-                    .size(38.dp)
+                    .size(PenLabSpacing.touchTarget)
                     .clip(CircleShape)
                     .clickable(role = Role.Button) { pick(recentScreen, close = true) }
                     .semantics { contentDescription = "Recent colour ${formatHexRgb(recentScreen)}" },
@@ -444,7 +444,7 @@ private fun RgbPicker(selected: Int, preview: Color, diameter: Dp, onPick: (Int)
         color = scheme.onSurface,
         style = PenLabTextStyles.tabularLabel,
       )
-      if (diameter >= 380.dp) Spacer(Modifier.height(4.dp))
+      if (diameter >= 380.dp) Spacer(Modifier.height(PenLabSpacing.xs))
       for ((label, value, set) in listOf(
         Triple("R", r) { v: Float -> r = v },
         Triple("G", g) { v: Float -> g = v },
@@ -452,7 +452,7 @@ private fun RgbPicker(selected: Int, preview: Color, diameter: Dp, onPick: (Int)
       )) {
         Row(
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(8.dp),
+          horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
           modifier = Modifier.fillMaxWidth(),
         ) {
           Text(

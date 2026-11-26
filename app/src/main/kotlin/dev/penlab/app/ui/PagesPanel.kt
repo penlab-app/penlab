@@ -56,6 +56,7 @@ import dev.penlab.app.ui.components.PenLabPopoverSurface
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
 import dev.penlab.app.ui.theme.PenLabComponentTokens
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
@@ -77,13 +78,13 @@ fun PageCounter(page: () -> Int, count: Int, onClick: () -> Unit, modifier: Modi
         isDark = LocalPenLabColors.current.isDark,
       )
       .clickable(onClick = onClick)
-      .heightIn(min = 36.dp)
-      .padding(horizontal = 12.dp)
+      .heightIn(min = PenLabSpacing.touchTarget)
+      .padding(horizontal = PenLabSpacing.md)
       .semantics { contentDescription = "Page $current of $count. Double tap for all pages." },
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    Icon(PagesIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(18.dp))
-    Spacer(Modifier.width(8.dp))
+    Icon(PagesIcon, contentDescription = null, tint = PenLabColors.icon, modifier = Modifier.size(PenLabLayout.iconCompact))
+    Spacer(Modifier.width(PenLabSpacing.sm))
     Text("$current / $count", color = PenLabColors.icon, style = PenLabTextStyles.tabularLabel)
   }
 }
@@ -193,7 +194,7 @@ fun PagesPanelContent(
               else Modifier
             )
             .clickable(role = Role.Switch) { onlyBookmarked = !onlyBookmarked }
-            .padding(horizontal = 12.dp)
+            .padding(horizontal = PenLabSpacing.md)
             .semantics {
               contentDescription = if (onlyBookmarked) "Showing bookmarked pages. Tap for all pages." else "Filter to bookmarked pages"
               selected = onlyBookmarked
@@ -205,7 +206,7 @@ fun PagesPanelContent(
           imageVector = if (onlyBookmarked) PenLabIcons.BookmarkFilled else PenLabIcons.BookmarkOutline,
           contentDescription = null,
           tint = if (onlyBookmarked) scheme.tertiary else scheme.onSurfaceVariant,
-          modifier = Modifier.size(16.dp),
+          modifier = Modifier.size(PenLabLayout.iconSmall),
         )
         Text(
           text = "Bookmarked",
@@ -229,12 +230,12 @@ fun PagesPanelContent(
             contentColor = scheme.onPrimary,
           ),
         modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = PenLabSpacing.sm),
       ) {
         Icon(
           imageVector = PenLabIcons.Plus,
           contentDescription = null,
-          modifier = Modifier.size(16.dp),
+          modifier = Modifier.size(PenLabLayout.iconSmall),
         )
         Spacer(Modifier.width(6.dp))
         Text(
@@ -248,7 +249,7 @@ fun PagesPanelContent(
 
     if (pages.isEmpty()) {
       Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp, horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 28.dp, horizontal = PenLabSpacing.lg),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
       ) {
@@ -268,9 +269,9 @@ fun PagesPanelContent(
     } else {
       LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        contentPadding = PaddingValues(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = PenLabSpacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(PenLabSpacing.md),
         modifier = Modifier.fillMaxWidth().heightIn(max = 432.dp),
       ) {
         items(pages, key = { it }, contentType = { "page" }) { page ->
@@ -348,7 +349,7 @@ private fun PageTile(
         modifier =
           Modifier
             .align(Alignment.TopEnd)
-            .size(44.dp)
+            .size(PenLabSpacing.touchTarget)
             .clip(CircleShape)
             .clickable(role = Role.Switch, onClick = onToggleBookmark)
             .semantics {
@@ -360,7 +361,7 @@ private fun PageTile(
         Box(
           modifier =
             Modifier
-              .size(28.dp)
+              .size(PenLabLayout.controlVisualSmall)
               .clip(CircleShape)
               .background(scheme.surface.copy(alpha = 0.85f)),
           contentAlignment = Alignment.Center,
@@ -381,7 +382,7 @@ private fun PageTile(
       ) {
         DropdownMenuItem(
           text = { Text("Insert page before", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge) },
-          leadingIcon = { Icon(PenLabIcons.Plus, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
+          leadingIcon = { Icon(PenLabIcons.Plus, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(PenLabLayout.iconCompact)) },
           onClick = {
             menu = false
             onInsertBefore()
@@ -389,7 +390,7 @@ private fun PageTile(
         )
         DropdownMenuItem(
           text = { Text("Insert page after", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge) },
-          leadingIcon = { Icon(PenLabIcons.Plus, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) },
+          leadingIcon = { Icon(PenLabIcons.Plus, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(PenLabLayout.iconCompact)) },
           onClick = {
             menu = false
             onInsertAfter()
@@ -398,7 +399,7 @@ private fun PageTile(
         if (onDelete != null) {
           DropdownMenuItem(
             text = { Text("Delete page", color = scheme.error, style = MaterialTheme.typography.labelLarge) },
-            leadingIcon = { Icon(PenLabIcons.Delete, contentDescription = null, tint = scheme.error, modifier = Modifier.size(18.dp)) },
+            leadingIcon = { Icon(PenLabIcons.Delete, contentDescription = null, tint = scheme.error, modifier = Modifier.size(PenLabLayout.iconCompact)) },
             onClick = {
               menu = false
               onDelete()
@@ -408,7 +409,7 @@ private fun PageTile(
       }
     }
 
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(PenLabSpacing.xs))
     Text(
       text = "${page + 1}",
       color = if (current) scheme.primary else scheme.onSurfaceVariant,

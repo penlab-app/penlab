@@ -57,6 +57,7 @@ import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.InkTool
 import dev.penlab.app.ink.InkTools
 import dev.penlab.app.ui.theme.PenLabColors
+import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.softShadow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -369,7 +370,7 @@ private fun ToolbarAction(
       imageVector = icon,
       contentDescription = label,
       tint = if (enabled) PenLabColors.icon else PenLabColors.iconDisabled,
-      modifier = Modifier.size(22.dp),
+      modifier = Modifier.size(PenLabLayout.iconDefault),
     )
   }
 }

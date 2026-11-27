@@ -156,11 +156,29 @@ const val LAYERS_CELL = -3
 /** Stands for the "More" toolbar button (Add from PDF, Add image, Highlighter, Text, Layers, Clear). */
 const val MORE_CELL = -4
 
-/** Essential tools kept visible when the toolbar is collapsed: pens + eraser. */
-internal fun collapsedToolbarItems(items: List<DockItem>, tools: List<InkTool>): List<DockItem> =
-  items.filter { item ->
-    item is DockItem.Tool && tools.getOrNull(item.index)?.let { it.kind == InkTool.Kind.PEN || it.isEraser } == true
+/**
+ * Essential tools kept visible when the toolbar is collapsed: pens + eraser, plus any currently
+ * selected bar tool. Falls back cleanly to `More` (when a hidden tool is active), the first
+ * tool slot, or the first visible item so collapsing never leaves an empty pill.
+ */
+internal fun collapsedToolbarItems(
+  items: List<DockItem>,
+  tools: List<InkTool>,
+  selectedIndex: Int = -1,
+): List<DockItem> {
+  val essential =
+    items.filter { item ->
+      item is DockItem.Tool &&
+        tools.getOrNull(item.index)?.let {
+          it.kind == InkTool.Kind.PEN || it.isEraser || item.index == selectedIndex
+        } == true
+    }
+  if (essential.isNotEmpty()) return essential
+  if (selectedIndex in tools.indices && items.contains(DockItem.More)) {
+    return listOf(DockItem.More)
   }
+  return listOfNotNull(items.firstOrNull { it is DockItem.Tool } ?: items.firstOrNull())
+}
 
 /**
  * The dock's state: where it is (kept between launches), whether it is being dragged, and
@@ -578,9 +596,11 @@ fun DockedToolbar(
       transformOrigin = origin
     }
   val isHorizontalBar = !side.isVertical && !side.isCorner
-  val shownItems = if (!side.isCorner && dock.collapsed) collapsedToolbarItems(items, tools).ifEmpty { items } else items
+  val shownItems = if (!side.isCorner && dock.collapsed) collapsedToolbarItems(items, tools, selectedIndex) else items
   // A tool picked from More (highlighter, text box...) has no cell on the bar: More shows it as active.
   val moreHoldsTool = toolHiddenFromBar(if (side.isCorner) items else shownItems, selectedIndex)
+  val bottomBarSafeGap = maxOf(EdgeGap, 18.dp)
+  val bottomBarInset = maxOf(insets.bottom, insets.gestureBottom) + bottomBarSafeGap
   val cell: @Composable (DockItem, Boolean) -> Unit = { item, round ->
     DockCell(
       item = item,
@@ -613,7 +633,7 @@ fun DockedToolbar(
       else -> onSidesCovered(0f, 0f)
     }
     if (!dock.dragging) {
-      onBottomCovered(if (side == DockSide.BOTTOM) with(density) { (BarHeight + EdgeGap + insets.bottom + 8.dp).toPx() } else 0f)
+      onBottomCovered(if (side == DockSide.BOTTOM) with(density) { (BarHeight + bottomBarInset + 8.dp).toPx() } else 0f)
     }
   }
   // Keep the wheel's edge clearances current when insets change without the screen resizing.
@@ -658,7 +678,7 @@ fun DockedToolbar(
         dock.applyWheelMetrics(density, insets, side)
         dock.railHalfPx = (RailWidth / 2).toPx()
         dock.topBarY = (insets.top + EdgeGap + BarHeight / 2).toPx()
-        dock.bottomBarY = it.size.height - (insets.bottom + EdgeGap + BarHeight / 2).toPx()
+        dock.bottomBarY = it.size.height - (bottomBarInset + BarHeight / 2).toPx()
       }
     }
   ) {
@@ -713,7 +733,7 @@ private fun Rail(
   modifier: Modifier,
 ) {
   val topPad = insets.top + (if (insets.topChromeVisible) insets.topButtons else EdgeGap)
-  val bottomPad = insets.bottom + EdgeGap
+  val bottomPad = maxOf(insets.bottom, insets.gestureBottom) + 20.dp
   val startPad = if (side == DockSide.LEFT) insets.left + EdgeGap else 0.dp
   val endPad = if (side == DockSide.RIGHT) insets.right + EdgeGap else 0.dp
   val shape = RoundedCornerShape(28.dp)
@@ -754,7 +774,7 @@ private fun Rail(
       .floatingChromeSurface(
         shape = shape,
         background = PenLabComponentTokens.chromePillBg,
-        elevation = 8.dp,
+        elevation = 10.dp,
         subtleLightHairline = true,
         borderColor = PenLabComponentTokens.chromePillBorder,
         isDark = isDark,
@@ -765,14 +785,19 @@ private fun Rail(
     Column(
       Modifier
         .width(RailWidth)
-        .verticalScroll(rememberScrollState())
         .padding(vertical = 2.dp),
-      verticalArrangement = Arrangement.Center,
       horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       Grip(vertical = true, modifier = startGrip.trackGrip(0))
-      DockCells(items, tools, vertical = true, cell)
-      CollapseCell(dock = dock, vertical = true, onDragStart = onDragStart)
+      Column(
+        Modifier
+          .weight(1f, fill = false)
+          .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        DockCells(items, tools, vertical = true, cell)
+        CollapseCell(dock = dock, vertical = true, onDragStart = onDragStart)
+      }
       Grip(vertical = true, modifier = endGrip.trackGrip(1))
     }
   }
@@ -811,7 +836,7 @@ private fun Bar(
           .floatingChromeSurface(
             shape = shape,
             background = PenLabComponentTokens.chromePillBg,
-            elevation = 8.dp,
+            elevation = 10.dp,
             subtleLightHairline = true,
             borderColor = PenLabComponentTokens.chromePillBorder,
             isDark = isDark,
@@ -830,10 +855,11 @@ private fun Bar(
     }
   ) { measurables, constraints ->
     val gap = EdgeGap.roundToPx()
+    val bottomSafeGap = maxOf(EdgeGap, 18.dp).roundToPx()
     val left = insets.left.roundToPx() + gap
     val right = constraints.maxWidth - insets.right.roundToPx() - gap
     val topSafe = insets.top.roundToPx() + gap
-    val bottomSafe = constraints.maxHeight - insets.bottom.roundToPx() - gap
+    val bottomSafe = constraints.maxHeight - maxOf(insets.bottom, insets.gestureBottom).roundToPx() - bottomSafeGap
     val bar = measurables[0].measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = (right - left).coerceAtLeast(0)))
     layout(constraints.maxWidth, constraints.maxHeight) {
       // A bar dropped near the middle snaps to it (also for older saved positions), so it sits
@@ -870,7 +896,7 @@ private fun Bar(
           }
           else -> {
             val bx = (centre - bar.width / 2f).roundToInt().coerceIn(left, maxOf(left, right - bar.width))
-            val by = constraints.maxHeight - insets.bottom.roundToPx() - gap - bar.height
+            val by = bottomSafe - bar.height
             bx to by
           }
         }
@@ -1878,7 +1904,7 @@ private fun ActionCell(
 private fun CollapseCell(dock: ToolDock, vertical: Boolean, onDragStart: () -> Unit) {
   val collapsed = dock.collapsed
   ActionCell(
-    icon = if (collapsed) PenLabIcons.FullScreen else PenLabIcons.FullScreenExit,
+    icon = if (collapsed) PenLabIcons.ToolbarExpand else PenLabIcons.ToolbarCollapse,
     label = if (collapsed) "Expand toolbar" else "Collapse toolbar",
     enabled = true,
     active = false,
@@ -1977,7 +2003,7 @@ private fun ToolCellView(
       val inkColor = Color(InkColors.onScreen(tool.paperColor, darkPage) or 0xFF000000.toInt())
       val normalizedSize = ((tool.sizeDp - 0.5f) / 7.5f).coerceIn(0f, 1f)
       val dotSize = (15f + normalizedSize * 8f).dp
-      Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+      Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
         Box(
           Modifier
             .size(dotSize)
@@ -1988,9 +2014,8 @@ private fun ToolCellView(
         if (tool.line != dev.penlab.app.ink.LineType.SOLID) {
           Box(
             Modifier
-              .padding(top = 2.dp)
               .size(width = 12.dp, height = 2.dp)
-              .background(inkColor.copy(alpha = 0.85f), CircleShape),
+              .background(inkColor.copy(alpha = 0.8f), CircleShape),
           )
         }
       }

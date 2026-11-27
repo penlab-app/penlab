@@ -183,4 +183,31 @@ class ToolbarPlacementTest {
     assertTrue(shouldUseInverseHubWell(0.20f, isDarkTheme = true))
     assertFalse(shouldUseInverseHubWell(0.50f, isDarkTheme = true))
   }
+
+  @Test
+  fun collapsedToolbarFallsBackWhenPensAndEraserAreHidden() {
+    val tools =
+      listOf(
+        InkTool(InkTool.Kind.PEN, 0xFF111111.toInt(), 2.2f),
+        InkTool(InkTool.Kind.HIGHLIGHTER, 0xFFFDD835.toInt(), 14f),
+        InkTool(InkTool.Kind.LASSO, 0, 0f),
+        InkTool(InkTool.Kind.TEXT, 0xFF111111.toInt(), 4f),
+      )
+    val noPensItems =
+      listOf(
+        DockItem.Tool(2),
+        DockItem.Undo,
+        DockItem.More,
+      )
+    assertEquals(listOf(DockItem.Tool(2)), collapsedToolbarItems(noPensItems, tools, selectedIndex = 2))
+    assertEquals(listOf(DockItem.More), collapsedToolbarItems(listOf(DockItem.Undo, DockItem.More), tools, selectedIndex = 1))
+    assertEquals(listOf(DockItem.Tool(0)), collapsedToolbarItems(listOf(DockItem.Tool(0), DockItem.More), tools, selectedIndex = 2))
+  }
+
+  @Test
+  fun collapseAndExpandIconsAreDistinctFromFullScreen() {
+    assertTrue(PenLabIcons.ToolbarExpand != PenLabIcons.FullScreen)
+    assertTrue(PenLabIcons.ToolbarCollapse != PenLabIcons.FullScreenExit)
+    assertTrue(PenLabIcons.ToolbarExpand != PenLabIcons.ToolbarCollapse)
+  }
 }

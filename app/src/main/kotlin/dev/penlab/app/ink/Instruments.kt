@@ -266,10 +266,10 @@ internal fun computeStaggeredInstrumentPairY(
   toolbarBottomPx: Float = Float.NaN,
 ): Pair<Float, Float> {
   if (viewHeightPx <= 0f) return 0f to 0f
-  val safeTop = (topClearancePx + 140f).coerceAtMost(viewHeightPx * 0.45f)
-  val safeBottom = (viewHeightPx - bottomClearancePx - 80f).coerceAtLeast(safeTop + 120f)
-  var protractorY = (viewHeightPx * 0.38f).coerceIn(safeTop, maxOf(safeTop, safeBottom - 160f))
-  var rulerY = (viewHeightPx * 0.68f).coerceIn(minOf(safeBottom, protractorY + 180f), safeBottom)
+  val safeTop = (topClearancePx + maxOf(220f, viewHeightPx * 0.24f)).coerceAtMost(viewHeightPx * 0.48f)
+  val safeBottom = (viewHeightPx - bottomClearancePx - 88f).coerceAtLeast(safeTop + 140f)
+  var protractorY = (viewHeightPx * 0.44f).coerceIn(safeTop, maxOf(safeTop, safeBottom - 200f))
+  var rulerY = (viewHeightPx * 0.72f).coerceIn(minOf(safeBottom, protractorY + 200f), safeBottom)
 
   if (!toolbarTopPx.isNaN() && !toolbarBottomPx.isNaN() && toolbarBottomPx > toolbarTopPx) {
     val toolbarMid = (toolbarTopPx + toolbarBottomPx) / 2f

@@ -12,8 +12,10 @@ import com.adamglin.phosphoricons.regular.Plus as RegularPlus
 import com.adamglin.phosphoricons.duotone.ArrowArcLeft
 import com.adamglin.phosphoricons.duotone.ArrowArcRight
 import com.adamglin.phosphoricons.duotone.ArrowsClockwise
+import com.adamglin.phosphoricons.duotone.ArrowsInSimple
 import com.adamglin.phosphoricons.duotone.ArrowsOutCardinal
 import com.adamglin.phosphoricons.duotone.ArrowsOutLineHorizontal
+import com.adamglin.phosphoricons.duotone.ArrowsOutSimple
 import com.adamglin.phosphoricons.duotone.Article
 import com.adamglin.phosphoricons.duotone.BookmarkSimple
 import com.adamglin.phosphoricons.duotone.Broom
@@ -141,6 +143,8 @@ object PenLabIcons {
   val FitWidth: ImageVector get() = PhosphorIcons.Duotone.ArrowsOutLineHorizontal
   val FullScreen: ImageVector get() = PhosphorIcons.Duotone.CornersOut
   val FullScreenExit: ImageVector get() = PhosphorIcons.Duotone.CornersIn
+  val ToolbarExpand: ImageVector get() = PhosphorIcons.Duotone.ArrowsOutSimple
+  val ToolbarCollapse: ImageVector get() = PhosphorIcons.Duotone.ArrowsInSimple
   val Present: ImageVector get() = PhosphorIcons.Duotone.Presentation
   val Lock: ImageVector get() = PhosphorIcons.Duotone.LockSimple
   val LockOpen: ImageVector get() = PhosphorIcons.Duotone.LockSimpleOpen

@@ -209,4 +209,27 @@ class SelectionAndPresentTest {
     assertEquals(210f / 297f, thumbnailAspect(210f, 297f), 1e-6f)
     assertEquals(A4_PORTRAIT_ASPECT, thumbnailAspect(0f, 0f), 1e-6f) // unknown size falls back to A4 portrait
   }
+
+  @Test
+  fun selectionBarGapClearsRotateHandleAndStaysWithinBounds() {
+    assertTrue(SELECTION_BAR_GAP_DP >= 48f)
+    val placed =
+      placeSelectionBar(
+        selectionLeft = 420f,
+        selectionTop = 300f,
+        selectionRight = 560f,
+        selectionBottom = 460f,
+        barWidth = 420,
+        barHeight = 96,
+        containerWidth = 500,
+        containerHeight = 800,
+        gapPx = 112,
+        topClearancePx = 80,
+        bottomClearancePx = 20,
+        leftClearancePx = 20,
+        rightClearancePx = 20,
+        horizontalMarginPx = 16,
+      )
+    assertTrue("Selection bar must stay within left/right clearances", placed.x >= 20 && placed.x + 420 <= 480)
+  }
 }

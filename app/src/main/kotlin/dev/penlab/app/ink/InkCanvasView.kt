@@ -202,7 +202,7 @@ class InkCanvasView(
    * Adds a photo (a file already in [imagesDir]) in the middle of the screen, half the screen
    * wide, under the ink. One undo step.
    */
-  fun addImage(fileName: String) {
+  fun addImage(fileName: String, adaptToDarkPaper: Boolean = false) {
     val aspect = itemPainter.aspect(fileName) ?: return
     val visible = RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
     var w = visible.width() * 0.5f
@@ -212,7 +212,7 @@ class InkCanvasView(
       h = maxH
       w = h * aspect
     }
-    val item = ImageItem(PageItem.newId(), fileName, visible.centerX(), visible.centerY(), w, h)
+    val item = ImageItem(PageItem.newId(), fileName, visible.centerX(), visible.centerY(), w, h, isInk = adaptToDarkPaper)
     changeItems { it += item }
   }
 

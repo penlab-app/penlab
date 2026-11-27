@@ -145,4 +145,12 @@ class ToolPanelHelpersTest {
     assertFalse(hslSquareFraction(100f, 100f, 0f).isNaN())
     assertEquals(0.5f, hslSquareFraction(100f, 100f, 40f), 0.001f)
   }
+
+  @Test
+  fun canSubmitTextBoxRejectsBlankAndAcceptsContent() {
+    assertFalse(canSubmitTextBox(""))
+    assertFalse(canSubmitTextBox("   \n\t  "))
+    assertTrue(canSubmitTextBox("Note"))
+    assertTrue(canSubmitTextBox("  x  "))
+  }
 }

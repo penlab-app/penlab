@@ -215,6 +215,7 @@ import dev.penlab.app.ui.DockSide
 import dev.penlab.app.ui.DockInsets
 import dev.penlab.app.ui.RailWidth
 import dev.penlab.app.ui.BarHeight
+import dev.penlab.app.ui.SELECTION_BAR_GAP_DP
 import dev.penlab.app.ui.ToolbarMessage
 import dev.penlab.app.ui.presentCornerPillMarginsDp
 import dev.penlab.app.ui.topChromeHorizontalPaddingDp
@@ -712,9 +713,10 @@ class MainActivity : ComponentActivity() {
               PdfCropDialog(
                 uri = cropRequest.second,
                 imagesDir = notebooks.imagesDir(current.info),
-                onPlaced = { fileName ->
+                darkPage = effectiveDarkPage,
+                onPlaced = { fileName, adaptToDarkPaper ->
                   pdfCropRequest = null
-                  if (open === current) current.canvas.addImage(fileName)
+                  if (open === current) current.canvas.addImage(fileName, adaptToDarkPaper)
                 },
                 onDismiss = { pdfCropRequest = null },
               )
@@ -2074,6 +2076,13 @@ private fun NoteScreen(
   var colorWheelFor by remember { mutableStateOf<Int?>(null) }
   var eyedropperOn by remember { mutableStateOf(false) }
   var renamingLayer by remember { mutableStateOf<Int?>(null) }
+  var textPlacementHintVisible by remember { mutableStateOf(false) }
+  LaunchedEffect(textPlacementHintVisible) {
+    if (textPlacementHintVisible) {
+      delay(2800L)
+      textPlacementHintVisible = false
+    }
+  }
   fun openSettings() {
     eyedropperOn = false
     canvas.onColorSampled = null
@@ -2227,7 +2236,10 @@ private fun NoteScreen(
       }
     }
     canvas.onCurrentPageChanged = { currentPage = it }
-    canvas.onTextRequest = { id, existing -> editingText = id to existing }
+    canvas.onTextRequest = { id, existing ->
+      textPlacementHintVisible = false
+      editingText = id to existing
+    }
     canvas.onNotice = { text -> if (!present) scope.launch { messages.currentSnackbarData?.dismiss(); messages.showSnackbar(text, duration = SnackbarDuration.Short) } }
     canvas.onLayersChanged = {
       layerState = canvas.layers
@@ -2505,6 +2517,7 @@ private fun NoteScreen(
               if (textIndex >= 0) {
                 selected = textIndex
                 sendToolsToCanvas()
+                textPlacementHintVisible = true
               }
               openPanel = null
             },
@@ -3230,6 +3243,20 @@ private fun NoteScreen(
       )
     }
 
+    AnimatedVisibility(
+      visible = textPlacementHintVisible && !eyedropperOn && editingText == null,
+      enter = fadeIn(Motion.tween(180)),
+      exit = fadeOut(Motion.tween(140)),
+      modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 72.dp).zIndex(2.5f),
+    ) {
+      ToolbarMessage(
+        message = "Tap anywhere on the page to add a text box",
+        actionLabel = null,
+        onAction = {},
+        modifier = Modifier.ignorePalm(isPalm),
+      )
+    }
+
     if (renamingNotebook) {
       RenameDialog(
         title = "Rename notebook",
@@ -3300,10 +3327,14 @@ private fun Modifier.besideSelection(
   leftClearancePx: Int = 0,
   rightClearancePx: Int = 0,
 ): Modifier = layout { measurable, constraints ->
-  val buttons = measurable.measure(Constraints())
+  val horizontalMargin = 16.dp.roundToPx()
+  val maxBarWidth =
+    (constraints.maxWidth - leftClearancePx - rightClearancePx - horizontalMargin)
+      .coerceIn(minOf(constraints.maxWidth, 240.dp.roundToPx()), constraints.maxWidth.coerceAtLeast(1))
+  val buttons = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0, maxWidth = maxBarWidth))
   layout(constraints.maxWidth, constraints.maxHeight) {
     val r = rect() ?: return@layout
-    val gap = 12.dp.roundToPx()
+    val gap = SELECTION_BAR_GAP_DP.dp.roundToPx()
     val placed =
       placeSelectionBar(
         selectionLeft = r.left,
@@ -3319,6 +3350,7 @@ private fun Modifier.besideSelection(
         bottomClearancePx = bottomClearancePx,
         leftClearancePx = leftClearancePx,
         rightClearancePx = rightClearancePx,
+        horizontalMarginPx = 8.dp.roundToPx(),
       )
     buttons.place(placed.x, placed.y)
   }

@@ -701,12 +701,20 @@ private fun TextPromptDialog(
 }
 
 @Composable
-internal fun PenLabTextField(value: String, onChange: (String) -> Unit, label: String, minLines: Int = 1) {
+internal fun PenLabTextField(
+  value: String,
+  onChange: (String) -> Unit,
+  label: String,
+  minLines: Int = 1,
+  placeholder: String? = null,
+  modifier: Modifier = Modifier.fillMaxWidth(),
+) {
   val focus = LocalFocusManager.current
   OutlinedTextField(
     value = value,
     onValueChange = onChange,
     label = { Text(label) },
+    placeholder = placeholder?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
     singleLine = minLines == 1,
     minLines = minLines,
     // Done puts the keyboard away instead of leaving it over the rest of the dialog (a
@@ -724,7 +732,7 @@ internal fun PenLabTextField(value: String, onChange: (String) -> Unit, label: S
         unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         cursorColor = MaterialTheme.colorScheme.primary,
       ),
-    modifier = Modifier.fillMaxWidth(),
+    modifier = modifier.semantics { contentDescription = label },
   )
 }
 

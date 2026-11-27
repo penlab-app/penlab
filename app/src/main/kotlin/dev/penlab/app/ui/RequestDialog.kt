@@ -65,33 +65,28 @@ fun RequestDialog(where: String, existing: List<Request>, onDismiss: () -> Unit,
   }
 }
 
-/** Typing or editing a text box. Saving empty text removes the box. */
+/** Returns true when a text-box draft has non-whitespace content ready to add/save. */
+internal fun canSubmitTextBox(text: String): Boolean = text.isNotBlank()
+
+/** Typing or editing a text box using PenLabDialog with IME padding and blank validation. */
 @Composable
 fun TextBoxDialog(initial: String, isNew: Boolean, onDismiss: () -> Unit, onDone: (String) -> Unit) {
   var text by remember { mutableStateOf(initial) }
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    title = { Text(if (isNew) "Add text" else "Edit text", color = MaterialTheme.colorScheme.onSurface) },
-    text = {
-      OutlinedTextField(
-        value = text,
-        onValueChange = { text = it },
-        minLines = 3,
-        colors =
-          OutlinedTextFieldDefaults.colors(
-            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            cursorColor = MaterialTheme.colorScheme.primary,
-          ),
-        modifier = Modifier.fillMaxWidth(),
-      )
-    },
-    confirmButton = { TextButton(onClick = { onDone(text) }) { Text(if (isNew) "Add" else "Save", color = MaterialTheme.colorScheme.primary) } },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-  )
+  PenLabDialog(
+    title = if (isNew) "Add text" else "Edit text",
+    onDismiss = onDismiss,
+    primaryLabel = if (isNew) "Add" else "Save",
+    onPrimaryClick = { onDone(text) },
+    primaryEnabled = canSubmitTextBox(text),
+  ) {
+    PenLabTextField(
+      value = text,
+      onChange = { text = it },
+      label = "Text box content",
+      minLines = 3,
+      placeholder = "Type text to place on page…",
+    )
+  }
 }
 
 /** A one-line name, e.g. renaming a layer. */

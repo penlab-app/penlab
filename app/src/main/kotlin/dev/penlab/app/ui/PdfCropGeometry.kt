@@ -21,7 +21,7 @@ data class NormalizedCropRect(
   companion object {
     const val MIN_SPAN = 0.06f
     val FULL = NormalizedCropRect(0f, 0f, 1f, 1f)
-    val DEFAULT = NormalizedCropRect(0.10f, 0.15f, 0.90f, 0.55f)
+    val DEFAULT = NormalizedCropRect(0.08f, 0.22f, 0.92f, 0.62f)
 
     /** Builds a clamped [NormalizedCropRect] from any two drag endpoints, expanding below [MIN_SPAN]. */
     fun fromDrag(ax: Float, ay: Float, bx: Float, by: Float): NormalizedCropRect {
@@ -191,3 +191,6 @@ fun computeHighResCropBounds(
     cropHeight = cropBottom - cropTop,
   )
 }
+
+/** Defaults cropped PDF snippets to adaptive dark-paper rendering when placed on dark paper. */
+internal fun defaultDarkPaperCropAdapt(darkPage: Boolean): Boolean = darkPage

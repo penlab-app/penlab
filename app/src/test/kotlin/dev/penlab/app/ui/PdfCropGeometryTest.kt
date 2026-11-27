@@ -1,6 +1,7 @@
 package dev.penlab.app.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -125,5 +126,15 @@ class PdfCropGeometryTest {
     assertTrue(small.cropWidth > 0 && small.cropHeight > 0)
     assertTrue(small.cropLeft + small.cropWidth <= small.renderWidth)
     assertTrue(small.cropTop + small.cropHeight <= small.renderHeight)
+  }
+
+  @Test
+  fun defaultCropRectAndDarkPaperAdaptDefaults() {
+    val def = NormalizedCropRect.DEFAULT
+    assertTrue(def.left in 0.05f..0.15f)
+    assertTrue(def.top >= 0.20f)
+    assertTrue(def.right >= 0.85f && def.bottom > def.top)
+    assertTrue(defaultDarkPaperCropAdapt(darkPage = true))
+    assertFalse(defaultDarkPaperCropAdapt(darkPage = false))
   }
 }

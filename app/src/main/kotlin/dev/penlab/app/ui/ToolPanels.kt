@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -1373,6 +1374,9 @@ internal data class SelectionBarPlacement(
  * Places a floating selection or paste pill centred above the selection box, or flips it below
  * when there is not enough room under the top chrome, always clamped cleanly inside safe bounds.
  */
+/** Gap (dp) leaving >=20dp clearance above the selection rotate knob so Delete never crowds it. */
+internal const val SELECTION_BAR_GAP_DP = 56f
+
 internal fun placeSelectionBar(
   selectionLeft: Float,
   selectionTop: Float,
@@ -1387,14 +1391,15 @@ internal fun placeSelectionBar(
   bottomClearancePx: Int = 0,
   leftClearancePx: Int = 0,
   rightClearancePx: Int = 0,
+  horizontalMarginPx: Int = gapPx,
 ): SelectionBarPlacement {
-  val minLeft = maxOf(gapPx, leftClearancePx)
-  val maxLeft = maxOf(minLeft, containerWidth - barWidth - maxOf(gapPx, rightClearancePx))
+  val minLeft = maxOf(horizontalMarginPx, leftClearancePx)
+  val maxLeft = maxOf(minLeft, containerWidth - barWidth - maxOf(horizontalMarginPx, rightClearancePx))
   val centerX = (selectionLeft + selectionRight) / 2f
   val x = (centerX - barWidth / 2f).roundToInt().coerceIn(minLeft, maxLeft)
 
-  val minTop = maxOf(gapPx, topClearancePx)
-  val maxTop = maxOf(minTop, containerHeight - barHeight - maxOf(gapPx, bottomClearancePx))
+  val minTop = maxOf(horizontalMarginPx, topClearancePx)
+  val maxTop = maxOf(minTop, containerHeight - barHeight - maxOf(horizontalMarginPx, bottomClearancePx))
   val aboveY = (selectionTop - gapPx - barHeight).roundToInt()
   val belowY = (selectionBottom + gapPx).roundToInt()
 
@@ -1455,109 +1460,114 @@ fun SelectionActions(
     contentPadding = PaddingValues(horizontal = 6.dp),
     horizontalArrangement = Arrangement.spacedBy(0.dp),
   ) {
-    SelectionPillAction(
-      label = "Copy",
-      icon = PenLabIcons.Copy,
-      onClick = {
-        onMoreExpandedChange(false)
-        onCopy()
-      },
-    )
-    SelectionPillAction(
-      label = "Cut",
-      icon = PenLabIcons.Cut,
-      onClick = {
-        onMoreExpandedChange(false)
-        onCut()
-      },
-    )
-    SelectionPillAction(
-      label = "Paste",
-      icon = PenLabIcons.Paste,
-      enabled = state.pasteEnabled,
-      onClick = {
-        onMoreExpandedChange(false)
-        onPaste()
-      },
-    )
-    SelectionPillAction(
-      label = "Duplicate",
-      icon = PenLabIcons.Duplicate,
-      contentDescription = "Duplicate selection",
-      onClick = {
-        onMoreExpandedChange(false)
-        onDuplicate()
-      },
-    )
-    SelectionPillAction(
-      label = "Delete",
-      icon = PenLabIcons.Delete,
-      destructive = true,
-      onClick = {
-        onMoreExpandedChange(false)
-        onDelete()
-      },
-    )
-
-    SelectionPillDivider()
-
-    SelectionPillAction(
-      label = "Flip H",
-      icon = PenLabIcons.FlipHorizontal,
-      contentDescription = "Mirror horizontally",
-      onClick = {
-        onMoreExpandedChange(false)
-        onMirror(true)
-      },
-    )
-    SelectionPillAction(
-      label = "Flip V",
-      icon = PenLabIcons.FlipVertical,
-      contentDescription = "Mirror vertically",
-      onClick = {
-        onMoreExpandedChange(false)
-        onMirror(false)
-      },
-    )
-
-    SelectionPillDivider()
-
-    Box(contentAlignment = Alignment.Center) {
-      SelectionMoreTrigger(
-        expanded = moreExpanded,
-        onClick = { onMoreExpandedChange(!moreExpanded) },
+    Row(
+      modifier = Modifier.horizontalScroll(rememberScrollState()),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      SelectionPillAction(
+        label = "Copy",
+        icon = PenLabIcons.Copy,
+        onClick = {
+          onMoreExpandedChange(false)
+          onCopy()
+        },
       )
-      if (moreExpanded) {
-        val density = LocalDensity.current
-        val positionProvider =
-          remember(density) {
-            SelectionMorePopupPositionProvider(
-              gapPx = with(density) { 8.dp.roundToPx() },
-              marginPx = with(density) { PenLabSpacing.edgeMargin.roundToPx() },
+      SelectionPillAction(
+        label = "Cut",
+        icon = PenLabIcons.Cut,
+        onClick = {
+          onMoreExpandedChange(false)
+          onCut()
+        },
+      )
+      SelectionPillAction(
+        label = "Paste",
+        icon = PenLabIcons.Paste,
+        enabled = state.pasteEnabled,
+        onClick = {
+          onMoreExpandedChange(false)
+          onPaste()
+        },
+      )
+      SelectionPillAction(
+        label = "Duplicate",
+        icon = PenLabIcons.Duplicate,
+        contentDescription = "Duplicate selection",
+        onClick = {
+          onMoreExpandedChange(false)
+          onDuplicate()
+        },
+      )
+      SelectionPillAction(
+        label = "Delete",
+        icon = PenLabIcons.Delete,
+        destructive = true,
+        onClick = {
+          onMoreExpandedChange(false)
+          onDelete()
+        },
+      )
+
+      SelectionPillDivider()
+
+      SelectionPillAction(
+        label = "Flip H",
+        icon = PenLabIcons.FlipHorizontal,
+        contentDescription = "Mirror horizontally",
+        onClick = {
+          onMoreExpandedChange(false)
+          onMirror(true)
+        },
+      )
+      SelectionPillAction(
+        label = "Flip V",
+        icon = PenLabIcons.FlipVertical,
+        contentDescription = "Mirror vertically",
+        onClick = {
+          onMoreExpandedChange(false)
+          onMirror(false)
+        },
+      )
+
+      SelectionPillDivider()
+
+      Box(contentAlignment = Alignment.Center) {
+        SelectionMoreTrigger(
+          expanded = moreExpanded,
+          onClick = { onMoreExpandedChange(!moreExpanded) },
+        )
+        if (moreExpanded) {
+          val density = LocalDensity.current
+          val positionProvider =
+            remember(density) {
+              SelectionMorePopupPositionProvider(
+                gapPx = with(density) { 8.dp.roundToPx() },
+                marginPx = with(density) { PenLabSpacing.edgeMargin.roundToPx() },
+              )
+            }
+          Popup(
+            popupPositionProvider = positionProvider,
+            onDismissRequest = { onMoreExpandedChange(false) },
+            properties = PopupProperties(focusable = true, dismissOnBackPress = true, dismissOnClickOutside = true),
+          ) {
+            SelectionMorePopover(
+              showFill = state.showFill,
+              pluginEntries = state.pluginEntries,
+              onFill = {
+                onMoreExpandedChange(false)
+                onFill()
+              },
+              onDeselect = {
+                onMoreExpandedChange(false)
+                onDeselect()
+              },
+              onRunRegisteredPlugin = { action ->
+                onMoreExpandedChange(false)
+                action.onClick()
+              },
+              isPalm = isPalm,
             )
           }
-        Popup(
-          popupPositionProvider = positionProvider,
-          onDismissRequest = { onMoreExpandedChange(false) },
-          properties = PopupProperties(focusable = true, dismissOnBackPress = true, dismissOnClickOutside = true),
-        ) {
-          SelectionMorePopover(
-            showFill = state.showFill,
-            pluginEntries = state.pluginEntries,
-            onFill = {
-              onMoreExpandedChange(false)
-              onFill()
-            },
-            onDeselect = {
-              onMoreExpandedChange(false)
-              onDeselect()
-            },
-            onRunRegisteredPlugin = { action ->
-              onMoreExpandedChange(false)
-              action.onClick()
-            },
-            isPalm = isPalm,
-          )
         }
       }
     }
@@ -1680,16 +1690,20 @@ private fun SelectionPillAction(
     animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
     label = "selectionActionPress",
   )
+  val destructiveColor =
+    if (LocalPenLabColors.current.isDark) Color(0xFFFF7B7B)
+    else PenLabComponentTokens.selectionBarDestructive
+  val disabledColor = scheme.onSurface.copy(alpha = 0.45f)
   val tint =
     when {
-      !enabled -> PenLabComponentTokens.toolIconDisabled
-      destructive -> PenLabComponentTokens.selectionBarDestructive
+      !enabled -> disabledColor
+      destructive -> destructiveColor
       else -> scheme.onSurface
     }
   val iconTint =
     when {
-      !enabled -> PenLabComponentTokens.toolIconDisabled
-      destructive -> PenLabComponentTokens.selectionBarDestructive
+      !enabled -> disabledColor
+      destructive -> destructiveColor
       else -> scheme.onSurfaceVariant
     }
 

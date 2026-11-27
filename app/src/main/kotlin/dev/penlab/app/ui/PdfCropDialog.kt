@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -71,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import dev.penlab.app.ui.components.PenLabChoiceChip
 import dev.penlab.app.ui.components.PenLabIconButton
 import dev.penlab.app.ui.theme.PenLabComponentTokens
 import dev.penlab.app.ui.theme.PenLabLayout
@@ -92,12 +95,14 @@ private const val PREVIEW_WIDTH_PX = 1280
  * Two-pane tablet modal for browsing pages of an external PDF and cropping a region onto the open
  * notebook canvas as a lossless PNG image item.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PdfCropDialog(
   uri: Uri,
   imagesDir: File,
-  onPlaced: (fileName: String) -> Unit,
+  onPlaced: (fileName: String, adaptToDarkPaper: Boolean) -> Unit,
   onDismiss: () -> Unit,
+  darkPage: Boolean = false,
 ) {
   val context = LocalContext.current
   val scheme = MaterialTheme.colorScheme
@@ -106,9 +111,12 @@ fun PdfCropDialog(
   var title by remember(uri) { mutableStateOf("Add from PDF") }
   var loading by remember(uri) { mutableStateOf(true) }
   var loadError by remember(uri) { mutableStateOf<String?>(null) }
+  var previewError by remember(uri) { mutableStateOf<String?>(null) }
+  var previewRetryNonce by remember(uri) { mutableIntStateOf(0) }
   var pageCount by remember(uri) { mutableIntStateOf(0) }
   var currentPage by remember(uri) { mutableIntStateOf(0) }
   var cropRect by remember(uri) { mutableStateOf(NormalizedCropRect.DEFAULT) }
+  var adaptToDarkPaper by remember(uri, darkPage) { mutableStateOf(defaultDarkPaperCropAdapt(darkPage)) }
   var thumbTick by remember(uri) { mutableIntStateOf(0) }
   var previewTick by remember(uri) { mutableIntStateOf(0) }
   var placing by remember(uri) { mutableStateOf(false) }
@@ -131,9 +139,20 @@ fun PdfCropDialog(
     onDispose { session.close() }
   }
 
-  LaunchedEffect(currentPage, pageCount) {
+  LaunchedEffect(currentPage, pageCount, previewRetryNonce) {
     if (pageCount > 0 && currentPage in 0 until pageCount) {
-      session.requestPreview(currentPage) { previewTick++ }
+      previewError = null
+      session.requestPreview(
+        pageIndex = currentPage,
+        onRendered = {
+          previewError = null
+          previewTick++
+        },
+        onError = { msg ->
+          previewError = msg
+          previewTick++
+        },
+      )
     }
   }
 
@@ -142,6 +161,7 @@ fun PdfCropDialog(
     currentPage = page
     cropRect = NormalizedCropRect.DEFAULT
     placeError = null
+    previewError = null
   }
 
   val listState = rememberLazyListState()
@@ -190,14 +210,6 @@ fun PdfCropDialog(
               style = MaterialTheme.typography.bodySmall,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
-            )
-          }
-          if (pageCount > 0) {
-            Spacer(Modifier.width(PenLabSpacing.md))
-            Text(
-              text = "Page ${currentPage + 1} of $pageCount",
-              color = scheme.onSurfaceVariant,
-              style = PenLabTextStyles.tabularLabel,
             )
           }
           Spacer(Modifier.width(PenLabSpacing.sm))
@@ -364,6 +376,27 @@ fun PdfCropDialog(
                           pageKey = currentPage,
                           modifier = Modifier.fillMaxSize(),
                         )
+                      } else if (previewError != null) {
+                        Column(
+                          modifier = Modifier.padding(PenLabSpacing.lg),
+                          horizontalAlignment = Alignment.CenterHorizontally,
+                          verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
+                        ) {
+                          Text(
+                            text = previewError ?: "Could not render this page preview.",
+                            color = scheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                          )
+                          OutlinedButton(
+                            onClick = {
+                              previewError = null
+                              previewRetryNonce++
+                            },
+                            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+                          ) {
+                            Text("Retry")
+                          }
+                        }
                       } else {
                         CircularProgressIndicator()
                       }
@@ -381,80 +414,107 @@ fun PdfCropDialog(
         @Suppress("UNUSED_EXPRESSION")
         previewTick
         val activePreviewReady = pageCount > 0 && session.cachedPreview(currentPage) != null
-        Row(
+        FlowRow(
           modifier =
             Modifier
               .fillMaxWidth()
               .padding(horizontal = PenLabSpacing.xl, vertical = PenLabSpacing.md),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
         ) {
-          PenLabIconButton(
-            icon = PenLabIcons.Back,
-            contentDescription = "Previous page",
-            enabled = !placing && currentPage > 0,
-            onClick = { selectPage(currentPage - 1) },
-          )
-          PenLabIconButton(
-            icon = PenLabIcons.ChevronRight,
-            contentDescription = "Next page",
-            enabled = !placing && currentPage < pageCount - 1,
-            onClick = { selectPage(currentPage + 1) },
-          )
-          OutlinedButton(
-            onClick = { cropRect = NormalizedCropRect.FULL },
-            enabled = !placing && pageCount > 0,
-            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
+            verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
           ) {
-            Text("Full page")
-          }
-          TextButton(
-            onClick = { cropRect = NormalizedCropRect.DEFAULT },
-            enabled = !placing && pageCount > 0,
-            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
-          ) {
-            Text("Reset")
-          }
-          Spacer(Modifier.weight(1f))
-          if (placeError != null) {
-            Text(
-              text = placeError!!,
-              color = scheme.error,
-              style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.width(PenLabSpacing.sm))
-          }
-          TextButton(
-            onClick = onDismiss,
-            enabled = !placing,
-            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
-          ) {
-            Text("Cancel")
-          }
-          Button(
-            onClick = {
-              if (placing) return@Button
-              placing = true
-              placeError = null
-              session.renderCroppedPng(
-                pageIndex = currentPage,
-                crop = cropRect,
-                imagesDir = imagesDir,
-                onSuccess = { fileName ->
-                  placing = false
-                  onPlaced(fileName)
-                },
-                onError = { msg ->
-                  placing = false
-                  placeError = msg
-                },
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
+            ) {
+              PenLabIconButton(
+                icon = PenLabIcons.Back,
+                contentDescription = "Previous page",
+                enabled = !placing && currentPage > 0,
+                onClick = { selectPage(currentPage - 1) },
               )
-            },
-            enabled = !placing && activePreviewReady,
-            shape = PenLabShapes.pill,
-            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+              if (pageCount > 0) {
+                Text(
+                  text = "Page ${currentPage + 1} of $pageCount",
+                  color = scheme.onSurfaceVariant,
+                  style = PenLabTextStyles.tabularLabel,
+                )
+              }
+              PenLabIconButton(
+                icon = PenLabIcons.ChevronRight,
+                contentDescription = "Next page",
+                enabled = !placing && currentPage < pageCount - 1,
+                onClick = { selectPage(currentPage + 1) },
+              )
+            }
+            OutlinedButton(
+              onClick = { cropRect = NormalizedCropRect.FULL },
+              enabled = !placing && pageCount > 0,
+              modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+            ) {
+              Text("Full page")
+            }
+            TextButton(
+              onClick = { cropRect = NormalizedCropRect.DEFAULT },
+              enabled = !placing && pageCount > 0,
+              modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+            ) {
+              Text("Reset")
+            }
+            if (darkPage) {
+              PenLabChoiceChip(
+                label = "Adapt to dark paper",
+                selected = adaptToDarkPaper,
+                onClick = { adaptToDarkPaper = !adaptToDarkPaper },
+              )
+            }
+          }
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
           ) {
-            Text(if (placing) "Placing…" else "Place on canvas")
+            if (placeError != null) {
+              Text(
+                text = placeError!!,
+                color = scheme.error,
+                style = MaterialTheme.typography.bodySmall,
+              )
+            }
+            TextButton(
+              onClick = onDismiss,
+              enabled = !placing,
+              modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+            ) {
+              Text("Cancel")
+            }
+            Button(
+              onClick = {
+                if (placing) return@Button
+                placing = true
+                placeError = null
+                session.renderCroppedPng(
+                  pageIndex = currentPage,
+                  crop = cropRect,
+                  imagesDir = imagesDir,
+                  onSuccess = { fileName ->
+                    placing = false
+                    onPlaced(fileName, adaptToDarkPaper)
+                  },
+                  onError = { msg ->
+                    placing = false
+                    placeError = msg
+                  },
+                )
+              },
+              enabled = !placing && activePreviewReady,
+              shape = PenLabShapes.pill,
+              modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+            ) {
+              Text(if (placing) "Placing…" else "Place on canvas")
+            }
           }
         }
       }
@@ -556,12 +616,15 @@ private fun CropOverlay(
     val borderStroke = 2.dp.toPx()
     drawRect(primaryColor, Offset(cl, ct), Size(cw, ch), style = Stroke(width = borderStroke))
 
-    // Circular corner handles
+    // Translucent circular corner handles so page text underneath remains legible
     val cornerRadius = 8.dp.toPx()
+    val cornerFill = primaryColor.copy(alpha = 0.36f)
+    val pillFill = primaryColor.copy(alpha = 0.45f)
     val handleStroke = Stroke(width = 2.dp.toPx())
+    val ringColor = onPrimaryColor.copy(alpha = 0.92f)
     for ((cx, cy) in listOf(cl to ct, cr to ct, cl to cb, cr to cb)) {
-      drawCircle(primaryColor, radius = cornerRadius, center = Offset(cx, cy))
-      drawCircle(onPrimaryColor, radius = cornerRadius, center = Offset(cx, cy), style = handleStroke)
+      drawCircle(cornerFill, radius = cornerRadius, center = Offset(cx, cy))
+      drawCircle(ringColor, radius = cornerRadius, center = Offset(cx, cy), style = handleStroke)
     }
 
     // Mid-edge pills
@@ -572,12 +635,12 @@ private fun CropOverlay(
     val midX = (cl + cr) / 2f
     val midY = (ct + cb) / 2f
     for (topY in listOf(ct - pillShort / 2f, cb - pillShort / 2f)) {
-      drawRoundRect(primaryColor, Offset(midX - pillLong / 2f, topY), Size(pillLong, pillShort), pillCorner)
-      drawRoundRect(onPrimaryColor, Offset(midX - pillLong / 2f, topY), Size(pillLong, pillShort), pillCorner, style = edgeStroke)
+      drawRoundRect(pillFill, Offset(midX - pillLong / 2f, topY), Size(pillLong, pillShort), pillCorner)
+      drawRoundRect(ringColor, Offset(midX - pillLong / 2f, topY), Size(pillLong, pillShort), pillCorner, style = edgeStroke)
     }
     for (leftX in listOf(cl - pillShort / 2f, cr - pillShort / 2f)) {
-      drawRoundRect(primaryColor, Offset(leftX, midY - pillLong / 2f), Size(pillShort, pillLong), pillCorner)
-      drawRoundRect(onPrimaryColor, Offset(leftX, midY - pillLong / 2f), Size(pillShort, pillLong), pillCorner, style = edgeStroke)
+      drawRoundRect(pillFill, Offset(leftX, midY - pillLong / 2f), Size(pillShort, pillLong), pillCorner)
+      drawRoundRect(ringColor, Offset(leftX, midY - pillLong / 2f), Size(pillShort, pillLong), pillCorner, style = edgeStroke)
     }
   }
 }
@@ -666,14 +729,17 @@ private class PdfCropSession(
     }
   }
 
-  fun requestPreview(pageIndex: Int, onRendered: () -> Unit) {
+  fun requestPreview(pageIndex: Int, onRendered: () -> Unit, onError: (String) -> Unit) {
     if (closed.get()) return
     executor.execute {
       if (closed.get()) return@execute
-      if (previewCache.get(pageIndex) != null) return@execute
+      if (previewCache.get(pageIndex) != null) {
+        mainHandler.post { if (!closed.get()) onRendered() }
+        return@execute
+      }
       try {
-        val pdf = renderer ?: return@execute
-        if (pageIndex !in 0 until pdf.pageCount) return@execute
+        val pdf = renderer ?: throw IllegalStateException("PDF closed")
+        if (pageIndex !in 0 until pdf.pageCount) throw IndexOutOfBoundsException("Invalid page")
         val bmp =
           pdf.openPage(pageIndex).use { page ->
             val h = (PREVIEW_WIDTH_PX.toLong() * page.height / page.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
@@ -686,6 +752,7 @@ private class PdfCropSession(
         previewCache.put(pageIndex, bmp)
         mainHandler.post { if (!closed.get()) onRendered() }
       } catch (_: Throwable) {
+        mainHandler.post { if (!closed.get()) onError("Could not render this page preview.") }
       }
     }
   }

@@ -1472,6 +1472,16 @@ class MainActivity : ComponentActivity() {
 
   /** Opens [info] in a new canvas and loads its strokes in the background. */
   private fun openNotebook(info: NotebookInfo, jumpTo: RectF? = null) {
+    // Some paths (a search result, a new or imported notebook, an intent) open without closing first. Replacing `open`
+    // then skipped the save and leaked the old PDF renderer and search index (audit BUG-14): close it properly here.
+    open?.let { previous ->
+      pdfCropRequest = null
+      save()
+      saveCover(previous)
+      previous.pdf?.close()
+      previous.search?.close()
+      open = null
+    }
     val openedAt = android.os.SystemClock.uptimeMillis()
     tabs = (listOf(info.id) + tabs.filter { it != info.id }).take(MAX_TABS)
     tabPrefs.edit().putString("ids", tabs.joinToString(",")).apply()
@@ -1505,9 +1515,12 @@ class MainActivity : ComponentActivity() {
       // Never fail silently: the notes on screen are not on disk.
       exportMessage = "Couldn't save “${notebook.info.title}”. Is the tablet's storage full? Your last save is safe."
     }
+    // The pen waits for the saved page (see InkCanvasView.awaitingLoad); a notebook with no page store has nothing to wait for.
+    canvas.awaitingLoad = notebook.pages != null
     notebook.pages?.load { page ->
       if (open !== notebook) return@load // closed again before it finished loading
       val t0 = android.os.SystemClock.uptimeMillis()
+      canvas.awaitingLoad = false
       if (page != null) canvas.load(page) else canvas.fitPageWidth()
       Log.i("PenLabPerf", "open: canvas.load ${android.os.SystemClock.uptimeMillis() - t0} ms (main thread), ${android.os.SystemClock.uptimeMillis() - openedAt} ms since tap")
       canvas.post { Log.i("PenLabPerf", "open: first frame after load ${android.os.SystemClock.uptimeMillis() - openedAt} ms since tap") }

@@ -835,6 +835,7 @@ class InkCanvasView(
 
   /** Puts a saved page on the (empty) canvas, including where it was panned and zoomed to. */
   fun load(page: LoadedPage) {
+    awaitingLoad = false
     loadingStrokes = true
     history.load(page.strokes)
     loadingStrokes = false
@@ -906,8 +907,16 @@ class InkCanvasView(
     penHovering = false
   }
 
+  /**
+   * False while the notebook's saved page is still being read: [load] replaces every stroke, so ink written before it
+   * finished was wiped and never saved (audit BUG-15). Until then the pen draws nothing (fingers still pan and zoom),
+   * so nothing is lost silently. The host clears it in its load callback.
+   */
+  var awaitingLoad = false
+
   @SuppressLint("ClickableViewAccessibility") // a drawing surface has no "click"
   override fun onTouchEvent(event: MotionEvent): Boolean {
+    if (awaitingLoad && (0 until event.pointerCount).any { event.getToolType(it) == MotionEvent.TOOL_TYPE_STYLUS || event.getToolType(it) == MotionEvent.TOOL_TYPE_ERASER }) return true
     // We always return true: if the palm lands first and we refused that gesture, Android would
     // also withhold the pen that joins it a moment later.
     // Any new touch stops a glide in progress, so the page is exactly where the finger finds it.

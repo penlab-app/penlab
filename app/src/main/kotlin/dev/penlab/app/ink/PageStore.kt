@@ -57,8 +57,9 @@ class PageStore(directory: File, fileName: String = "current-page.graphite") {
 
   /** Undo history beside the strokes (`notebook.history`); losing it only loses undo. */
   private val historyFile = AtomicFile(File(directory, fileName.substringBeforeLast('.') + ".history"))
-  private val io = Executors.newSingleThreadExecutor { Thread(it, "penlab-save").apply { priority = Thread.MIN_PRIORITY } }
+  private val io = SAVE_THREAD
   private val main = Handler(Looper.getMainLooper())
+
 
   /** Called on the main thread when a save fails (storage full, ...); the last good save is kept. */
   var onSaveFailed: () -> Unit = {}
@@ -158,6 +159,13 @@ class PageStore(directory: File, fileName: String = "current-page.graphite") {
   private companion object {
     const val TAG = "PageStore"
     const val PERF = "PenLabPerf"
+    /**
+     * ONE thread for every PageStore, not one each (audit BUG-14). A notebook gets a new PageStore each time it is opened;
+     * with a thread per store, closing a notebook and reopening it at once could read the file before the old store had
+     * finished writing it: the last strokes were missing on screen, and the next autosave made that permanent. Sharing the
+     * thread keeps save-then-load in order. It also stopped a thread leaking per open (they were never shut down).
+     */
+    val SAVE_THREAD = Executors.newSingleThreadExecutor { Thread(it, "penlab-save").apply { priority = Thread.MIN_PRIORITY } }
   }
 }
 

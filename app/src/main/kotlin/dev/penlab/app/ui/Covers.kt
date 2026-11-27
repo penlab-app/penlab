@@ -69,9 +69,16 @@ object Covers {
   /** Read in composition: changes when [id]'s cover file was written. */
   fun revision(id: String): Int = revisions[id] ?: 0
 
+  private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+  /**
+   * Called from background threads (after a cover file is written). The bitmap cache is thread-safe; [revisions] is Compose
+   * state read by the library, so it is bumped on the main thread (audit BUG-16: writing it from two threads could conflict).
+   */
   fun forget(id: String) {
     cache.remove(cacheKey(id, false))
     cache.remove(cacheKey(id, true))
-    revisions[id] = (revisions[id] ?: 0) + 1
+    if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) revisions[id] = (revisions[id] ?: 0) + 1
+    else main.post { revisions[id] = (revisions[id] ?: 0) + 1 }
   }
 }

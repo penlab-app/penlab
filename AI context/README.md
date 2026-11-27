@@ -2,7 +2,8 @@
 
 > **Branch:** `ui/redesign` (forked from `main` @ `c0c15ae`)  
 > **Status:** **Overnight Audit Stages 0, 2, and 3 COMPLETE, Tab S9 QA-VERIFIED, AND PUSHED on `ui/redesign`.**  
-> **Next Stage:** **Overnight Stage 4 — Settings, Library, Search, Dialogs & Light-Theme Contrast (`BUG-11`..`BUG-13`)**, followed by **Stage 5** (`BUG-14`..`BUG-17`) and **Stage 6** bonus branch (`feat/library-trash-and-sort`). See [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
+> **27 Nov afternoon (owner's Claude):** Stage 5's data-loss items **BUG-14, BUG-15, BUG-16 are FIXED** (unit tests pass, installed on the Tab S9, **not yet hand-tested**): one shared `PageStore.SAVE_THREAD`, pen gated by `InkCanvasView.awaitingLoad` until the page loads, `openNotebook` saves/closes a still-open notebook first, `Covers.forget` bumps state on main. Also new: screen plugin placement **`topBar`** (Claude AI's ✨ button). Hand test checklist: [`notes/TEST-PLAN-2026-11-27.md`](notes/TEST-PLAN-2026-11-27.md).  
+> **Next Stage:** **Overnight Stage 4 — Settings, Library, Search, Dialogs & Light-Theme Contrast (`BUG-11`..`BUG-13`)**, then the rest of **Stage 5** (`BUG-17` only; 14–16 done) and **Stage 6** bonus branch (`feat/library-trash-and-sort`). See [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
 
 ---
 

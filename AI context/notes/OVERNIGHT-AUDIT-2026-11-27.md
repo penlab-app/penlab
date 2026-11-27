@@ -14,7 +14,7 @@
 | **Stage 2** | Canvas Popovers, Color Wheel, Ruler/Protractor, Eyedropper & Top Chrome Collisions (`BUG-01`..`BUG-06`) | **FIXED & Tab S9 Visually Verified** | `MarkerWheel.kt`, `ColorWheel.kt`, `Instruments.kt`, `InkCanvasView.kt`, `ToolDock.kt`, `ToolPanels.kt`, `MenuAndDialogComponents.kt`, `PresentMode.kt`, `MainActivity.kt` |
 | **Stage 3** | Toolbar Pill Symmetry, Expand Icon, Selection Bar, Add from PDF & Text Box (`BUG-07`..`BUG-10`) | **FIXED & Tab S9 Visually Verified** | `ToolDock.kt`, `ToolPanels.kt`, `Icons.kt`, `InkCanvasView.kt`, `PdfCropDialog.kt`, `PdfCropGeometry.kt`, `RequestDialog.kt`, `LibraryScreen.kt`, `Instruments.kt`, `MainActivity.kt` |
 | **Stage 4** | Settings, Library, Search, Dialogs & Light-Theme Contrast (`BUG-11`..`BUG-13`) | Planned | `SettingsSheet.kt`, `ChromeComponents.kt`, `LibraryScreen.kt`, `LibraryCards.kt`, `SearchUi.kt`, `Covers.kt`, `ToolPanels.kt`, `MainActivity.kt` |
-| **Stage 5** | Core Lifecycle, Data-Loss, Undo Hardening & Final Lint (`BUG-14`..`BUG-17`) | Planned | `MainActivity.kt`, `InkCanvasView.kt`, `Covers.kt`, `PageStore.kt`, `FolderRepository.kt`, `FirstLaunchSheet.kt`, `Theme.kt` |
+| **Stage 5** | Core Lifecycle, Data-Loss, Undo Hardening & Final Lint (`BUG-14`..`BUG-17`) | **BUG-14/15/16 FIXED 27 Nov (`9f1c8e4`, not yet hand-tested); BUG-17 planned** | `MainActivity.kt`, `InkCanvasView.kt`, `Covers.kt`, `PageStore.kt`, `FolderRepository.kt`, `FirstLaunchSheet.kt`, `Theme.kt` |
 | **Stage 6** | Highest-value bonus feature on `feat/...` off `ui/redesign` | Planned (Post Stages 2–5) | Dedicated feature branch |
 
 ---

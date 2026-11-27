@@ -1,8 +1,8 @@
 # PenLab UI Redesign — AI Agent Handoff Context
 
 > **Branch:** `ui/redesign` (forked from `main` @ `c0c15ae`)  
-> **Status:** **Stages 1–5 COMPLETE, QA-VERIFIED ON TABLET, AND COMMITTED.**  
-> **Next Stage:** **Stage 6 — Library Screen Redesign & First Launch Flow** (then **Stage 7 — Final Visual Audit, Impeccable Polish & Regression Pass**).
+> **Status:** **Overnight Audit Stages 0, 2, and 3 COMPLETE, Tab S9 QA-VERIFIED, AND PUSHED on `ui/redesign`.**  
+> **Next Stage:** **Overnight Stage 4 — Settings, Library, Search, Dialogs & Light-Theme Contrast (`BUG-11`..`BUG-13`)**, followed by **Stage 5** (`BUG-14`..`BUG-17`) and **Stage 6** bonus branch (`feat/library-trash-and-sort`). See [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
 
 ---
 

@@ -73,3 +73,40 @@
 | **BUG-15** | `P0` | Drawing strokes while async `PageStore.load` is still in flight gets wiped once `load` completes and replaces page state. | `MainActivity.kt`, `InkCanvasView.kt` | Gate canvas authoring or merge/queue live strokes safely until `PageStore.load` finishes applying loaded strokes. |
 | **BUG-16** | `P0` | `Covers.forget()` mutates Compose `mutableStateMapOf` off the main thread (`Dispatchers.IO` / background executors), risking snapshot crash / race. | `Covers.kt`, `MainActivity.kt` | Dispatch `Covers.forget()` map updates onto Main thread (`withContext(Dispatchers.Main.immediate)` / `runOnUiThread`). |
 | **BUG-17** | `P0/P2` | `turnOpenNotebook`/`turnNotebook` race on active notebook metadata; `canClearCurrentPage` ignores items-only pages & blank subpage cases; `Layers` undo drops `hidden` layer state; `pageStyle` desyncs after async `load`; `keepPagesInView` clamps rotated dimensions inaccurately; `MAX_ZOOM` under-scales high-DPI tablets; `createFromImport` misflags non-PDF imports; `Folder` rename ignores duplicate target conflict; `delete()` return values unchecked; `FirstLaunchSheet` lacks double-tap guard; `Theme.kt` side effects mutate window unconditionally. | `MainActivity.kt`, `InkCanvasView.kt`, `PageStore.kt`, `FolderRepository.kt`, `FirstLaunchSheet.kt`, `Theme.kt` | Fix each lifecycle/data invariant with unit tests covering undo `hidden` preservation, `canClearCurrentPage`, rotated clamping, folder rename collision, `turnNotebook` synchronization, and run final `:app:lintRelease` + multi-module `testDebugUnitTest` + Tab S9 end-to-end QA before **Stage 6** bonus branch. |
+
+---
+
+## Overnight Run Summary & Handoff (27 Nov 2026, 01:25–09:35 EET)
+
+### Completed on `ui/redesign`
+- **Stage 0 & 1 (`bdb51a8`):** Fixed `Left`/`Right` docked toolbar shifting top chrome pills (`BUG-00`), packaged reusable QA suite in [`tools/qa/`](../../tools/qa/README.md) (`PenLabCap.java`, `penlab-cap.jar`, `tablet-cap.sh`, `tablet-install.sh`, `ui_stress_audit.py`), and executed the 46-screenshot live Tab S9 stress test + static audit creating this defect log.
+- **Stage 2 (`f0c6af3`):** Fixed `BUG-01`..`BUG-06` (centered `MarkerWheel`/`ColorWheel`, staggered `Protractor`/`Ruler`, bar-avoidant `PanelBeside` + scrollable panels, overflow-aligned `FileOptionsPopover` + inline `RecordingPill`, dark-themed Eyedropper/Present banners + `BackHandler`). Verified with `:app:testDebugUnitTest` (`56` suites, `511` tests, `0` failures) + Tab S9 visual QA.
+- **Stage 3 (`5e16ef3`):** Fixed `BUG-07`..`BUG-10` + `BUG-02` Protractor polish (pinned top/bottom `Rail` grips, `ToolbarExpand`/`ToolbarCollapse` icons, active hidden-tool collapsed fallback, scrollable `SelectionActions` with `56f` rotate clearance, translucent `PdfCropDialog` handles + `FlowRow` pagination + `"Adapt to dark paper"`, `PenLabDialog` `TextBoxDialog` + placement toast). Verified with `:app:testDebugUnitTest` (`56` suites, `516` tests, `0` failures), `arm64-v8a` R8 APK (`CN=PenLab`), and Tab S9 visual QA.
+
+### Why the Run Paused at `03:20 AM EET`
+- At `03:20 AM EET` (`5.58%` 5-hour session quota remaining), immediately after Stage 3 passed Tab S9 visual QA and `AI context/` was updated, the turn hit the 5-hour session API cutoff right before committing Stage 3 and scheduling the automatic sleep timer for the reset (`~05:13 AM EET`).
+- Upon resuming at `09:28 AM EET` (near the `10:00 AM EET` cutoff), Stage 3 was committed & pushed (`5e16ef3`), this handoff was recorded, and the session wrapped up cleanly without merging to `main`.
+
+### Minor Stage 3 Residuals to Fold Into Stage 4 / 5
+1. `TextBoxDialog` displays label `"Text box content"` while focused instead of placeholder `"Type text to place on page…"`; `"Tap anywhere on the page to add a text box"` requires a stylus tap when `drawWithFinger = false`.
+2. Protractor top arc outer rim grazes the very top status bar edge (`y=0..30`, numbers legible below it).
+
+### Remaining Stages (Next Agent)
+1. **Stage 4:** Fix `BUG-11`..`BUG-13` (`SettingsSheet`, `LibraryScreen`/`LibraryCards`/`SearchUi`/`Covers`, `NewNotebookDialog`/`FirstLaunchSheet`/`ToolPanels`), verify unit tests + Tab S9 visual QA across Light & Dark themes, commit & push `ui/redesign`.
+2. **Stage 5:** Fix `BUG-14`..`BUG-17` (core lifecycle, `PageStore.load` stroke safety, `Covers.forget()` main-thread dispatch, undo/zoom/import/folder invariants), run `:app:lintRelease` + multi-module `testDebugUnitTest` + `tools/qa/ui_stress_audit.py` on Tab S9, commit & push `ui/redesign`.
+3. **Stage 6 (Bonus Feature Branch):** Branch `feat/library-trash-and-sort` off `ui/redesign` to implement Library Trash Manager (`.trash/` restore / permanent delete / empty) + Sort (`Recent` / `Name` / `Kind`). Do **not** merge to `main` prematurely.
+
+### Resources Used (`01:25 EET` Baseline → `09:30 EET` Final Telemetry)
+
+| Resource | Baseline (`01:25 EET`) | Final (`09:30 EET`) | Used Overnight | Notes / Cap |
+|---|---|---|---|---|
+| **Omar Network Total** | `1,746.89 MiB` (`1,831,745,403 B`) | `3,088.42 MiB` (`3,238,446,280 B`) | **`+1,341.53 MiB`** (`+1,406.70 MB`) | **`32.75%`** of `+4.0 GiB` (`4,096 MiB`) cap |
+| ↳ `agy` (Agy AI Agent) | `1,391,985,431 B` | `2,593,942,592 B` | **`+1,149.02 MiB`** (`+1,204.84 MB`) | Largest network consumer (`85.65%` of delta) |
+| ↳ `other_wsl` (Gradle/git/DNS/etc.) | `233,785,295 B` | `339,987,808 B` | `+101.61 MiB` (`+106.55 MB`) | `--no-daemon`, `--offline`/cached deps |
+| ↳ `adb_out` (to Akram) | `141,460,914 B` | `184,674,960 B` | `+41.21 MiB` (`+43.21 MB`) | Compressed `-Ppenlab.abi=arm64-v8a` builds |
+| ↳ `adb_in` (from Akram) | `13,789,241 B` | `45,474,062 B` | `+30.22 MiB` (`+31.69 MB`) | Scaled JPEG screenshots (`PenLabCap`) |
+| ↳ `tailscale_overhead` | `22,217,273 B` | `37,580,318 B` | `+14.67 MiB` (`+15.38 MB`) | `DERP Relay (par)` overhead |
+| ↳ `status_web` (ngrok) | `28,507,249 B` | `33,541,010 B` | `+4.80 MiB` (`+5.03 MB`) | Live status telemetry & thumbnails |
+| **Akram Network Total** | `196.43 MiB` (`205,974,677 B`) | `287.33 MiB` (`301,291,806 B`) | **`+90.90 MiB`** (`+95.32 MB`) | Inbound APK + outbound QA screenshots/VPN |
+| **Gemini 5-Hour Session Quota** | `69.65%` remaining | `99.73%` remaining *(post-reset; hit `5.58%` at `03:20 EET`)* | ~`64.07%` + reset | Reset while paused overnight |
+| **Gemini Weekly Quota** | `51.92%` remaining | `34.34%` remaining | **`-17.58%`** | `34.34%` remaining for Stage 4–6 |

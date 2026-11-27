@@ -3761,6 +3761,8 @@ class InkCanvasView(
 
   private fun startLasso(event: MotionEvent, index: Int) {
     readPagePosition(event, index)
+    stopEdgeScroll()
+    edgeArmed = edgeSpeedX(event.getX(index)) == 0f && edgeSpeedY(event.getY(index)) == 0f
     val x = eraserPoint[0]
     val y = eraserPoint[1]
     val line = lineSelection
@@ -3835,6 +3837,13 @@ class InkCanvasView(
       }
     }
     readPagePosition(event, index)
+    applyLassoPoint()
+    if (lassoGesture.edgeScrolls) noteDragPosition(event.getX(index), event.getY(index))
+    selectionView.invalidate()
+  }
+
+  /** Moves the running lasso gesture to the page point in [eraserPoint]. */
+  private fun applyLassoPoint() {
     when (lassoGesture) {
       LassoGesture.DRAWING -> lassoPath += Point(eraserPoint[0], eraserPoint[1])
       LassoGesture.MOVING -> {
@@ -3865,10 +3874,89 @@ class InkCanvasView(
       LassoGesture.LINE_END -> moveLineEnd(eraserPoint[0] + lineGrabDx, eraserPoint[1] + lineGrabDy)
       LassoGesture.NONE -> Unit
     }
+  }
+
+  // ---- Edge scrolling while dragging a selection -------------------------------------------
+  // User request (27 Nov): dragging a selection (or a handle) near an edge of the screen scrolls
+  // the page with it, on pages and endless canvases alike, so it can be carried off screen.
+
+  private val LassoGesture.edgeScrolls: Boolean
+    get() = this == LassoGesture.MOVING || this == LassoGesture.RESIZING || this == LassoGesture.LINE_END
+
+  private var dragScreenX = 0f
+  private var dragScreenY = 0f
+  /** Set once the pen has been away from the edges, so grabbing something near an edge does not scroll at once. */
+  private var edgeArmed = false
+  private var edgeScrolling = false
+  private var edgeLastFrame = 0L
+  private val edgeScroll = Runnable { edgeScrollStep() }
+
+  /**
+   * Scroll speed (px/s) for a pen at [pos] between the visible edges [low] and [high]: negative
+   * near [low], positive near [high], 0 in between. Faster the deeper in (and over the toolbars).
+   */
+  private fun edgeSpeed(pos: Float, low: Float, high: Float): Float {
+    val zone = EDGE_ZONE_DP * density
+    if (high - low < 3 * zone) return 0f // too small a window to have edges
+    val depth = when {
+      pos < low + zone -> -((low + zone - pos) / zone).coerceAtMost(1f)
+      pos > high - zone -> ((pos - (high - zone)) / zone).coerceAtMost(1f)
+      else -> 0f
+    }
+    return depth * abs(depth) * EDGE_MAX_SPEED_DP * density
+  }
+
+  private fun edgeSpeedX(x: Float) = edgeSpeed(x, leftInset, width - rightInset)
+  private fun edgeSpeedY(y: Float) = edgeSpeed(y, topClearance(), height - bottomInset)
+
+  private fun noteDragPosition(x: Float, y: Float) {
+    dragScreenX = x
+    dragScreenY = y
+    if (edgeSpeedX(x) == 0f && edgeSpeedY(y) == 0f) {
+      edgeArmed = true
+      return
+    }
+    if (edgeArmed && !edgeScrolling) {
+      edgeScrolling = true
+      edgeLastFrame = 0L
+      postOnAnimation(edgeScroll)
+    }
+  }
+
+  private fun edgeScrollStep() {
+    if (!edgeScrolling) return
+    val sx = edgeSpeedX(dragScreenX)
+    val sy = edgeSpeedY(dragScreenY)
+    if (!lassoGesture.edgeScrolls || (sx == 0f && sy == 0f)) {
+      stopEdgeScroll()
+      return
+    }
+    val now = SystemClock.uptimeMillis()
+    val dt = if (edgeLastFrame == 0L) 1f / 120f else ((now - edgeLastFrame) / 1000f).coerceIn(0f, 0.05f)
+    edgeLastFrame = now
+    pageToScreen.postTranslate(-sx * dt, -sy * dt)
+    viewMoved()
+    // A notebook stops at the end of its last page (never starts "pull to add a page").
+    if (sy > 0f && pageLayout != null && pullDistance > 0f) {
+      pageToScreen.postTranslate(0f, pullDistance)
+      viewMoved()
+    }
+    // The pen has not moved on screen, but the page under it has: carry the drag along.
+    eraserPoint[0] = dragScreenX
+    eraserPoint[1] = dragScreenY
+    screenToPage.mapPoints(eraserPoint)
+    applyLassoPoint()
     selectionView.invalidate()
+    postOnAnimation(edgeScroll)
+  }
+
+  private fun stopEdgeScroll() {
+    edgeScrolling = false
+    removeCallbacks(edgeScroll)
   }
 
   private fun finishLasso() {
+    stopEdgeScroll()
     removeCallbacks(lassoHold)
     when (lassoGesture) {
       LassoGesture.DRAWING -> selectInsideLasso()
@@ -4362,6 +4450,7 @@ class InkCanvasView(
   }
 
   private fun cancelLasso() {
+    stopEdgeScroll()
     if (lassoGesture.changesSelection) {
       hideSelection(false)
       finishedView.invalidate()
@@ -4836,6 +4925,12 @@ class InkCanvasView(
 
     /** How long the pen must hold still at the end of a stroke to turn it into a shape. */
     const val HOLD_MS = 500L
+
+    /** Dragging a selection this close (dp) to an edge of the visible page scrolls it. */
+    const val EDGE_ZONE_DP = 56f
+
+    /** Edge-scroll speed (dp/s) with the pen right at the edge; it eases in across the zone. */
+    const val EDGE_MAX_SPEED_DP = 1400f
 
     /** Pen movement smaller than this (dp) still counts as holding still. */
     const val HOLD_SLOP_DP = 6f

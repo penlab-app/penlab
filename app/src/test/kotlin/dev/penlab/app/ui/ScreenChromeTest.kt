@@ -1,5 +1,6 @@
 package dev.penlab.app.ui
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -68,5 +69,13 @@ class ScreenChromeTest {
   fun wheelWithTheToolbarHiddenInPresentDoesNotChangeTheBars() {
     // Present hides the bars itself; the wheel flag adds nothing and removes nothing.
     assertTrue(ScreenChrome(present = true, wheelDocked = true).systemBarsHidden)
+  }
+
+  @Test
+  fun topRowChromePillsStayUnshiftedWhenSidePillDocked() {
+    val base = 12f
+    for (side in DockSide.entries) {
+      assertEquals(base, topChromeHorizontalPaddingDp(base, side), 0f)
+    }
   }
 }

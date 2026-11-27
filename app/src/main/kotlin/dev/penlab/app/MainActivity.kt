@@ -212,6 +212,7 @@ import dev.penlab.app.ui.DockSide
 import dev.penlab.app.ui.DockInsets
 import dev.penlab.app.ui.RailWidth
 import dev.penlab.app.ui.ToolbarMessage
+import dev.penlab.app.ui.topChromeHorizontalPaddingDp
 import dev.penlab.app.ui.ViewPanel
 import dev.penlab.app.ui.ViewSettings
 import dev.penlab.app.ui.theme.Accent
@@ -2705,7 +2706,7 @@ private fun NoteScreen(
             .zIndex(topChromeZ)
             .graphicsLayer { alpha = topChromeAlpha }
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = PenLabSpacing.md, start = PenLabSpacing.md + railLeft),
+            .padding(top = PenLabSpacing.md, start = topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp),
         horizontalAlignment = Alignment.Start,
       ) {
         FileChromePill(
@@ -2829,7 +2830,7 @@ private fun NoteScreen(
             .zIndex(topChromeZ)
             .graphicsLayer { alpha = topChromeAlpha }
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = PenLabSpacing.md, end = PenLabSpacing.md + railRight),
+            .padding(top = PenLabSpacing.md, end = topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp),
         horizontalAlignment = Alignment.End,
       ) {
         PageConfigChromePill(
@@ -3031,7 +3032,7 @@ private fun NoteScreen(
             .align(Alignment.TopEnd)
             .zIndex(3f)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = PenLabSpacing.md, end = PenLabSpacing.md + railRight)
+            .padding(top = PenLabSpacing.md, end = topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp)
             .graphicsLayer { alpha = FULLSCREEN_EXIT_ALPHA },
       ) {
         PenLabIconButton(

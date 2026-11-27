@@ -87,6 +87,11 @@
 - `:app:lintRelease`: **0 errors** (`94` pre-existing warnings; `0` warnings in `PressureCurve.kt`, `PenBrushes.kt`, `SettingsSheet.kt`, and `PdfCropGeometry.kt`; remaining hits in `ToolDock.kt`/`InkCanvasView.kt`/`MainActivity.kt`/`PdfCropDialog.kt`/`ViewSettings.kt` are pre-existing style hints such as `UseKtx` / `ModifierParameter` / `VisibleForTests` / `DrawAllocation`).
 - Tab S9 hardware multi-theme QA (`Light + Copper` left floating capsule pill and `Dark + Blueprint` collapsed free-floating bar verified read-only on `DSU Sheet`, all original settings restored, `0` logcat errors).
 
+### Overnight Audit & Stage 0 (27 Nov 2026, QA-Verified on Tab S9)
+- **Stage 0 fix (`PresentMode.kt`, `MainActivity.kt`, `ScreenChromeTest.kt`):** Removed horizontal `railLeft`/`railRight` shift on top-row floating chrome (`FileChromePill`, `PageConfigChromePill`, `Leave full screen`) via pure-Kotlin `topChromeHorizontalPaddingDp` (`555` unit tests passing including `ScreenChromeTest` 10/10; `0 px` top-chrome shift verified on Tab S9).
+- **Reusable QA Suite (`tools/qa/`):** Packaged `PenLabCap.java`, `penlab-cap.jar`, `tablet-cap.sh` (with `dev.penlab.app` focus + `Pop-up window` resumed-app privacy guard), `tablet-install.sh`, `ui_stress_audit.py` (with landscape `uiautomator`/display bounds detection, exact temporary notebook UUID tracking, IME-safe dialog entry, and `--self-test`), and `tools/qa/README.md`.
+- **Overnight Audit & Stages 2–5 Fix Plan:** Consolidated all verified live-screenshot findings (`Critic A`/`B`/`C` + `penlab_qa`) and static lifecycle/data-loss findings (`BUG-01`..`BUG-17`, excluding external Samsung S-Pen Air Command overlay) in [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)

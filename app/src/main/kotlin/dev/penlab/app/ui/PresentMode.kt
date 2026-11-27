@@ -97,3 +97,14 @@ const val PRESENT_HINT_MESSAGE = "Presenting · Pencil button shows or hides the
 fun presentPillAlpha(toolsPeeking: Boolean): Float =
   if (toolsPeeking) PRESENT_PILL_ACTIVE_ALPHA else PRESENT_PILL_REST_ALPHA
 
+/**
+ * Horizontal edge margin (`dp`) for top-row floating chrome islands (`FileChromePill`,
+ * `PageConfigChromePill`, and the full-screen exit pill). Left/right docked pills float below
+ * the top chrome row, so top-row pills keep a symmetric [baseDp] margin for every [DockSide].
+ */
+internal fun topChromeHorizontalPaddingDp(baseDp: Float, side: DockSide = DockSide.TOP): Float {
+  @Suppress("UNUSED_VARIABLE")
+  val ignoredSide = side
+  return baseDp
+}
+

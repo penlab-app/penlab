@@ -269,7 +269,7 @@ fun PenLabSwitchRow(
  * Material 3 [Slider], and optional editable favourite chips (tap to apply, long-press to remove,
  * plus button to save current value).
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun PenLabSliderRow(
   title: String,
@@ -307,17 +307,26 @@ fun PenLabSliderRow(
         style = PenLabTextStyles.tabularLabel,
       )
     }
+    val sliderColors =
+      SliderDefaults.colors(
+        thumbColor = scheme.primary,
+        activeTrackColor = scheme.primary,
+        inactiveTrackColor = scheme.outlineVariant,
+      )
     Slider(
       value = value.coerceIn(valueRange),
       onValueChange = onValueChange,
       valueRange = valueRange,
       enabled = enabled,
-      colors =
-        SliderDefaults.colors(
-          thumbColor = scheme.primary,
-          activeTrackColor = scheme.primary,
-          inactiveTrackColor = scheme.outlineVariant,
-        ),
+      colors = sliderColors,
+      track = { state ->
+        SliderDefaults.Track(
+          sliderState = state,
+          colors = sliderColors,
+          drawStopIndicator = null,
+          thumbTrackGapSize = 0.dp,
+        )
+      },
       modifier = Modifier.fillMaxWidth().semantics { contentDescription = title },
     )
     if (favourites.isNotEmpty() || onAddFavourite != null) {

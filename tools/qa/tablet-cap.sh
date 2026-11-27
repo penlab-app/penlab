@@ -47,7 +47,7 @@ NON_NULL_FOCUS="$(printf '%s\n' "$FOCUS_LINES" | grep -E 'mCurrentFocus=Window\{
 OTHER_FOCUS="$(printf '%s\n' "$NON_NULL_FOCUS" | grep -vE 'dev\.penlab\.app|u0 Pop-up window\}' || true)"
 
 RESUMED_LINES="$(adb_cmd shell 'dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity"' 2>/dev/null || true)"
-ACTIVE_RESUMED="$(printf '%s\n' "$RESUMED_LINES" | grep 'ActivityRecord\{' || true)"
+ACTIVE_RESUMED="$(printf '%s\n' "$RESUMED_LINES" | grep -F 'ActivityRecord{' || true)"
 PENLAB_RESUMED="$(printf '%s\n' "$ACTIVE_RESUMED" | grep 'dev\.penlab\.app' || true)"
 OTHER_RESUMED="$(printf '%s\n' "$ACTIVE_RESUMED" | grep -v 'dev\.penlab\.app' || true)"
 

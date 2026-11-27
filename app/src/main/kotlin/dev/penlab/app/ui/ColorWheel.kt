@@ -88,6 +88,14 @@ internal fun formatHexRgb(argb: Int): String =
 internal fun computeColorWheelDiameter(availableWidth: Dp, availableHeight: Dp): Dp =
   minOf(availableWidth, availableHeight, MaxWheelDiameter).coerceAtLeast(0.dp)
 
+/** Caps recent colour swatches for the bottom bar without reserving empty slots. */
+internal fun visibleRecentColors(recent: List<Int>, maxSlots: Int = RECENT_SLOTS): List<Int> =
+  recent.take(maxSlots.coerceAtLeast(0))
+
+/** Computes a normalized `[0, 1]` fraction along the HSL saturation/lightness square safely. */
+internal fun hslSquareFraction(coord: Float, center: Float, half: Float): Float =
+  if (half <= 0f) 0f else ((coord - (center - half)) / (2f * half)).coerceIn(0f, 1f)
+
 /**
  * The colour wheel (a wheel, as users asked for). Three ways to pick:
  *  - Markers: the big spinning marker wheel fanned out from the left edge (or corner wheel hub).
@@ -138,7 +146,7 @@ fun ColorWheel(
   Box(
     Modifier
       .fillMaxSize()
-      .background(scheme.scrim)
+      .background(Color.Black.copy(alpha = 0.58f))
       .pointerInput(Unit) { detectTapGestures { onDismiss() } },
   ) {
     if (mode == ColorPickerMode.MARKERS) {
@@ -226,16 +234,14 @@ fun ColorWheel(
           )
         }
 
-        // The recent-colours area always has room for all slots, so adding a colour never moves
-        // the eyedropper and Done buttons beside it.
-        Box(Modifier.size(width = 1.dp, height = 24.dp).background(scheme.outlineVariant))
-        run {
+        val shownRecent = visibleRecentColors(recent)
+        if (shownRecent.isNotEmpty()) {
+          Box(Modifier.size(width = 1.dp, height = 24.dp).background(scheme.outlineVariant))
           Row(
-            modifier = Modifier.width(PenLabSpacing.touchTarget * RECENT_SLOTS + PenLabSpacing.xs * (RECENT_SLOTS - 1)),
             horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            for (c in recent.take(RECENT_SLOTS)) {
+            for (c in shownRecent) {
               val recentScreen = toScreen(c)
               val isCurrent = recentScreen == color
               Box(
@@ -331,8 +337,10 @@ private fun HslWheel(selected: Int, screen: (Int) -> Color, diameter: Dp, onPick
         hue = a
       }
       2 -> {
-        sat = ((p.x - (c.x - half)) / (2 * half)).coerceIn(0f, 1f)
-        light = 1f - ((p.y - (c.y - half)) / (2 * half)).coerceIn(0f, 1f)
+        if (half > 0f) {
+          sat = hslSquareFraction(p.x, c.x, half)
+          light = 1f - hslSquareFraction(p.y, c.y, half)
+        }
       }
     }
     if (dragging != 0) onPick(hsl(hue, sat, light))
@@ -379,6 +387,7 @@ private fun HslWheel(selected: Int, screen: (Int) -> Color, diameter: Dp, onPick
 
     // Saturation across, lightness down, for the chosen hue.
     val half = (ringIn - 14.dp.toPx()) / 1.4142f
+    if (half <= 0f) return@Canvas
     val topLeft = Offset(center.x - half, center.y - half)
     val cells = 44 // fine enough that no banding shows
     val cell = 2f * half / cells

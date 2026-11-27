@@ -622,6 +622,25 @@ fun DockedToolbar(
     if (side.isCorner) dock.barBounds = androidx.compose.ui.geometry.Rect.Zero
     onDispose {}
   }
+  androidx.compose.runtime.DisposableEffect(side, shownItems, dock.collapsed) {
+    val activeKeys = shownItems.mapTo(HashSet()) { it.key }
+    dock.cellCenters.keys.retainAll(activeKeys)
+    if (side.isCorner) {
+      dock.gripCenters.clear()
+    } else {
+      dock.topBarCells.clear()
+    }
+    onDispose {}
+  }
+  androidx.compose.runtime.DisposableEffect(Unit) {
+    onDispose {
+      dock.cellCenters.clear()
+      dock.gripCenters.clear()
+      dock.topBarCells.clear()
+      dock.barBounds = androidx.compose.ui.geometry.Rect.Zero
+      dock.panelBounds = androidx.compose.ui.geometry.Rect.Zero
+    }
+  }
 
   // Raised above the other chrome while a panel or the wheel is open. Read here, not in the
   // screen's composable: opening the wheel must recompose only the toolbar, never the whole
@@ -1361,6 +1380,10 @@ private const val AUTO_SCROLL_DEG_PER_FRAME = 2.5f
 /** Fan-out: how far (in opening progress) each tool trails the one before it. */
 private const val FAN_LAG = 0.08f
 
+/** Returns true when the hub's tool preview well needs the inverse surface for contrast. */
+internal fun shouldUseInverseHubWell(luminance: Float, isDarkTheme: Boolean): Boolean =
+  (isDarkTheme && luminance < 0.3f) || (!isDarkTheme && luminance > 0.42f)
+
 /**
  * Picks a high-contrast well behind the hub's tool sample across both Light and Dark UI themes:
  * dark ink on a dark UI gets an inverse (light) well, and pale ink on a light UI gets an inverse
@@ -1376,11 +1399,7 @@ private fun hubWellColor(
     return scheme.surfaceContainerLow
   }
   val lum = Color(InkColors.onScreen(tool.paperColor or 0xFF000000.toInt(), darkPage)).luminance()
-  return when {
-    isDarkTheme && lum < 0.3f -> scheme.inverseSurface
-    !isDarkTheme && lum > 0.72f -> scheme.inverseSurface
-    else -> scheme.surfaceContainerLow
-  }
+  return if (shouldUseInverseHubWell(lum, isDarkTheme)) scheme.inverseSurface else scheme.surfaceContainerLow
 }
 
 
@@ -1456,6 +1475,120 @@ private fun DragBall(dock: ToolDock, tool: InkTool?, darkPage: Boolean, mmPerDp:
 }
 
 
+/** Available measurement constraints and opening side for [PanelBeside]. */
+internal data class PanelBesidePlan(
+  val maxWidthPx: Int,
+  val maxHeightPx: Int,
+  val openBelow: Boolean,
+)
+
+/**
+ * Computes maximum width/height and opening direction for a popover beside the docked toolbar
+ * so the popover shrinks/scrolls cleanly in the clear viewport space and never covers [barTop..barBottom].
+ */
+internal fun computePanelBesidePlan(
+  side: DockSide,
+  fromTopBar: Boolean,
+  anchorY: Float,
+  barLeft: Float,
+  barTop: Float,
+  barRight: Float,
+  barBottom: Float,
+  barEmpty: Boolean,
+  screenWidth: Int,
+  screenHeight: Int,
+  marginPx: Int,
+  gapPx: Int,
+  topBarGapPx: Int,
+): PanelBesidePlan {
+  val fullW = (screenWidth - 2 * marginPx).coerceAtLeast(1)
+  val fullH = (screenHeight - 2 * marginPx).coerceAtLeast(1)
+  if (fromTopBar) {
+    val maxH = ((screenHeight - marginPx) - (anchorY + topBarGapPx)).roundToInt().coerceIn(minOf(160, fullH), fullH)
+    return PanelBesidePlan(maxWidthPx = fullW, maxHeightPx = maxH, openBelow = true)
+  }
+  if (side.isCorner || barEmpty) {
+    val openBelow = anchorY < screenHeight * 0.55f
+    return PanelBesidePlan(maxWidthPx = fullW, maxHeightPx = fullH, openBelow = openBelow)
+  }
+  if (side.isVertical) {
+    val availW =
+      if (side == DockSide.LEFT) ((screenWidth - marginPx) - (barRight + gapPx)).roundToInt()
+      else ((barLeft - gapPx) - marginPx).roundToInt()
+    val maxW = availW.coerceIn(minOf(200, fullW), fullW)
+    return PanelBesidePlan(maxWidthPx = maxW, maxHeightPx = fullH, openBelow = true)
+  }
+  val spaceBelow = ((screenHeight - marginPx) - (barBottom + gapPx)).roundToInt()
+  val spaceAbove = ((barTop - gapPx) - marginPx).roundToInt()
+  val minPreferred = minOf(240, fullH)
+  val openBelow =
+    when (side) {
+      DockSide.TOP -> spaceBelow >= minPreferred || spaceBelow >= spaceAbove
+      DockSide.BOTTOM -> spaceBelow > spaceAbove && spaceAbove < minPreferred
+      else -> spaceBelow >= spaceAbove
+    }
+  val maxH = (if (openBelow) spaceBelow else spaceAbove).coerceIn(minOf(120, fullH), fullH)
+  return PanelBesidePlan(maxWidthPx = fullW, maxHeightPx = maxH, openBelow = openBelow)
+}
+
+/**
+ * Places a measured popover (`panelW × panelH`) strictly outside `barBounds` (when non-empty)
+ * and clamped within `[marginPx, screen - marginPx]`.
+ */
+internal fun computePanelBesidePosition(
+  panelW: Int,
+  panelH: Int,
+  side: DockSide,
+  fromTopBar: Boolean,
+  anchorX: Float,
+  anchorY: Float,
+  gripCenterX: Float,
+  gripCenterY: Float,
+  barLeft: Float,
+  barTop: Float,
+  barRight: Float,
+  barBottom: Float,
+  barEmpty: Boolean,
+  screenWidth: Int,
+  screenHeight: Int,
+  marginPx: Int,
+  gapPx: Int,
+  reachPx: Float,
+  topBarGapPx: Float,
+  openBelow: Boolean,
+): Pair<Int, Int> {
+  val (x, y) =
+    if (fromTopBar) {
+      (anchorX - panelW / 2f) to (anchorY + topBarGapPx)
+    } else if (!barEmpty && !side.isCorner) {
+      when {
+        side == DockSide.LEFT -> (barRight + gapPx) to (anchorY - panelH / 2f)
+        side == DockSide.RIGHT -> (barLeft - gapPx - panelW) to (anchorY - panelH / 2f)
+        openBelow -> (anchorX - panelW / 2f) to (barBottom + gapPx)
+        else -> (anchorX - panelW / 2f) to (barTop - gapPx - panelH)
+      }
+    } else {
+      when (side) {
+        DockSide.LEFT -> (anchorX + reachPx) to (anchorY - panelH / 2f)
+        DockSide.RIGHT -> (anchorX - reachPx - panelW) to (anchorY - panelH / 2f)
+        DockSide.TOP -> (anchorX - panelW / 2f) to (anchorY + reachPx)
+        DockSide.BOTTOM -> (anchorX - panelW / 2f) to (anchorY - reachPx - panelH)
+        DockSide.FLOATING ->
+          if (openBelow) (anchorX - panelW / 2f) to (anchorY + reachPx)
+          else (anchorX - panelW / 2f) to (anchorY - reachPx - panelH)
+        // From the wheel: the wheel has folded away, so the panel opens beside the round button,
+        // where the wheel was, level with the button's outer edge.
+        DockSide.TOP_LEFT -> (gripCenterX + reachPx) to (gripCenterY - reachPx)
+        DockSide.TOP_RIGHT -> (gripCenterX - reachPx - panelW) to (gripCenterY - reachPx)
+        DockSide.BOTTOM_LEFT -> (gripCenterX + reachPx) to (gripCenterY + reachPx - panelH)
+        DockSide.BOTTOM_RIGHT -> (gripCenterX - reachPx - panelW) to (gripCenterY + reachPx - panelH)
+      }
+    }
+  val clampedX = x.roundToInt().coerceIn(marginPx, maxOf(marginPx, screenWidth - panelW - marginPx))
+  val clampedY = y.roundToInt().coerceIn(marginPx, maxOf(marginPx, screenHeight - panelH - marginPx))
+  return clampedX to clampedY
+}
+
 /**
  * The open options panel, beside its cell: right of a left rail, below a top bar, towards the
  * middle of the screen from a corner wheel. Always inside the screen.
@@ -1464,13 +1597,21 @@ private fun DragBall(dock: ToolDock, tool: InkTool?, darkPage: Boolean, mmPerDp:
 private fun PanelBeside(dock: ToolDock, side: DockSide, key: Int, panel: @Composable () -> Unit) {
   val appear = remember(key) { Animatable(0f) }
   androidx.compose.runtime.LaunchedEffect(key) { appear.animateTo(1f, Motion.spring(dampingRatio = 1f, stiffness = 440f)) }
+  val barEmpty = dock.barBounds.isEmpty
+  val screenH = dock.screenHeight.coerceAtLeast(1)
+  val openBelowFloat =
+    if (!barEmpty) {
+      ((screenH - dock.barBounds.bottom) >= (dock.barBounds.top))
+    } else {
+      dock.floatY < 0.55f
+    }
   val origin =
     when (side) {
       DockSide.LEFT, DockSide.TOP_LEFT, DockSide.BOTTOM_LEFT -> TransformOrigin(0f, 0.5f)
       DockSide.RIGHT, DockSide.TOP_RIGHT, DockSide.BOTTOM_RIGHT -> TransformOrigin(1f, 0.5f)
       DockSide.TOP -> TransformOrigin(0.5f, 0f)
       DockSide.BOTTOM -> TransformOrigin(0.5f, 1f)
-      DockSide.FLOATING -> TransformOrigin(0.5f, if (dock.floatY < 0.55f) 0f else 1f)
+      DockSide.FLOATING -> TransformOrigin(0.5f, if (openBelowFloat) 0f else 1f)
     }
   androidx.compose.runtime.DisposableEffect(key) { onDispose { dock.panelBounds = androidx.compose.ui.geometry.Rect.Zero } }
   val content: @Composable () -> Unit = {
@@ -1485,37 +1626,65 @@ private fun PanelBeside(dock: ToolDock, side: DockSide, key: Int, panel: @Compos
     ) { panel() }
   }
   Layout(content = content, modifier = Modifier.fillMaxSize()) { measurables, constraints ->
-    val placeable = measurables.firstOrNull()?.measure(constraints.copy(minWidth = 0, minHeight = 0))
+    val fromTopBar = side.isCorner && key in dock.topBarCells
+    val fallbackAnchor = dock.cellCenters[MORE_CELL] ?: dock.barBounds.center.takeIf { !dock.barBounds.isEmpty }
+    val anchor = (if (fromTopBar) dock.topBarCells[key] else if (side.isCorner) dock.gripCenter else dock.cellCenters[key] ?: fallbackAnchor)
+    val margin = 8.dp.roundToPx()
+    val gap = 8.dp.roundToPx()
+    val topBarGap = 28.dp.toPx()
+    val plan =
+      computePanelBesidePlan(
+        side = side,
+        fromTopBar = fromTopBar,
+        anchorY = anchor?.y ?: (constraints.maxHeight / 2f),
+        barLeft = dock.barBounds.left,
+        barTop = dock.barBounds.top,
+        barRight = dock.barBounds.right,
+        barBottom = dock.barBounds.bottom,
+        barEmpty = dock.barBounds.isEmpty,
+        screenWidth = constraints.maxWidth,
+        screenHeight = constraints.maxHeight,
+        marginPx = margin,
+        gapPx = gap,
+        topBarGapPx = topBarGap.roundToInt(),
+      )
+    val placeable =
+      measurables.firstOrNull()?.measure(
+        constraints.copy(
+          minWidth = 0,
+          minHeight = 0,
+          maxWidth = minOf(constraints.maxWidth, plan.maxWidthPx),
+          maxHeight = minOf(constraints.maxHeight, plan.maxHeightPx),
+        )
+      )
     layout(constraints.maxWidth, constraints.maxHeight) {
       val p = placeable ?: return@layout
-      val fromTopBar = side.isCorner && key in dock.topBarCells
-      val fallbackAnchor = dock.cellCenters[MORE_CELL] ?: dock.barBounds.center.takeIf { !dock.barBounds.isEmpty }
-      val anchor = (if (fromTopBar) dock.topBarCells[key] else if (side.isCorner) dock.gripCenter else dock.cellCenters[key] ?: fallbackAnchor) ?: return@layout
+      val resolvedAnchor = anchor ?: return@layout
       val reach = if (side.isVertical) 34.dp.toPx() else 30.dp.toPx()
-      val w = p.width
-      val h = p.height
       val (x, y) =
-        if (fromTopBar) anchor.x - w / 2f to anchor.y + 28.dp.toPx() // just below the top bar button
-        else when (side) {
-          DockSide.LEFT -> anchor.x + reach to anchor.y - h / 2f
-          DockSide.RIGHT -> anchor.x - reach - w to anchor.y - h / 2f
-          DockSide.TOP -> anchor.x - w / 2f to anchor.y + reach
-          DockSide.BOTTOM -> anchor.x - w / 2f to anchor.y - reach - h
-          DockSide.FLOATING ->
-            if (anchor.y < constraints.maxHeight * 0.55f) anchor.x - w / 2f to anchor.y + reach
-            else anchor.x - w / 2f to anchor.y - reach - h
-          // From the wheel: the wheel has folded away, so the panel opens beside the round button,
-          // where the wheel was, level with the button's outer edge.
-          DockSide.TOP_LEFT -> dock.gripCenter.x + reach to dock.gripCenter.y - reach
-          DockSide.TOP_RIGHT -> dock.gripCenter.x - reach - w to dock.gripCenter.y - reach
-          DockSide.BOTTOM_LEFT -> dock.gripCenter.x + reach to dock.gripCenter.y + reach - h
-          DockSide.BOTTOM_RIGHT -> dock.gripCenter.x - reach - w to dock.gripCenter.y + reach - h
-        }
-      val margin = 8.dp.roundToPx()
-      p.place(
-        x.roundToInt().coerceIn(margin, maxOf(margin, constraints.maxWidth - w - margin)),
-        y.roundToInt().coerceIn(margin, maxOf(margin, constraints.maxHeight - h - margin)),
-      )
+        computePanelBesidePosition(
+          panelW = p.width,
+          panelH = p.height,
+          side = side,
+          fromTopBar = fromTopBar,
+          anchorX = resolvedAnchor.x,
+          anchorY = resolvedAnchor.y,
+          gripCenterX = dock.gripCenter.x,
+          gripCenterY = dock.gripCenter.y,
+          barLeft = dock.barBounds.left,
+          barTop = dock.barBounds.top,
+          barRight = dock.barBounds.right,
+          barBottom = dock.barBounds.bottom,
+          barEmpty = dock.barBounds.isEmpty,
+          screenWidth = constraints.maxWidth,
+          screenHeight = constraints.maxHeight,
+          marginPx = margin,
+          gapPx = gap,
+          reachPx = reach,
+          topBarGapPx = topBarGap,
+          openBelow = plan.openBelow,
+        )
+      p.place(x, y)
     }
   }
 }

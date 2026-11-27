@@ -11,7 +11,7 @@
 | Stage | Scope | Status | Primary Files |
 |---|---|---|---|
 | **Stage 0** | Fix `Left`/`Right` docked pill top-chrome shift, quiet-hours status-page mute, package `tools/qa/` stress & capture suite | **DONE & QA-VERIFIED** | `PresentMode.kt`, `MainActivity.kt`, `ScreenChromeTest.kt`, `tools/qa/*` |
-| **Stage 2** | Canvas Popovers, Color Wheel, Ruler/Protractor, Eyedropper & Top Chrome Collisions (`BUG-01`..`BUG-06`) | Planned | `ColorWheel.kt`, `Instruments.kt`, `InkCanvasView.kt`, `ToolDock.kt`, `ToolPanels.kt`, `CanvasTopChrome.kt`, `MainActivity.kt` |
+| **Stage 2** | Canvas Popovers, Color Wheel, Ruler/Protractor, Eyedropper & Top Chrome Collisions (`BUG-01`..`BUG-06`) | **FIXED & Tab S9 Visually Verified** | `MarkerWheel.kt`, `ColorWheel.kt`, `Instruments.kt`, `InkCanvasView.kt`, `ToolDock.kt`, `ToolPanels.kt`, `MenuAndDialogComponents.kt`, `PresentMode.kt`, `MainActivity.kt` |
 | **Stage 3** | Toolbar Pill Symmetry, Expand Icon, Selection Bar, Add from PDF & Text Box (`BUG-07`..`BUG-10`) | Planned | `ToolDock.kt`, `ToolPanels.kt`, `InkCanvasView.kt`, `PdfCropDialog.kt`, `PdfCropGeometry.kt`, `PageItems.kt`, `RequestDialog.kt`, `MainActivity.kt` |
 | **Stage 4** | Settings, Library, Search, Dialogs & Light-Theme Contrast (`BUG-11`..`BUG-13`) | Planned | `SettingsSheet.kt`, `ChromeComponents.kt`, `LibraryScreen.kt`, `LibraryCards.kt`, `SearchUi.kt`, `Covers.kt`, `ToolPanels.kt`, `MainActivity.kt` |
 | **Stage 5** | Core Lifecycle, Data-Loss, Undo Hardening & Final Lint (`BUG-14`..`BUG-17`) | Planned | `MainActivity.kt`, `InkCanvasView.kt`, `Covers.kt`, `PageStore.kt`, `FolderRepository.kt`, `FirstLaunchSheet.kt`, `Theme.kt` |
@@ -27,9 +27,11 @@
 
 ---
 
-## Stage 2 — Canvas Popovers, Color Wheel, Ruler/Protractor, Eyedropper & Top Chrome Collisions
+## Stage 2 — Canvas Popovers, Color Wheel, Ruler/Protractor, Eyedropper & Top Chrome Collisions (**FIXED & Tab S9 Visually Verified**)
 
-| ID | Sev | Finding | Screenshot / Source Refs | Fix Plan |
+> **Status (`BUG-01`..`BUG-06`):** **FIXED & Tab S9 Visually Verified** (`56` suites, `511` `:app` unit tests passing, `arm64-v8a` R8 APK verified on Tab S9).
+
+| ID | Sev | Finding (`FIXED & Tab S9 Visually Verified`) | Screenshot / Source Refs | Implemented Fix & Verification |
 |---|---|---|---|---|
 | **BUG-01** | `P0` | `ColorWheel` clipped ~40% off left screen edge when anchored near edge/corner, underlying toolbar bleeds through center hole, and bottom RGB/opacity pill stretches uncomfortably wide. | `30_color_wheel_overlay.jpg`, `ColorWheel.kt` | Clamp wheel center within `[radius + safeMargin, screenW - radius - safeMargin]`; draw opaque/scrim hub backing so underlying toolbar cannot show through; cap bottom RGB/alpha pill width cleanly (`widthIn(max = ...)`). |
 | **BUG-02** | `P0` | Ruler & Protractor spawn on top of each other near the same screen region and underneath the floating toolbar pill. | `32b_ruler_protractor_canvas.jpg`, `Instruments.kt`, `InkCanvasView.kt` | Offset default Ruler vs Protractor spawn coordinates away from each other and outside docked/floating toolbar bounds (`safeCenter` minus active toolbar rect). |

@@ -92,6 +92,10 @@
 - **Reusable QA Suite (`tools/qa/`):** Packaged `PenLabCap.java`, `penlab-cap.jar`, `tablet-cap.sh` (with `dev.penlab.app` focus + `Pop-up window` resumed-app privacy guard), `tablet-install.sh`, `ui_stress_audit.py` (with landscape `uiautomator`/display bounds detection, exact temporary notebook UUID tracking, IME-safe dialog entry, and `--self-test`), and `tools/qa/README.md`.
 - **Overnight Audit & Stages 2–5 Fix Plan:** Consolidated all verified live-screenshot findings (`Critic A`/`B`/`C` + `penlab_qa`) and static lifecycle/data-loss findings (`BUG-01`..`BUG-17`, excluding external Samsung S-Pen Air Command overlay) in [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
 
+### Stage 2 (Overnight Fix Pass — 27 Nov 2026, QA-Verified on Tab S9)
+- **Fixed `BUG-01`..`BUG-06`:** Viewport-centered `MarkerWheel` + dimmed modal backdrop + shrink-wrapped `ColorWheel` bottom pill + `HslWheel` zero-span guard (`MarkerWheel.kt`, `ColorWheel.kt`), staggered non-overlapping `Protractor`/`Ruler` spawns + baseline degree margin (`Instruments.kt`, `InkCanvasView.kt`), bar-avoidant `PanelBeside` placement + scrollable `InstrumentsPanel`/`MoreToolsPanel` + slider stop-dot removal (`ToolDock.kt`, `ToolPanels.kt`, `MenuAndDialogComponents.kt`), overflow-aligned `FileOptionsPopover` + inline top-row `RecordingPill` (`MainActivity.kt`, `PresentMode.kt`), pruned `cellCenters` + `togglePanel` wheel fold + `0.42f` Light `hubWellColor`, and Dark-themed Eyedropper/Present banners + Eyedropper `BackHandler` + `statusBarsIgnoringVisibility` + neutral `1px` page border.
+- **Verified:** `:app:testDebugUnitTest` (**56 suites, 511 tests, 0 failures** — including `InstrumentsTest`, expanded `ScreenChromeTest`, `ToolPanelHelpersTest`, `ToolbarPlacementTest`) and Tab S9 visual/hardware QA (`arm64-v8a` R8 build).
+
 ---
 
 ## 4. Critical Architecture & Performance Invariants (DO NOT BREAK)

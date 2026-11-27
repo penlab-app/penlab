@@ -2267,26 +2267,57 @@ class InkCanvasView(
   private var ruler: Ruler? = null
   private var protractor: Protractor? = null
 
+  /** Vertical span (`top..bottom` root px) of any horizontal/floating toolbar strip, if present. */
+  var horizontalToolbarSpanPx: Pair<Float, Float>? = null
+
   private val instruments: List<Instrument>
     get() = listOfNotNull(ruler, protractor)
 
   var rulerVisible: Boolean
     get() = ruler != null
     set(value) {
-      ruler = if (value) ruler ?: Ruler(unitsPerMm).also { placeLevelInView(it, 0.45f) } else null
+      ruler =
+        if (value) {
+          ruler ?: Ruler(unitsPerMm).also {
+            val (rulerY, _) = computeStaggeredInstrumentPairY(
+              viewHeightPx = height.toFloat(),
+              topClearancePx = topObstruction,
+              bottomClearancePx = bottomInset,
+              toolbarTopPx = horizontalToolbarSpanPx?.first ?: Float.NaN,
+              toolbarBottomPx = horizontalToolbarSpanPx?.second ?: Float.NaN,
+            )
+            placeLevelAtScreenY(it, rulerY)
+          }
+        } else {
+          null
+        }
       instrumentView.invalidate()
     }
 
   var protractorVisible: Boolean
     get() = protractor != null
     set(value) {
-      protractor = if (value) protractor ?: Protractor(unitsPerMm).also { placeLevelInView(it, 0.7f) } else null
+      protractor =
+        if (value) {
+          protractor ?: Protractor(unitsPerMm).also {
+            val (_, protractorY) = computeStaggeredInstrumentPairY(
+              viewHeightPx = height.toFloat(),
+              topClearancePx = topObstruction,
+              bottomClearancePx = bottomInset,
+              toolbarTopPx = horizontalToolbarSpanPx?.first ?: Float.NaN,
+              toolbarBottomPx = horizontalToolbarSpanPx?.second ?: Float.NaN,
+            )
+            placeLevelAtScreenY(it, protractorY)
+          }
+        } else {
+          null
+        }
       instrumentView.invalidate()
     }
 
-  /** Puts a new instrument in the middle of the screen, [heightShare] of the way down, level on screen. */
-  private fun placeLevelInView(instrument: Instrument, heightShare: Float) {
-    val point = floatArrayOf(width / 2f, height * heightShare)
+  /** Puts a new instrument in the horizontal middle of the screen at [screenY], level on screen. */
+  private fun placeLevelAtScreenY(instrument: Instrument, screenY: Float) {
+    val point = floatArrayOf(width / 2f, screenY)
     screenToPage.mapPoints(point)
     instrument.cx = point[0]
     instrument.cy = point[1]

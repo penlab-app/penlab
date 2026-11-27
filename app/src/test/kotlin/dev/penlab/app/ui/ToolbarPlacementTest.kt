@@ -2,6 +2,8 @@ package dev.penlab.app.ui
 
 import dev.penlab.app.ink.InkTool
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolbarPlacementTest {
@@ -106,5 +108,79 @@ class ToolbarPlacementTest {
       listOf(DockItem.Tool(0), DockItem.Tool(1), DockItem.Tool(3)),
       collapsedToolbarItems(items, tools),
     )
+  }
+
+  @Test
+  fun panelBesideNeverOverlapsFloatingOrEdgeBars() {
+    val w = 2560
+    val h = 1600
+    val margin = 16
+    val gap = 16
+    val cases = listOf(
+      DockSide.TOP to floatArrayOf(700f, 90f, 1860f, 192f),
+      DockSide.BOTTOM to floatArrayOf(700f, 1460f, 1860f, 1562f),
+      DockSide.FLOATING to floatArrayOf(700f, 740f, 1860f, 842f),
+      DockSide.FLOATING to floatArrayOf(700f, 300f, 1860f, 402f),
+      DockSide.LEFT to floatArrayOf(26f, 350f, 150f, 1250f),
+      DockSide.RIGHT to floatArrayOf(2410f, 350f, 2534f, 1250f),
+    )
+    for ((side, b) in cases) {
+      val (bLeft, bTop, bRight, bBottom) = listOf(b[0], b[1], b[2], b[3])
+      val anchorX = (bLeft + bRight) / 2f
+      val anchorY = (bTop + bBottom) / 2f
+      val plan = computePanelBesidePlan(
+        side = side,
+        fromTopBar = false,
+        anchorY = anchorY,
+        barLeft = bLeft,
+        barTop = bTop,
+        barRight = bRight,
+        barBottom = bBottom,
+        barEmpty = false,
+        screenWidth = w,
+        screenHeight = h,
+        marginPx = margin,
+        gapPx = gap,
+        topBarGapPx = 56,
+      )
+      val panelW = minOf(680, plan.maxWidthPx)
+      val panelH = minOf(1200, plan.maxHeightPx)
+      val (px, py) = computePanelBesidePosition(
+        panelW = panelW,
+        panelH = panelH,
+        side = side,
+        fromTopBar = false,
+        anchorX = anchorX,
+        anchorY = anchorY,
+        gripCenterX = anchorX,
+        gripCenterY = anchorY,
+        barLeft = bLeft,
+        barTop = bTop,
+        barRight = bRight,
+        barBottom = bBottom,
+        barEmpty = false,
+        screenWidth = w,
+        screenHeight = h,
+        marginPx = margin,
+        gapPx = gap,
+        reachPx = 64f,
+        topBarGapPx = 56f,
+        openBelow = plan.openBelow,
+      )
+      assertTrue("x out of bounds for $side", px >= margin && px + panelW <= w - margin)
+      assertTrue("y out of bounds for $side", py >= margin && py + panelH <= h - margin)
+      val overlapsHorizontally = px < bRight && (px + panelW) > bLeft
+      val overlapsVertically = py < bBottom && (py + panelH) > bTop
+      assertFalse("Popover overlaps barBounds for $side ($px,$py $panelW x $panelH)", overlapsHorizontally && overlapsVertically)
+    }
+  }
+
+  @Test
+  fun lightHubWellThresholdCatchesMidBrightInks() {
+    assertFalse(shouldUseInverseHubWell(0.41f, isDarkTheme = false))
+    assertTrue(shouldUseInverseHubWell(0.43f, isDarkTheme = false))
+    assertTrue(shouldUseInverseHubWell(0.75f, isDarkTheme = false))
+    assertTrue(shouldUseInverseHubWell(0.20f, isDarkTheme = true))
+    assertFalse(shouldUseInverseHubWell(0.50f, isDarkTheme = true))
   }
 }

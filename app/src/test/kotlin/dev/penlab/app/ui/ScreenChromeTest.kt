@@ -78,4 +78,24 @@ class ScreenChromeTest {
       assertEquals(base, topChromeHorizontalPaddingDp(base, side), 0f)
     }
   }
+
+  @Test
+  fun presentCornerPillAddsExtraClearanceOnlyWhenPeekingToolbar() {
+    assertEquals(16f to 16f, presentCornerPillMarginsDp(16f, toolsPeeking = false, side = DockSide.RIGHT, 70f, 60f))
+    assertEquals(86f to 16f, presentCornerPillMarginsDp(16f, toolsPeeking = true, side = DockSide.RIGHT, 70f, 60f))
+    assertEquals(16f to 76f, presentCornerPillMarginsDp(16f, toolsPeeking = true, side = DockSide.BOTTOM, 70f, 60f))
+    assertEquals(16f to 76f, presentCornerPillMarginsDp(16f, toolsPeeking = true, side = DockSide.BOTTOM_RIGHT, 70f, 60f))
+  }
+
+  @Test
+  fun topRowLeftOccupiedIncludesMediaPillWhenVisibleOnTopBar() {
+    assertEquals(200f, topRowLeftOccupiedDp(200f, mediaPillVisibleOnTopBar = false, mediaPillWidthDp = 120f, gapDp = 8f), 0f)
+    assertEquals(328f, topRowLeftOccupiedDp(200f, mediaPillVisibleOnTopBar = true, mediaPillWidthDp = 120f, gapDp = 8f), 0f)
+  }
+
+  @Test
+  fun fileOptionsPopoverAnchorsUnderOverflowButton() {
+    assertEquals(260, dev.penlab.app.fileOptionsPopoverOffsetPx(pillWidthPx = 356, popoverWidthPx = 568, buttonWidthPx = 96))
+    assertEquals(100, dev.penlab.app.fileOptionsPopoverOffsetPx(pillWidthPx = 668, popoverWidthPx = 568, buttonWidthPx = 96))
+  }
 }

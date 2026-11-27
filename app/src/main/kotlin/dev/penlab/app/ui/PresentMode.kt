@@ -108,3 +108,29 @@ internal fun topChromeHorizontalPaddingDp(baseDp: Float, side: DockSide = DockSi
   return baseDp
 }
 
+/**
+ * Computes `(endDp, bottomDp)` margins for the Present mode floating corner pill so it clears a
+ * peeking right-edge pill or bottom toolbar only when [toolsPeeking] is true.
+ */
+internal fun presentCornerPillMarginsDp(
+  baseDp: Float,
+  toolsPeeking: Boolean,
+  side: DockSide,
+  railClearanceDp: Float,
+  bottomBarClearanceDp: Float,
+): Pair<Float, Float> {
+  val end = baseDp + if (toolsPeeking && side == DockSide.RIGHT) railClearanceDp else 0f
+  val bottom = baseDp + if (toolsPeeking && (side == DockSide.BOTTOM || side == DockSide.BOTTOM_RIGHT)) bottomBarClearanceDp else 0f
+  return end to bottom
+}
+
+/** Computes total top-left clearance (`dp`) reserved before inline [DockSide.TOP] bars. */
+internal fun topRowLeftOccupiedDp(
+  filePillWidthDp: Float,
+  mediaPillVisibleOnTopBar: Boolean,
+  mediaPillWidthDp: Float,
+  gapDp: Float,
+): Float =
+  if (mediaPillVisibleOnTopBar && mediaPillWidthDp > 0f) filePillWidthDp + gapDp + mediaPillWidthDp
+  else filePillWidthDp
+

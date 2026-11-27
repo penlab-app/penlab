@@ -107,4 +107,42 @@ class ToolPanelHelpersTest {
     assertEquals(3, swatchesWithCustom(part, 3).size)
     assertTrue(swatchesWithCustom(emptyList(), 5).isEmpty())
   }
+
+  @Test
+  fun markerWheelCenteredAndInsideViewportMargins() {
+    val margin = 48f
+    val top = 64f
+    val bottom = 192f
+    val layout = computeMarkerWheelLayout(
+      widthPx = 2560f,
+      heightPx = 1600f,
+      topReservePx = top,
+      bottomReservePx = bottom,
+      marginPx = margin,
+      baseGreyStartPx = 140f,
+      baseSpokeStartPx = 336f,
+    )
+    assertEquals(1280f, layout.centerX, 0.5f)
+    assertTrue(layout.centerX - layout.radius >= margin - 0.5f)
+    assertTrue(layout.centerX + layout.radius <= 2560f - margin + 0.5f)
+    assertTrue(layout.centerY - layout.radius >= top + margin - 0.5f)
+    assertTrue(layout.centerY + layout.radius <= 1600f - bottom - margin + 0.5f)
+    assertTrue(layout.greyStartPx >= 1f && layout.greyStartPx < layout.spokeStartPx)
+    assertTrue(layout.spokeStartPx < layout.radius)
+  }
+
+  @Test
+  fun visibleRecentColorsShrinksWhenEmptyAndCapsAtLimit() {
+    assertTrue(visibleRecentColors(emptyList()).isEmpty())
+    assertEquals(listOf(1, 2, 3), visibleRecentColors(listOf(1, 2, 3)))
+    assertEquals(8, visibleRecentColors((1..12).toList()).size)
+  }
+
+  @Test
+  fun hslSquareFractionGuardsZeroHalfSpan() {
+    assertEquals(0f, hslSquareFraction(100f, 100f, 0f), 0f)
+    assertEquals(0f, hslSquareFraction(100f, 100f, -5f), 0f)
+    assertFalse(hslSquareFraction(100f, 100f, 0f).isNaN())
+    assertEquals(0.5f, hslSquareFraction(100f, 100f, 40f), 0.001f)
+  }
 }

@@ -237,8 +237,11 @@ class Protractor(unitsPerMm: Float) : Instrument(unitsPerMm) {
       val sa = sin(a).toFloat()
       canvas.drawLine(ca * r, sa * r, ca * (r - tickLength), sa * (r - tickLength), style.tick)
       if (deg % 10 == 0) {
-        val labelRadius = r - 11f * mm
-        canvas.drawText("$deg", ca * labelRadius, sa * labelRadius + style.label.textSize / 3f, style.label)
+        val labelRadius = r - 12f * mm
+        val y =
+          if (deg == 0 || deg == 180) -style.label.textSize * 0.45f
+          else sa * labelRadius + style.label.textSize / 3f
+        canvas.drawText("$deg", ca * labelRadius, y, style.label)
       }
     }
     // Centre mark: where angles are measured from.
@@ -247,4 +250,43 @@ class Protractor(unitsPerMm: Float) : Instrument(unitsPerMm) {
     canvas.drawLine(0f, -c, 0f, c, style.edge)
     canvas.restore()
   }
+}
+
+/**
+ * Computes staggered initial screen-Y positions `(rulerY, protractorY)` in pixels so the
+ * [Protractor] (whose arc rises above its base `cy`) sits in the upper half and the [Ruler] sits
+ * in the lower half, clear of [topClearancePx], [bottomClearancePx], and any horizontal/floating
+ * toolbar band.
+ */
+internal fun computeStaggeredInstrumentPairY(
+  viewHeightPx: Float,
+  topClearancePx: Float,
+  bottomClearancePx: Float,
+  toolbarTopPx: Float = Float.NaN,
+  toolbarBottomPx: Float = Float.NaN,
+): Pair<Float, Float> {
+  if (viewHeightPx <= 0f) return 0f to 0f
+  val safeTop = (topClearancePx + 140f).coerceAtMost(viewHeightPx * 0.45f)
+  val safeBottom = (viewHeightPx - bottomClearancePx - 80f).coerceAtLeast(safeTop + 120f)
+  var protractorY = (viewHeightPx * 0.38f).coerceIn(safeTop, maxOf(safeTop, safeBottom - 160f))
+  var rulerY = (viewHeightPx * 0.68f).coerceIn(minOf(safeBottom, protractorY + 180f), safeBottom)
+
+  if (!toolbarTopPx.isNaN() && !toolbarBottomPx.isNaN() && toolbarBottomPx > toolbarTopPx) {
+    val toolbarMid = (toolbarTopPx + toolbarBottomPx) / 2f
+    val pad = 44f
+    if (rulerY in (toolbarTopPx - pad)..(toolbarBottomPx + pad)) {
+      val below = (toolbarBottomPx + pad).coerceAtMost(safeBottom)
+      val above = (toolbarTopPx - pad).coerceAtLeast(protractorY + 140f)
+      rulerY = if (below - toolbarBottomPx >= pad * 0.8f) below else above
+    }
+    if (protractorY in (toolbarTopPx - pad)..(toolbarBottomPx + pad)) {
+      protractorY =
+        if (toolbarMid < viewHeightPx * 0.45f) {
+          (toolbarBottomPx + pad).coerceAtMost(rulerY - 140f)
+        } else {
+          (toolbarTopPx - pad).coerceAtLeast(safeTop)
+        }
+    }
+  }
+  return rulerY to protractorY
 }

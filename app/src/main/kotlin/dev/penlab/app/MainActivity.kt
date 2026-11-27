@@ -31,6 +31,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
@@ -38,11 +39,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.mandatorySystemGestures
 import androidx.compose.foundation.layout.union
@@ -72,6 +75,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -143,7 +147,6 @@ import dev.penlab.app.ui.SelectionPluginAction
 import dev.penlab.app.ui.components.PenLabChromePill
 import dev.penlab.app.ui.components.PenLabDialog
 import dev.penlab.app.ui.components.PenLabIconButton
-import dev.penlab.app.ui.components.PenLabSnackbar
 import dev.penlab.app.ui.ignorePalm
 import dev.penlab.app.ui.placeSelectionBar
 import dev.penlab.app.ui.presentPillAlpha
@@ -211,8 +214,11 @@ import dev.penlab.app.ui.RenameDialog
 import dev.penlab.app.ui.DockSide
 import dev.penlab.app.ui.DockInsets
 import dev.penlab.app.ui.RailWidth
+import dev.penlab.app.ui.BarHeight
 import dev.penlab.app.ui.ToolbarMessage
+import dev.penlab.app.ui.presentCornerPillMarginsDp
 import dev.penlab.app.ui.topChromeHorizontalPaddingDp
+import dev.penlab.app.ui.topRowLeftOccupiedDp
 import dev.penlab.app.ui.ViewPanel
 import dev.penlab.app.ui.ViewSettings
 import dev.penlab.app.ui.theme.Accent
@@ -1881,7 +1887,30 @@ private const val KEY_ZOOM_STEP = 1.25f
 /** Height of the top floating island row plus its margins when the center bar drops to row 2. */
 private val TOP_BUTTONS_HEIGHT = BarHeight + 20.dp
 
+/** Picks a context-aware fallback icon for external plugin rows without custom `@drawable` icons. */
+internal fun pluginFallbackIcon(label: String): androidx.compose.ui.graphics.vector.ImageVector {
+  val lower = label.lowercase()
+  return when {
+    "record" in lower || "audio" in lower || "mic" in lower -> PenLabIcons.Microphone
+    else -> IdeaIcon
+  }
+}
+
+/**
+ * Horizontal pixel offset for [FileOptionsPopover] inside the top-left chrome column so it
+ * anchors cleanly under the `⋮` overflow button instead of under `<`.
+ */
+internal fun fileOptionsPopoverOffsetPx(pillWidthPx: Int, popoverWidthPx: Int, buttonWidthPx: Int): Int {
+  if (pillWidthPx <= 0 || popoverWidthPx <= 0) return 0
+  return if (pillWidthPx >= popoverWidthPx) {
+    pillWidthPx - popoverWidthPx
+  } else {
+    (pillWidthPx - buttonWidthPx).coerceAtLeast(0)
+  }
+}
+
 /** The canvas screen: edge-to-edge paper, 3-island floating top chrome, and customizable toolbar. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NoteScreen(
   canvas: InkCanvasView,
@@ -2042,15 +2071,18 @@ private fun NoteScreen(
     selectionMoreOpen = false
     if (topBarToo) closeTopBarOverlays()
   }
-  fun openSettings() {
-    closeOverlays(topBarToo = true)
-    onOpenSettings()
-  }
-
   var colorWheelFor by remember { mutableStateOf<Int?>(null) }
   var eyedropperOn by remember { mutableStateOf(false) }
   var renamingLayer by remember { mutableStateOf<Int?>(null) }
+  fun openSettings() {
+    eyedropperOn = false
+    canvas.onColorSampled = null
+    closeOverlays(topBarToo = true)
+    onOpenSettings()
+  }
   fun hidePeekingTools() {
+    eyedropperOn = false
+    canvas.onColorSampled = null
     toolsPeeking = false
     closeOverlays(topBarToo = true)
     colorWheelFor = null
@@ -2100,11 +2132,13 @@ private fun NoteScreen(
   // the parent: overlay first, then a selection, then Present, then full screen; otherwise it is off and Back leaves.
   val anyOverlayOpen =
     openPanel != null || dock.wheelOpen || pasteMenuAt != null || selectionMoreOpen ||
-      topBarOverlayOpen() || colorWheelFor != null
+      topBarOverlayOpen() || colorWheelFor != null || eyedropperOn
   BackHandler(enabled = anyOverlayOpen || selectionRect != null || present || fullScreen) {
     when (backAction(anyOverlayOpen, present, fullScreen, selection = selectionRect != null)) {
       BackAction.CLOSE_OVERLAYS -> {
         colorWheelFor?.let { slot -> tools.getOrNull(slot)?.let { toolSettings.addRecentColor(it.paperColor) } }
+        eyedropperOn = false
+        canvas.onColorSampled = null
         closeOverlays(topBarToo = true)
         colorWheelFor = null
       }
@@ -2229,6 +2263,7 @@ private fun NoteScreen(
   }
 
   fun togglePanel(cell: Int) {
+    dock.wheelOpen = false
     if (openPanel == cell) {
       openPanel = null
     } else {
@@ -2266,12 +2301,23 @@ private fun NoteScreen(
   }
 
   val isPalm = { canvas.isPenWriting }
-  val edgeAccent = androidx.compose.material3.MaterialTheme.colorScheme.primary
-  LaunchedEffect(edgeAccent, darkPage) { canvas.pageEdgeAccent = InkColors.pageEdgeAccent(edgeAccent.toArgb(), darkPage) }
+  // Neutral subtle 1px border (InkColors.pageEdgeOnScreen) prevents harsh bright framing under top chrome.
+  canvas.pageEdgeAccent = null
 
-  // Measure left & right floating island widths so DockedToolbar knows the exact free middle span.
+  // Fade top chrome and toolbar smoothly while ColorWheel is open so underlying pills never bleed through.
+  val topChromeAlpha by androidx.compose.animation.core.animateFloatAsState(
+    targetValue = if (colorWheelFor != null) 0f else 1f,
+    animationSpec = Motion.tween(120),
+    label = "topChromeAlpha",
+  )
+
+  // Measure left, right, and recording floating island widths so DockedToolbar knows the free middle span.
   var leftIslandWidthPx by remember { mutableIntStateOf(0) }
   var rightIslandWidthPx by remember { mutableIntStateOf(0) }
+  var mediaPillWidthPx by remember { mutableIntStateOf(0) }
+  var optionsPopoverWidthPx by remember { mutableIntStateOf(0) }
+  val topBarMediaEntries = mediaEntries().filter { it.capability.placement == MediaPlacement.TOP_BAR }
+  val showMediaPill = chrome.mediaPill && (mediaSession != null || (chrome.topBar && topBarMediaEntries.isNotEmpty()))
 
   Box(
     Modifier.fillMaxSize().pointerInput(dock) {
@@ -2299,19 +2345,29 @@ private fun NoteScreen(
 
     val density = LocalDensity.current
     val safe = WindowInsets.safeDrawing
-    val statusTopPx = WindowInsets.statusBars.getTop(density)
+    val topStatusInsets =
+      if (chrome.systemBarsHidden) WindowInsets.statusBars
+      else WindowInsets.statusBarsIgnoringVisibility
+    val statusTopPx = topStatusInsets.getTop(density)
     val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
     // Back (sides) and Home (bottom) swipe zones: the corner wheel keeps clear of them.
     val gestureZones = WindowInsets.systemGestures.union(WindowInsets.mandatorySystemGestures)
     val insets =
       with(density) {
+        val leftOccupiedDp =
+          topRowLeftOccupiedDp(
+            filePillWidthDp = leftIslandWidthPx.toDp().value,
+            mediaPillVisibleOnTopBar = showMediaPill && chrome.topBar,
+            mediaPillWidthDp = mediaPillWidthPx.toDp().value,
+            gapDp = PenLabSpacing.sm.value,
+          ).dp
         DockInsets(
           top = statusTopPx.toDp(),
           bottom = safe.getBottom(density).toDp(),
           left = safe.getLeft(density, layoutDirection).toDp(),
           right = safe.getRight(density, layoutDirection).toDp(),
           topButtons = TOP_BUTTONS_HEIGHT,
-          topRowLeftClearance = leftIslandWidthPx.toDp(),
+          topRowLeftClearance = leftOccupiedDp,
           topRowRightClearance = rightIslandWidthPx.toDp(),
           topChromeVisible = chrome.topBar,
           gestureLeft = gestureZones.getLeft(density, layoutDirection).toDp(),
@@ -2389,6 +2445,12 @@ private fun NoteScreen(
       }
     }
 
+    androidx.compose.runtime.SideEffect {
+      canvas.horizontalToolbarSpanPx =
+        if (!chrome.toolbar || dock.dragging || dock.side.isVertical || dock.side.isCorner || dock.barBounds.isEmpty) null
+        else dock.barBounds.top to dock.barBounds.bottom
+    }
+
     if (chrome.toolbar) DockedToolbar(
       dock = dock,
       items = dockItems,
@@ -2415,7 +2477,7 @@ private fun NoteScreen(
         if (!present) canvas.setBottomInset(bottom)
       },
       instrumentsActive = rulerOn || protractorOn,
-      modifier = Modifier.fillMaxSize(), // raises itself above other chrome while open (inside DockedToolbar)
+      modifier = Modifier.fillMaxSize().graphicsLayer { alpha = topChromeAlpha }, // raises itself above other chrome while open (inside DockedToolbar)
     ) {
       when (shownPanel) {
         MORE_CELL -> {
@@ -2454,7 +2516,7 @@ private fun NoteScreen(
             pluginItems =
               moreMenuActions().map { entry ->
                 MenuAction(
-                  icon = IdeaIcon,
+                  icon = pluginFallbackIcon(entry.capability.label),
                   label = entry.capability.label,
                   onClick = {
                     openPanel = null
@@ -2689,13 +2751,6 @@ private fun NoteScreen(
     }
 
     val topChromeZ = if (topBarOverlayOpen()) 3f else 2f
-    // The colour/marker wheel fans out under the top islands, so while it is open they fade away
-    // (and the wheel sits above them, see below): every visible swatch is then tappable.
-    val topChromeAlpha by androidx.compose.animation.core.animateFloatAsState(
-      targetValue = if (colorWheelFor != null) 0f else 1f,
-      animationSpec = Motion.tween(120),
-      label = "topChromeAlpha",
-    )
 
     if (chrome.topBar) {
       // ---- Left Floating Island + Popovers ----
@@ -2705,7 +2760,7 @@ private fun NoteScreen(
             .align(Alignment.TopStart)
             .zIndex(topChromeZ)
             .graphicsLayer { alpha = topChromeAlpha }
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(topStatusInsets)
             .padding(top = PenLabSpacing.md, start = topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp),
         horizontalAlignment = Alignment.Start,
       ) {
@@ -2792,7 +2847,7 @@ private fun NoteScreen(
             pluginActions =
               pluginActions(true).map { entry ->
                 MenuAction(
-                  icon = IdeaIcon,
+                  icon = pluginFallbackIcon(entry.capability.label),
                   label = entry.capability.label,
                   onClick = {
                     closeOverlays(topBarToo = true)
@@ -2814,7 +2869,14 @@ private fun NoteScreen(
                   )
                 },
             isPalm = isPalm,
-            modifier = Modifier.onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
+            modifier =
+              Modifier
+                .onSizeChanged { optionsPopoverWidthPx = it.width }
+                .offset {
+                  val buttonW = with(density) { 48.dp.roundToPx() }
+                  IntOffset(fileOptionsPopoverOffsetPx(leftIslandWidthPx, optionsPopoverWidthPx, buttonW), 0)
+                }
+                .onGloballyPositioned { topBarBounds[2] = it.boundsInRoot() },
           )
         }
       }
@@ -2829,7 +2891,7 @@ private fun NoteScreen(
             .align(Alignment.TopEnd)
             .zIndex(topChromeZ)
             .graphicsLayer { alpha = topChromeAlpha }
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(topStatusInsets)
             .padding(top = PenLabSpacing.md, end = topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp),
         horizontalAlignment = Alignment.End,
       ) {
@@ -2983,17 +3045,30 @@ private fun NoteScreen(
       for (i in 0..3) topBarBounds[i] = null // [4], the recording pill, stays: it is shown in full screen too
     }
 
-    // ---- Recording pill (lecture recording plugin): under the left island; stays in full screen, hidden in Present ----
-    val topBarMediaEntries = mediaEntries().filter { it.capability.placement == MediaPlacement.TOP_BAR }
-    if (chrome.mediaPill && (mediaSession != null || (chrome.topBar && topBarMediaEntries.isNotEmpty()))) {
-      DisposableEffect(Unit) { onDispose { topBarBounds[4] = null } }
+    // ---- Recording pill (lecture recording plugin): inline beside left island on top row; stays in full screen, hidden in Present ----
+    if (showMediaPill) {
+      DisposableEffect(Unit) {
+        onDispose {
+          topBarBounds[4] = null
+          mediaPillWidthPx = 0
+        }
+      }
+      val startPad =
+        if (chrome.topBar) {
+          topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp +
+            with(density) { leftIslandWidthPx.toDp() } +
+            PenLabSpacing.sm
+        } else {
+          PenLabSpacing.md + railLeft
+        }
       Box(
         Modifier
           .align(Alignment.TopStart)
           .zIndex(2f)
           .graphicsLayer { alpha = topChromeAlpha }
-          .windowInsetsPadding(WindowInsets.statusBars)
-          .padding(top = if (chrome.topBar) TOP_BUTTONS_HEIGHT + PenLabSpacing.xs else PenLabSpacing.md, start = PenLabSpacing.md + railLeft)
+          .windowInsetsPadding(topStatusInsets)
+          .padding(top = PenLabSpacing.md, start = startPad)
+          .onSizeChanged { mediaPillWidthPx = it.width }
           .onGloballyPositioned { topBarBounds[4] = it.boundsInRoot() },
       ) {
         val live = mediaSession
@@ -3031,7 +3106,7 @@ private fun NoteScreen(
           Modifier
             .align(Alignment.TopEnd)
             .zIndex(3f)
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .windowInsetsPadding(topStatusInsets)
             .padding(top = PenLabSpacing.md, end = topChromeHorizontalPaddingDp(PenLabSpacing.md.value, dock.side).dp)
             .graphicsLayer { alpha = FULLSCREEN_EXIT_ALPHA },
       ) {
@@ -3049,6 +3124,14 @@ private fun NoteScreen(
         animationSpec = Motion.tween(160),
         label = "presentPillAlpha",
       )
+      val (presentEndDp, presentBottomDp) =
+        presentCornerPillMarginsDp(
+          baseDp = PenLabSpacing.lg.value,
+          toolsPeeking = toolsPeeking,
+          side = dock.side,
+          railClearanceDp = (RailWidth + 12.dp).value,
+          bottomBarClearanceDp = (BarHeight + 12.dp).value,
+        )
       PenLabChromePill(
         isPalm = isPalm,
         contentPadding = PaddingValues(horizontal = 2.dp),
@@ -3057,7 +3140,7 @@ private fun NoteScreen(
             .align(Alignment.BottomEnd)
             .zIndex(3f)
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(end = PenLabSpacing.lg + railRight, bottom = PenLabSpacing.lg)
+            .padding(end = presentEndDp.dp, bottom = presentBottomDp.dp)
             .graphicsLayer { alpha = presentPillAlphaAnim },
       ) {
         PenLabIconButton(
@@ -3093,8 +3176,10 @@ private fun NoteScreen(
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(bottom = 20.dp),
       ) {
-        PenLabSnackbar(
+        ToolbarMessage(
           message = PRESENT_HINT_MESSAGE,
+          actionLabel = null,
+          onAction = {},
           modifier = Modifier.ignorePalm(isPalm),
         )
       }

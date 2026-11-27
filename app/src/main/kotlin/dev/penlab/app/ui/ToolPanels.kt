@@ -33,6 +33,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -90,6 +91,7 @@ import dev.penlab.app.ui.theme.PenLabLayout
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.PenLabTextStyles
+import dev.penlab.app.ui.theme.floatingChromeSurface
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
@@ -540,40 +542,45 @@ fun InstrumentsPanel(
 ) {
   PenLabPopoverSurface(
     isPalm = isPalm,
-    modifier = modifier.width(308.dp),
+    modifier = modifier.width(308.dp).heightIn(max = 580.dp),
     contentPadding = PaddingValues(PenLabSpacing.md),
-    verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
+    verticalArrangement = Arrangement.Top,
   ) {
-    PenLabSwitchRow(
-      label = "Ruler",
-      subtitle = "Draw crisp straight edges & measure",
-      icon = PenLabIcons.Ruler,
-      checked = rulerOn,
-      onCheckedChange = onRuler,
-    )
-    PenLabSwitchRow(
-      label = "Protractor",
-      subtitle = "Measure angles & trace arcs",
-      icon = PenLabIcons.Protractor,
-      checked = protractorOn,
-      onCheckedChange = onProtractor,
-    )
-    if (onShapeSnapping != null) {
-      PanelDivider()
+    Column(
+      modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
+    ) {
       PenLabSwitchRow(
-        label = "Hold to snap shapes",
-        subtitle = "Pause at stroke end to perfect lines & curves",
-        icon = PenLabIcons.Shapes,
-        checked = shapeSnappingOn,
-        onCheckedChange = onShapeSnapping,
+        label = "Ruler",
+        subtitle = "Draw crisp straight edges & measure",
+        icon = PenLabIcons.Ruler,
+        checked = rulerOn,
+        onCheckedChange = onRuler,
+      )
+      PenLabSwitchRow(
+        label = "Protractor",
+        subtitle = "Measure angles & trace arcs",
+        icon = PenLabIcons.Protractor,
+        checked = protractorOn,
+        onCheckedChange = onProtractor,
+      )
+      if (onShapeSnapping != null) {
+        PanelDivider()
+        PenLabSwitchRow(
+          label = "Hold to snap shapes",
+          subtitle = "Pause at stroke end to perfect lines & curves",
+          icon = PenLabIcons.Shapes,
+          checked = shapeSnappingOn,
+          onCheckedChange = onShapeSnapping,
+        )
+      }
+      Text(
+        text = "Drag instruments with one finger, turn with two.",
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(top = PenLabSpacing.xs, start = PenLabSpacing.xs),
       )
     }
-    Text(
-      text = "Drag instruments with one finger, turn with two.",
-      color = MaterialTheme.colorScheme.onSurfaceVariant,
-      style = MaterialTheme.typography.bodySmall,
-      modifier = Modifier.padding(top = PenLabSpacing.xs, start = PenLabSpacing.xs),
-    )
   }
 }
 
@@ -601,78 +608,83 @@ fun MoreToolsPanel(
   val scheme = MaterialTheme.colorScheme
   PenLabPopoverSurface(
     isPalm = isPalm,
-    modifier = modifier.width(256.dp),
+    modifier = modifier.width(256.dp).heightIn(max = 580.dp),
     contentPadding = PaddingValues(vertical = PenLabSpacing.sm, horizontal = 6.dp),
-    verticalArrangement = Arrangement.spacedBy(2.dp),
+    verticalArrangement = Arrangement.Top,
   ) {
-    Text(
-      text = "Insert",
-      color = scheme.onSurfaceVariant,
-      style = MaterialTheme.typography.labelMedium,
-      modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
-    )
-    PenLabMenuItem(label = "Add from PDF", icon = PenLabIcons.Pdf, onClick = onAddFromPdf)
-    PenLabMenuItem(label = "Add image", icon = PenLabIcons.Image, onClick = onAddImage)
-    PenLabMenuItem(label = "Text box", icon = PenLabIcons.Text, onClick = onSelectTextBox)
+    Column(
+      modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+      Text(
+        text = "Insert",
+        color = scheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+      )
+      PenLabMenuItem(label = "Add from PDF", icon = PenLabIcons.Pdf, onClick = onAddFromPdf)
+      PenLabMenuItem(label = "Add image", icon = PenLabIcons.Image, onClick = onAddImage)
+      PenLabMenuItem(label = "Text box", icon = PenLabIcons.Text, onClick = onSelectTextBox)
 
-    HorizontalDivider(
-      color = scheme.outlineVariant,
-      thickness = 1.dp,
-      modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
-    )
-
-    Text(
-      text = "Pens",
-      color = scheme.onSurfaceVariant,
-      style = MaterialTheme.typography.labelMedium,
-      modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
-    )
-    PenLabMenuItem(label = "Highlighter", icon = PenLabIcons.Highlighter, onClick = onSelectHighlighter)
-
-    HorizontalDivider(
-      color = scheme.outlineVariant,
-      thickness = 1.dp,
-      modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
-    )
-
-    Text(
-      text = "Canvas",
-      color = scheme.onSurfaceVariant,
-      style = MaterialTheme.typography.labelMedium,
-      modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
-    )
-    PenLabMenuItem(label = "Layers", icon = PenLabIcons.Layers, onClick = onOpenLayers)
-
-    if (pluginItems.isNotEmpty()) {
       HorizontalDivider(
         color = scheme.outlineVariant,
         thickness = 1.dp,
         modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
       )
+
       Text(
-        text = "Plugins",
+        text = "Pens",
         color = scheme.onSurfaceVariant,
         style = MaterialTheme.typography.labelMedium,
         modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
       )
-      for (action in pluginItems) {
-        PluginMenuRow(action.label, action.onClick, action.icon, action.iconRes, action.iconBitmap)
+      PenLabMenuItem(label = "Highlighter", icon = PenLabIcons.Highlighter, onClick = onSelectHighlighter)
+
+      HorizontalDivider(
+        color = scheme.outlineVariant,
+        thickness = 1.dp,
+        modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
+      )
+
+      Text(
+        text = "Canvas",
+        color = scheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+      )
+      PenLabMenuItem(label = "Layers", icon = PenLabIcons.Layers, onClick = onOpenLayers)
+
+      if (pluginItems.isNotEmpty()) {
+        HorizontalDivider(
+          color = scheme.outlineVariant,
+          thickness = 1.dp,
+          modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
+        )
+        Text(
+          text = "Plugins",
+          color = scheme.onSurfaceVariant,
+          style = MaterialTheme.typography.labelMedium,
+          modifier = Modifier.padding(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.xs),
+        )
+        for (action in pluginItems) {
+          PluginMenuRow(action.label, action.onClick, action.icon, action.iconRes, action.iconBitmap)
+        }
       }
+
+      HorizontalDivider(
+        color = scheme.outlineVariant,
+        thickness = 1.dp,
+        modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
+      )
+
+      PenLabMenuItem(
+        label = "Clear page",
+        icon = PenLabIcons.Clear,
+        destructive = true,
+        enabled = canClear,
+        onClick = onClearPage,
+      )
     }
-
-    HorizontalDivider(
-      color = scheme.outlineVariant,
-      thickness = 1.dp,
-      modifier = Modifier.padding(vertical = PenLabSpacing.xs, horizontal = PenLabSpacing.sm),
-    )
-
-    PenLabMenuItem(
-      label = "Clear page",
-      icon = PenLabIcons.Clear,
-      destructive = true,
-      enabled = canClear,
-      onClick = onClearPage,
-    )
   }
 }
 
@@ -936,17 +948,48 @@ fun PaperPanelContent(
 }
 
 /**
- * A short message with one action ("Page cleared · Undo"), in the same shape as the toolbar so
- * it reads as the toolbar speaking, not as a system alert.
+ * A short message with one action ("Page cleared · Undo"), in the same chrome-pill shape as the
+ * toolbar so it reads as part of the UI across both Light and Dark themes without glaring glare.
  */
 @Composable
 fun ToolbarMessage(message: String, actionLabel: String?, onAction: () -> Unit, modifier: Modifier = Modifier) {
-  PenLabSnackbar(
-    message = message,
-    actionLabel = actionLabel,
-    onAction = if (actionLabel != null) onAction else null,
-    modifier = modifier,
-  )
+  val scheme = MaterialTheme.colorScheme
+  val isDark = LocalPenLabColors.current.isDark
+  Row(
+    modifier =
+      modifier
+        .floatingChromeSurface(
+          shape = CircleShape,
+          background = PenLabComponentTokens.chromePillBg,
+          elevation = 10.dp,
+          subtleLightHairline = true,
+          borderColor = PenLabComponentTokens.chromePillBorder,
+          isDark = isDark,
+        )
+        .heightIn(min = PenLabSpacing.touchTarget)
+        .padding(start = PenLabSpacing.lg, end = if (actionLabel != null) PenLabSpacing.xs else PenLabSpacing.lg),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Text(
+      text = message,
+      color = scheme.onSurface,
+      style = MaterialTheme.typography.bodyMedium,
+      modifier = Modifier.padding(vertical = PenLabSpacing.sm),
+    )
+    if (actionLabel != null) {
+      Spacer(Modifier.width(PenLabSpacing.sm))
+      TextButton(
+        onClick = onAction,
+        modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+      ) {
+        Text(
+          text = actionLabel,
+          color = scheme.primary,
+          style = MaterialTheme.typography.labelLarge,
+        )
+      }
+    }
+  }
 }
 
 @Composable
@@ -977,11 +1020,11 @@ internal fun LinePreview(
       .background(paper)
       .border(0.5.dp, edge, shape)
   ) {
-    val d = 2.dp.toPx()
+    val d = 2.4.dp.toPx()
     val effect =
       line.pattern?.let { pattern ->
         // Zero-length "on" parts are dots: a round cap makes them visible.
-        PathEffect.dashPathEffect(FloatArray(pattern.size) { i -> maxOf(pattern[i] * d * 0.55f, if (i % 2 == 0) 0.01f else d) })
+        PathEffect.dashPathEffect(FloatArray(pattern.size) { i -> maxOf(pattern[i] * d * 0.65f, if (i % 2 == 0) 0.01f else d * 1.15f) })
       }
     val inset = 4.dp.toPx()
     drawLine(
@@ -1013,7 +1056,7 @@ private fun PenStylePreview(style: PenStyle, paperColor: Int, darkPage: Boolean)
       .border(0.5.dp, edge, shape)
   ) {
     val steps = 32
-    val base = 2.2.dp.toPx()
+    val base = 2.6.dp.toPx()
     val padX = 7.dp.toPx()
     var previous = Offset(padX, size.height / 2f)
     for (i in 1..steps) {

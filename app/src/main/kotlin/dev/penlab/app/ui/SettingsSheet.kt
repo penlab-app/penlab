@@ -30,7 +30,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -42,6 +41,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -59,6 +61,7 @@ import dev.penlab.app.ui.components.PenLabMenuItem
 import dev.penlab.app.ui.components.PenLabSectionHeader
 import dev.penlab.app.ui.components.PenLabSegmentedControl
 import dev.penlab.app.ui.components.PenLabSwitchRow
+import dev.penlab.app.ui.components.penLabSwitchColors
 import dev.penlab.app.ui.theme.Accent
 import dev.penlab.app.ui.theme.AccentTheme
 import dev.penlab.app.ui.theme.LocalPenLabColors
@@ -147,15 +150,24 @@ fun SettingsSheet(
         }
         HorizontalDivider(color = scheme.outlineVariant, thickness = 1.dp)
 
-        // Scrollable sections
-        Column(
+        // Scrollable sections wrapped with clipToBounds + subtle top/bottom edge fades so rows
+        // never bleed harshly under the sticky header or clip sharply at rounded bottom corners.
+        val scrollState = rememberScrollState()
+        val sheetBg = PenLabComponentTokens.dialogBg
+        Box(
           modifier =
             Modifier
               .fillMaxWidth()
               .weight(1f, fill = false)
-              .verticalScroll(rememberScrollState())
-              .padding(horizontal = PenLabSpacing.xl, vertical = PenLabSpacing.lg),
+              .clipToBounds(),
         ) {
+          Column(
+            modifier =
+              Modifier
+                .fillMaxWidth()
+                .verticalScroll(scrollState)
+                .padding(start = PenLabSpacing.xl, end = PenLabSpacing.xl, top = PenLabSpacing.lg, bottom = PenLabSpacing.xl),
+          ) {
           // ---- Appearance ----
           PenLabSectionHeader(title = "Appearance", topPadding = 0.dp, bottomPadding = PenLabSpacing.md)
 
@@ -475,7 +487,12 @@ fun SettingsSheet(
                 horizontalPadding = 0.dp,
               )
               if (row.canRetry) {
-                TextButton(onClick = { onPluginRetry(row.packageName) }) { Text("Try again") }
+                TextButton(
+                  onClick = { onPluginRetry(row.packageName) },
+                  modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+                ) {
+                  Text("Try again", color = scheme.primary, style = MaterialTheme.typography.labelLarge)
+                }
               }
             }
           }
@@ -495,16 +512,35 @@ fun SettingsSheet(
                 onClick = onWelcomeGuide,
               )
             }
-            if (onReport != null) {
-              PenLabMenuItem(
-                label = "Bug / idea",
-                subtitle = "Tell us what broke or what you would like.",
-                icon = PenLabIcons.Idea,
-                horizontalPadding = 0.dp,
-                showChevron = true,
-                onClick = onReport,
-              )
+              if (onReport != null) {
+                PenLabMenuItem(
+                  label = "Bug / idea",
+                  subtitle = "Tell us what broke or what you would like.",
+                  icon = PenLabIcons.Idea,
+                  horizontalPadding = 0.dp,
+                  showChevron = true,
+                  onClick = onReport,
+                )
+              }
             }
+          }
+          if (scrollState.canScrollBackward) {
+            Box(
+              Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(PenLabSpacing.md)
+                .background(Brush.verticalGradient(listOf(sheetBg, Color.Transparent))),
+            )
+          }
+          if (scrollState.canScrollForward) {
+            Box(
+              Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(PenLabSpacing.lg)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, sheetBg))),
+            )
           }
         }
       }
@@ -641,34 +677,29 @@ private fun ToolbarItemCustomizeRow(
       overflow = TextOverflow.Ellipsis,
       modifier = Modifier.weight(1f),
     )
+    val arrowTint = if (!visible) PenLabComponentTokens.toolIconDisabled else null
     PenLabIconButton(
       icon = PenLabIcons.ChevronUp,
       contentDescription = "Move ${item.label} up",
       enabled = canMoveUp,
       onClick = onMoveUp,
-      iconSize = PenLabLayout.iconSmall,
+      iconSize = PenLabLayout.iconCompact,
+      tint = arrowTint,
     )
     PenLabIconButton(
       icon = PenLabIcons.ChevronDown,
       contentDescription = "Move ${item.label} down",
       enabled = canMoveDown,
       onClick = onMoveDown,
-      iconSize = PenLabLayout.iconSmall,
+      iconSize = PenLabLayout.iconCompact,
+      tint = arrowTint,
     )
     Spacer(Modifier.width(PenLabSpacing.xs))
     Switch(
       checked = visible,
       onCheckedChange = { onToggle() },
       enabled = canToggle,
-      colors =
-        SwitchDefaults.colors(
-          checkedThumbColor = scheme.onPrimary,
-          checkedTrackColor = scheme.primary,
-          checkedBorderColor = scheme.primary,
-          uncheckedThumbColor = scheme.outline,
-          uncheckedTrackColor = scheme.surfaceContainerHighest,
-          uncheckedBorderColor = scheme.outline,
-        ),
+      colors = penLabSwitchColors(),
     )
   }
 }

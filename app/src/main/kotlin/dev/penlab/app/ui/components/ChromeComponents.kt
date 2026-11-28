@@ -10,6 +10,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -137,6 +138,8 @@ fun PenLabIconButton(
   enabled: Boolean = true,
   iconSize: Dp = PenLabLayout.iconDefault,
   tint: Color? = null,
+  containerColor: Color = Color.Transparent,
+  borderColor: Color? = null,
   isPalm: (() -> Boolean)? = null,
 ) {
   val interaction = remember { MutableInteractionSource() }
@@ -147,7 +150,7 @@ fun PenLabIconButton(
     label = "iconButtonPress",
   )
   val containerBg by animateColorAsState(
-    targetValue = if (selected) PenLabComponentTokens.toolCellSelectedBg else Color.Transparent,
+    targetValue = if (selected) PenLabComponentTokens.toolCellSelectedBg else containerColor,
     animationSpec = Motion.tween(120),
     label = "iconButtonBg",
   )
@@ -189,7 +192,11 @@ fun PenLabIconButton(
         Modifier
           .size(40.dp)
           .clip(PenLabShapes.pill)
-          .background(containerBg),
+          .background(containerBg)
+          .then(
+            if (borderColor != null && !selected) Modifier.border(PenLabLayout.hairline, borderColor, PenLabShapes.pill)
+            else Modifier
+          ),
       contentAlignment = Alignment.Center,
     ) {
       Icon(
@@ -216,101 +223,158 @@ fun <T> PenLabSegmentedControl(
   icon: ((T) -> ImageVector?)? = null,
   enabled: Boolean = true,
 ) {
-  val scheme = MaterialTheme.colorScheme
-  Row(
-    modifier =
-      modifier
-        .fillMaxWidth()
-        .clip(PenLabShapes.small)
-        .background(PenLabComponentTokens.chipIdleBg)
-        .padding(3.dp)
-        .selectableGroup(),
-    horizontalArrangement = Arrangement.spacedBy(3.dp),
-    verticalAlignment = Alignment.CenterVertically,
-  ) {
-    for (option in options) {
-      val isSelected = option == selected
-      val optionLabel = label(option)
-      val optionIcon = icon?.invoke(option)
-      val interaction = remember(option) { MutableInteractionSource() }
-      val pressed by interaction.collectIsPressedAsState()
-      val pressScale by animateFloatAsState(
-        targetValue = if (pressed && enabled) 0.96f else 1f,
-        animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
-        label = "segmentPress",
-      )
-      val bgColor by animateColorAsState(
-        targetValue =
-          when {
-            !isSelected -> Color.Transparent
-            // A disabled control keeps its choice readable: a quiet neutral pill, not primary-on-primary.
-            !enabled -> scheme.outlineVariant
-            else -> PenLabComponentTokens.segmentSelectedBg
-          },
-        animationSpec = Motion.tween(140),
-        label = "segmentBg",
-      )
-      val fgColor by animateColorAsState(
-        targetValue =
-          when {
-            !enabled && isSelected -> scheme.onSurface
-            !enabled -> PenLabComponentTokens.toolIconDisabled
-            isSelected -> PenLabComponentTokens.segmentSelectedContent
-            else -> scheme.onSurface
-          },
-        animationSpec = Motion.tween(140),
-        label = "segmentFg",
-      )
-
-      Box(
+  BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+    val wrapRows = options.size > 4 && maxWidth < 520.dp
+    if (wrapRows) {
+      val columns = (options.size + 1) / 2
+      Column(
         modifier =
           Modifier
-            .weight(1f)
-            .heightIn(min = PenLabSpacing.touchTarget)
+            .fillMaxWidth()
             .clip(PenLabShapes.small)
-            .selectable(
-              selected = isSelected,
-              enabled = enabled,
-              interactionSource = interaction,
-              indication = ripple(bounded = true),
-              role = Role.RadioButton,
-              onClick = { onSelect(option) },
-            )
-            .padding(vertical = 2.dp)
-            .graphicsLayer {
-              scaleX = pressScale
-              scaleY = pressScale
-            }
-            .clip(PenLabShapes.small)
-            .background(bgColor),
-        contentAlignment = Alignment.Center,
+            .background(PenLabComponentTokens.chipIdleBg)
+            .padding(3.dp)
+            .selectableGroup(),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
       ) {
-        Row(
-          modifier = Modifier.padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.xs),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.Center,
-        ) {
-          if (optionIcon != null) {
-            Icon(
-              imageVector = optionIcon,
-              contentDescription = null,
-              tint = fgColor,
-              modifier = Modifier.size(PenLabLayout.iconCompact),
-            )
-            Spacer(Modifier.width(6.dp))
+        for (rowOptions in options.chunked(columns)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            for (option in rowOptions) {
+              SegmentedOptionCell(
+                option = option,
+                isSelected = option == selected,
+                optionLabel = label(option),
+                optionIcon = icon?.invoke(option),
+                enabled = enabled,
+                onSelect = onSelect,
+                modifier = Modifier.weight(1f),
+              )
+            }
+            repeat(columns - rowOptions.size) {
+              Spacer(Modifier.weight(1f))
+            }
           }
-          Text(
-            text = optionLabel,
-            color = fgColor,
-            style =
-              MaterialTheme.typography.labelLarge.copy(
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-              ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        }
+      }
+    } else {
+      Row(
+        modifier =
+          Modifier
+            .fillMaxWidth()
+            .clip(PenLabShapes.small)
+            .background(PenLabComponentTokens.chipIdleBg)
+            .padding(3.dp)
+            .selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        for (option in options) {
+          SegmentedOptionCell(
+            option = option,
+            isSelected = option == selected,
+            optionLabel = label(option),
+            optionIcon = icon?.invoke(option),
+            enabled = enabled,
+            onSelect = onSelect,
+            modifier = Modifier.weight(1f),
           )
         }
       }
+    }
+  }
+}
+
+@Composable
+private fun <T> SegmentedOptionCell(
+  option: T,
+  isSelected: Boolean,
+  optionLabel: String,
+  optionIcon: ImageVector?,
+  enabled: Boolean,
+  onSelect: (T) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val scheme = MaterialTheme.colorScheme
+  val interaction = remember(option) { MutableInteractionSource() }
+  val pressed by interaction.collectIsPressedAsState()
+  val pressScale by animateFloatAsState(
+    targetValue = if (pressed && enabled) 0.96f else 1f,
+    animationSpec = Motion.spring(dampingRatio = 0.85f, stiffness = 700f),
+    label = "segmentPress",
+  )
+  val bgColor by animateColorAsState(
+    targetValue =
+      when {
+        !isSelected -> Color.Transparent
+        // A disabled control keeps its choice readable: a quiet neutral pill, not primary-on-primary.
+        !enabled -> scheme.outlineVariant
+        else -> PenLabComponentTokens.segmentSelectedBg
+      },
+    animationSpec = Motion.tween(140),
+    label = "segmentBg",
+  )
+  val fgColor by animateColorAsState(
+    targetValue =
+      when {
+        !enabled && isSelected -> scheme.onSurface
+        !enabled -> PenLabComponentTokens.toolIconDisabled
+        isSelected -> PenLabComponentTokens.segmentSelectedContent
+        else -> scheme.onSurface
+      },
+    animationSpec = Motion.tween(140),
+    label = "segmentFg",
+  )
+
+  Box(
+    modifier =
+      modifier
+        .heightIn(min = PenLabSpacing.touchTarget)
+        .clip(PenLabShapes.small)
+        .selectable(
+          selected = isSelected,
+          enabled = enabled,
+          interactionSource = interaction,
+          indication = ripple(bounded = true),
+          role = Role.RadioButton,
+          onClick = { onSelect(option) },
+        )
+        .padding(vertical = 2.dp)
+        .graphicsLayer {
+          scaleX = pressScale
+          scaleY = pressScale
+        }
+        .clip(PenLabShapes.small)
+        .background(bgColor),
+    contentAlignment = Alignment.Center,
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.xs),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.Center,
+    ) {
+      if (optionIcon != null) {
+        Icon(
+          imageVector = optionIcon,
+          contentDescription = null,
+          tint = fgColor,
+          modifier = Modifier.size(PenLabLayout.iconCompact),
+        )
+        Spacer(Modifier.width(6.dp))
+      }
+      Text(
+        text = optionLabel,
+        color = fgColor,
+        style =
+          MaterialTheme.typography.labelLarge.copy(
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+          ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
     }
   }
 }

@@ -7,6 +7,11 @@ import com.adamglin.phosphoricons.Duotone
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.bold.Check as BoldCheck
+import com.adamglin.phosphoricons.regular.CaretDown as RegularCaretDown
+import com.adamglin.phosphoricons.regular.CaretLeft as RegularCaretLeft
+import com.adamglin.phosphoricons.regular.CaretRight as RegularCaretRight
+import com.adamglin.phosphoricons.regular.CaretUp as RegularCaretUp
+import com.adamglin.phosphoricons.regular.DotsThreeVertical as RegularDotsThreeVertical
 import com.adamglin.phosphoricons.regular.Minus as RegularMinus
 import com.adamglin.phosphoricons.regular.Plus as RegularPlus
 import com.adamglin.phosphoricons.duotone.ArrowArcLeft
@@ -19,10 +24,6 @@ import com.adamglin.phosphoricons.duotone.ArrowsOutSimple
 import com.adamglin.phosphoricons.duotone.Article
 import com.adamglin.phosphoricons.duotone.BookmarkSimple
 import com.adamglin.phosphoricons.duotone.Broom
-import com.adamglin.phosphoricons.duotone.CaretDown
-import com.adamglin.phosphoricons.duotone.CaretLeft
-import com.adamglin.phosphoricons.duotone.CaretRight
-import com.adamglin.phosphoricons.duotone.CaretUp
 import com.adamglin.phosphoricons.duotone.Check
 import com.adamglin.phosphoricons.duotone.ClipboardText
 import com.adamglin.phosphoricons.duotone.CloudArrowUp
@@ -34,7 +35,6 @@ import com.adamglin.phosphoricons.duotone.CornersOut
 import com.adamglin.phosphoricons.duotone.DeviceTablet
 import com.adamglin.phosphoricons.duotone.DotsSixVertical
 import com.adamglin.phosphoricons.duotone.DotsThree
-import com.adamglin.phosphoricons.duotone.DotsThreeVertical
 import com.adamglin.phosphoricons.duotone.DownloadSimple
 import com.adamglin.phosphoricons.duotone.Eraser
 import com.adamglin.phosphoricons.duotone.Export
@@ -123,17 +123,18 @@ object PenLabIcons {
   val FlipVertical: ImageVector get() = PhosphorIcons.Duotone.FlipVertical
 
   // Navigation, chrome & view
-  val Back: ImageVector get() = PhosphorIcons.Duotone.CaretLeft
+  /** Regular weight for chevrons and vertical overflow: duotone carets draw hollow closed triangles and duotone ⋮ draws a faint resting box. */
+  val Back: ImageVector get() = PhosphorIcons.Regular.RegularCaretLeft
   val Close: ImageVector get() = PhosphorIcons.Duotone.X
   val More: ImageVector get() = PhosphorIcons.Duotone.DotsThree
-  val MoreVert: ImageVector get() = PhosphorIcons.Duotone.DotsThreeVertical
+  val MoreVert: ImageVector get() = PhosphorIcons.Regular.RegularDotsThreeVertical
   val DragHandle: ImageVector get() = PhosphorIcons.Duotone.DotsSixVertical
   /** Regular weight on purpose: the duotone Plus/Minus fill a translucent box and read as a heavy double bar. */
   val Plus: ImageVector get() = PhosphorIcons.Regular.RegularPlus
   val Minus: ImageVector get() = PhosphorIcons.Regular.RegularMinus
-  val ChevronDown: ImageVector get() = PhosphorIcons.Duotone.CaretDown
-  val ChevronUp: ImageVector get() = PhosphorIcons.Duotone.CaretUp
-  val ChevronRight: ImageVector get() = PhosphorIcons.Duotone.CaretRight
+  val ChevronDown: ImageVector get() = PhosphorIcons.Regular.RegularCaretDown
+  val ChevronUp: ImageVector get() = PhosphorIcons.Regular.RegularCaretUp
+  val ChevronRight: ImageVector get() = PhosphorIcons.Regular.RegularCaretRight
   val Rotate: ImageVector get() = PhosphorIcons.Duotone.ArrowsClockwise
   val Check: ImageVector get() = PhosphorIcons.Duotone.Check
   /** Bare bold checkmark stroke (no duotone background box) for compact circular swatches. */

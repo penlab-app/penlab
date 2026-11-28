@@ -1,6 +1,7 @@
 package dev.penlab.app.ui
 
 import dev.penlab.app.ink.InkColors
+import dev.penlab.app.notes.computeEndlessCoverBounds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -92,5 +93,19 @@ class CoversTest {
     val alphaAfter = shownHighlight ushr 24
     assertTrue("highlighter alpha softened ($alphaAfter < $alphaBefore)", alphaAfter < alphaBefore)
     assertFalse(alphaAfter == 0)
+  }
+
+  @Test
+  fun endlessCoverBoundsPadWideHandwritingWithoutCropping() {
+    val wide = computeEndlessCoverBounds(left = 0f, top = 10f, right = 400f, bottom = 50f)
+    assertTrue("Left margin >= 32", wide.left <= -32f)
+    assertTrue("Right margin >= 32", wide.right >= 432f)
+    assertTrue("Top margin >= 32", wide.top <= -22f)
+    assertTrue("Bottom margin >= 32", wide.bottom >= 82f)
+    // Aspect <= 4:3 so 4:3 card ContentScale.Crop does not slice off left/right ink edges
+    assertTrue("Aspect (${wide.width / wide.height}) <= 4:3", wide.width / wide.height <= (4f / 3f) + 0.001f)
+
+    val tall = computeEndlessCoverBounds(left = 0f, top = 0f, right = 100f, bottom = 800f)
+    assertEquals(tall.width * 1.4f, tall.height, 0.01f)
   }
 }

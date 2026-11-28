@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.ui.theme.AccentTheme
 import dev.penlab.app.ui.theme.PageThemeMode
+import dev.penlab.app.ui.theme.PenLabPrimitives
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabSpacing
 import dev.penlab.app.ui.theme.ThemeMode
@@ -159,6 +160,24 @@ class ThemeTokensTest {
     for (accent in AccentTheme.entries) {
       val scheme = penLabColorScheme(accent, isDark = false)
       assertContrastAtLeast("$accent popover edge on white paper", scheme.outline, Color.White, 3.0)
+    }
+  }
+
+  @Test
+  fun searchMatchAndCheckedSwitchContrastMeetWcagInAllFourThemes() {
+    for ((accent, isDark) in allCombos) {
+      val label = "${accent.name}/${if (isDark) "DARK" else "LIGHT"}"
+      val s = penLabColorScheme(accent, isDark)
+      val e = penLabExtendedColors(accent, isDark)
+
+      assertContrastAtLeast("$label searchMatch on surface", e.searchMatch, s.surface, 5.0)
+      assertContrastAtLeast("$label searchMatch on background", e.searchMatch, s.background, 5.0)
+      assertContrastAtLeast("$label searchMatch on surfaceContainerHigh", e.searchMatch, s.surfaceContainerHigh, 5.0)
+
+      val switchTrack = if (isDark) accent.lightPrimary else s.primary
+      val switchThumb = PenLabPrimitives.Slate0
+      assertContrastAtLeast("$label switch thumb on track", switchThumb, switchTrack, 5.0)
+      assertContrastAtLeast("$label switch border on surfaceContainerHigh", s.primary, s.surfaceContainerHigh, 3.0)
     }
   }
 

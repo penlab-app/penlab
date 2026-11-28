@@ -25,6 +25,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
@@ -57,7 +61,16 @@ fun FirstLaunchSheet(
 ) {
   val scheme = MaterialTheme.colorScheme
   val systemDark = isSystemInDarkTheme()
-  Dialog(onDismissRequest = onSkip, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+  var donePending by remember { mutableStateOf(false) }
+  fun completeOnce(action: () -> Unit) {
+    if (donePending) return
+    donePending = true
+    action()
+  }
+  Dialog(
+    onDismissRequest = { completeOnce(onSkip) },
+    properties = DialogProperties(usePlatformDefaultWidth = false),
+  ) {
     Surface(
       modifier =
         Modifier
@@ -72,7 +85,11 @@ fun FirstLaunchSheet(
       Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = PenLabSpacing.xl).padding(bottom = PenLabSpacing.xl)) {
         // Skip sits in the top corner, out of the way of the choices.
         Row(Modifier.fillMaxWidth().padding(top = PenLabSpacing.sm), horizontalArrangement = Arrangement.End) {
-          TextButton(onClick = onSkip, modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget)) {
+          TextButton(
+            onClick = { completeOnce(onSkip) },
+            enabled = !donePending,
+            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+          ) {
             Text("Skip", color = scheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
           }
         }
@@ -87,12 +104,17 @@ fun FirstLaunchSheet(
 
         WelcomeLabel("App theme")
         PenLabSegmentedControl(
-          options = listOf(ThemeMode.LIGHT, ThemeMode.DARK),
-          // "System" resolves to what is on screen, so one of the two always shows as chosen.
-          selected = if (Accent.isDark) ThemeMode.DARK else ThemeMode.LIGHT,
+          options = ThemeMode.entries,
+          selected = Accent.themeMode,
           onSelect = { Accent.setThemeMode(it, systemIsDark = systemDark) },
           label = { it.label },
-          icon = { if (it == ThemeMode.LIGHT) PenLabIcons.Sun else PenLabIcons.Moon },
+          icon = { mode ->
+            when (mode) {
+              ThemeMode.LIGHT -> PenLabIcons.Sun
+              ThemeMode.DARK -> PenLabIcons.Moon
+              ThemeMode.SYSTEM -> PenLabIcons.DeviceTablet
+            }
+          },
         )
         Spacer(Modifier.height(PenLabSpacing.lg))
 
@@ -122,20 +144,14 @@ fun FirstLaunchSheet(
         Text("PDF pages always stay white.", color = scheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(PenLabSpacing.xl))
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.md), verticalAlignment = Alignment.CenterVertically) {
-          Button(
-            onClick = onStart,
-            shape = PenLabShapes.pill,
-            colors = ButtonDefaults.buttonColors(containerColor = scheme.primary, contentColor = scheme.onPrimary),
-            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
-            contentPadding = PaddingValues(horizontal = PenLabSpacing.xl, vertical = PenLabSpacing.sm),
-          ) {
-            Icon(PenLabIcons.Pen, contentDescription = null, modifier = Modifier.size(PenLabLayout.iconMedium))
-            Spacer(Modifier.width(PenLabSpacing.sm))
-            Text(startLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-          }
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.md, Alignment.End),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
           OutlinedButton(
-            onClick = onImportPdf,
+            onClick = { completeOnce(onImportPdf) },
+            enabled = !donePending,
             shape = PenLabShapes.pill,
             modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
             contentPadding = PaddingValues(horizontal = PenLabSpacing.lg, vertical = PenLabSpacing.sm),
@@ -143,6 +159,20 @@ fun FirstLaunchSheet(
             Icon(PenLabIcons.Pdf, contentDescription = null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(PenLabLayout.iconMedium))
             Spacer(Modifier.width(PenLabSpacing.sm))
             Text("Import a PDF", color = scheme.onSurface, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+          }
+          Button(
+            onClick = { completeOnce(onStart) },
+            enabled = !donePending,
+            shape = PenLabShapes.pill,
+            colors = ButtonDefaults.buttonColors(containerColor = scheme.primary, contentColor = scheme.onPrimary),
+            modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),
+            contentPadding = PaddingValues(horizontal = PenLabSpacing.xl, vertical = PenLabSpacing.sm),
+          ) {
+            if (startLabel == "Start writing") {
+              Icon(PenLabIcons.Pen, contentDescription = null, modifier = Modifier.size(PenLabLayout.iconMedium))
+              Spacer(Modifier.width(PenLabSpacing.sm))
+            }
+            Text(startLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1)
           }
         }
       }

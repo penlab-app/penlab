@@ -153,4 +153,13 @@ class ToolPanelHelpersTest {
     assertTrue(canSubmitTextBox("Note"))
     assertTrue(canSubmitTextBox("  x  "))
   }
+
+  @Test
+  fun clampSearchStepperIndexClampsCleanly() {
+    assertEquals(0, clampSearchStepperIndex(0, 0))
+    assertEquals(0, clampSearchStepperIndex(5, 0))
+    assertEquals(0, clampSearchStepperIndex(-2, 4))
+    assertEquals(2, clampSearchStepperIndex(2, 4))
+    assertEquals(3, clampSearchStepperIndex(9, 4))
+  }
 }

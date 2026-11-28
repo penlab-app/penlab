@@ -178,6 +178,23 @@ class LibraryLogicTest {
   }
 
   @Test
+  fun cardMetaTrimsAndOmitsBlankSegmentsWithoutTrailingDots() {
+    val nb = '\u00A0'
+    assertEquals("4${nb}pages$nb· Today", cardMeta("", false, 4, "Today"))
+    assertEquals("4${nb}pages$nb· Today", cardMeta("   ", false, 4, "Today"))
+    assertEquals("4${nb}pages", cardMeta(null, false, 4, ""))
+    assertEquals("Canvas", cardMeta("  ", true, 1, "  "))
+  }
+
+  @Test
+  fun canConfirmNamedInputRejectsBlankAndAcceptsText() {
+    assertFalse(canConfirmNamedInput(""))
+    assertFalse(canConfirmNamedInput("   \t\n "))
+    assertTrue(canConfirmNamedInput("Mechanics"))
+    assertTrue(canConfirmNamedInput("  Layer 2 "))
+  }
+
+  @Test
   fun countLabelsPluralise() {
     assertEquals("1 page", pagesLabel(1))
     assertEquals("4 pages", pagesLabel(4))

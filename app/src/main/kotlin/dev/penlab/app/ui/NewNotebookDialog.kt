@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import dev.penlab.app.ink.PageStyle
 import dev.penlab.app.notes.NotebookKind
 import dev.penlab.app.ui.components.PenLabDialog
@@ -65,9 +66,10 @@ internal fun NewNotebookDialog(
     title = if (folder.isEmpty()) "New notebook" else "New notebook in $where",
     onDismiss = onDismiss,
     primaryLabel = "Create",
+    primaryEnabled = canConfirmNamedInput(title),
     onPrimaryClick = {
       prefs.edit { putString(paperPrefKey(folder), encodePaperDefaults(PaperDefaults(style, format.kind, format.landscape))) }
-      onCreate(title, format.kind, style, format.landscape)
+      onCreate(title.trim(), format.kind, style, format.landscape)
     },
     maxWidth = PenLabLayout.wideDialogMaxWidth,
   ) {
@@ -86,7 +88,7 @@ internal fun NewNotebookDialog(
       label = { it.label },
     )
     DialogLabel(if (folder.isEmpty()) "Paper" else "Paper (remembered for $where)")
-    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       for (row in PageStyle.entries.chunked(PAPER_COLUMNS)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.sm)) {
           for (option in row) PaperTile(option, selected = option == style, onClick = { style = option; putKeyboardAway() }, modifier = Modifier.weight(1f))
@@ -113,9 +115,9 @@ private fun PaperTile(style: PageStyle, selected: Boolean, onClick: () -> Unit, 
       .background(if (selected) PenLabComponentTokens.chipSelectedBg else Color.Transparent)
       .then(if (selected) Modifier.border(PenLabLayout.ringSelected, scheme.primary, PenLabShapes.medium) else Modifier)
       .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-      .padding(PenLabSpacing.sm)
+      .padding(horizontal = PenLabSpacing.sm, vertical = 6.dp)
       .semantics { contentDescription = "${style.label} paper" },
-    verticalArrangement = Arrangement.spacedBy(PenLabSpacing.sm),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
     PaperPreview(style, Accent.isDarkPage, modifier = Modifier.fillMaxWidth().aspectRatio(PenLabLayout.paperPreviewAspect))
     Text(

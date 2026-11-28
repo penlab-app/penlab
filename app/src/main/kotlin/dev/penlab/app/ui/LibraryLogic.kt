@@ -180,8 +180,14 @@ fun pagesLabel(count: Int): String = "$count ${if (count == 1) "page" else "page
  */
 fun cardMeta(place: String?, endless: Boolean, pageCount: Int, date: String): String {
   val size = if (endless) "Canvas" else pagesLabel(pageCount).replace(' ', NBSP)
-  return listOfNotNull(place, size, date).joinToString("$NBSP· ")
+  return listOfNotNull(place, size, date)
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+    .joinToString("$NBSP· ")
 }
+
+/** True when a folder/notebook name prompt has non-whitespace characters ready to submit. */
+fun canConfirmNamedInput(text: String): Boolean = text.isNotBlank()
 
 /** "1 notebook", "3 notebooks". */
 fun notebooksLabel(count: Int): String = if (count == 1) "1 notebook" else "$count notebooks"

@@ -2,19 +2,13 @@ package dev.penlab.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextDecoration
 import dev.penlab.app.notes.Request
 import dev.penlab.app.ui.components.PenLabDialog
@@ -44,7 +38,7 @@ fun RequestDialog(where: String, existing: List<Request>, onDismiss: () -> Unit,
   ) {
     PenLabSegmentedControl(options = listOf("Bug", "Feature"), selected = kind, onSelect = { kind = it }, label = { it })
     PenLabTextField(text, { text = it }, if (kind == "Bug") "What went wrong?" else "What should it do?", minLines = 3)
-    Text("Saved with: $where", color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodySmall)
+    Text("Location: $where", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
     if (existing.isNotEmpty()) {
       Text("Your list · $open open", color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall)
       // Plain rows: the dialog already scrolls, and a scrolling list inside it cannot size itself.
@@ -82,38 +76,29 @@ fun TextBoxDialog(initial: String, isNew: Boolean, onDismiss: () -> Unit, onDone
     PenLabTextField(
       value = text,
       onChange = { text = it },
-      label = "Text box content",
+      label = null,
       minLines = 3,
       placeholder = "Type text to place on page…",
+      contentDescription = "Text box content",
     )
   }
 }
 
-/** A one-line name, e.g. renaming a layer. */
+/** A one-line name, e.g. renaming a notebook or layer, disabling Save when blank. */
 @Composable
 fun RenameDialog(title: String, initial: String, onDismiss: () -> Unit, onDone: (String) -> Unit) {
   var text by remember { mutableStateOf(initial) }
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-    title = { Text(title, color = MaterialTheme.colorScheme.onSurface) },
-    text = {
-      OutlinedTextField(
-        value = text,
-        onValueChange = { text = it },
-        singleLine = true,
-        colors =
-          OutlinedTextFieldDefaults.colors(
-            focusedTextColor = MaterialTheme.colorScheme.onSurface,
-            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            cursorColor = MaterialTheme.colorScheme.primary,
-          ),
-        modifier = Modifier.fillMaxWidth(),
-      )
-    },
-    confirmButton = { TextButton(onClick = { onDone(text) }) { Text("Save", color = MaterialTheme.colorScheme.primary) } },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-  )
+  PenLabDialog(
+    title = title,
+    onDismiss = onDismiss,
+    primaryLabel = "Save",
+    primaryEnabled = canConfirmNamedInput(text),
+    onPrimaryClick = { onDone(text.trim()) },
+  ) {
+    PenLabTextField(
+      value = text,
+      onChange = { text = it },
+      label = "Name",
+    )
+  }
 }

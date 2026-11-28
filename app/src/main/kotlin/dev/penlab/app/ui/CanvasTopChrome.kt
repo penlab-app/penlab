@@ -266,26 +266,18 @@ fun FileQuickMenuPopover(
               },
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          // Same 20 dp slot as the icons of PenLabMenuItem below, so the titles start at the same x.
+          // Always render the leading doc/PDF icon in the 20 dp slot so all rows align cleanly;
+          // show the folder's colour dot beside the folder path underneath.
           Box(Modifier.size(PenLabLayout.iconMedium), contentAlignment = Alignment.Center) {
-            if (accentInt != null) {
-              Box(
-                Modifier
-                  .size(10.dp)
-                  .clip(CircleShape)
-                  .background(Color(accentInt)),
-              )
-            } else {
-              Icon(
-                imageVector = if (info.pdfPages.isNotEmpty()) PenLabIcons.Pdf else PenLabIcons.Paper,
-                contentDescription = null,
-                tint = scheme.onSurfaceVariant,
-                modifier = Modifier.size(PenLabLayout.iconMedium),
-              )
-            }
+            Icon(
+              imageVector = if (info.pdfPages.isNotEmpty()) PenLabIcons.Pdf else PenLabIcons.Paper,
+              contentDescription = null,
+              tint = scheme.onSurfaceVariant,
+              modifier = Modifier.size(PenLabLayout.iconMedium),
+            )
           }
           Spacer(Modifier.width(PenLabSpacing.md))
-          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+          Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
               text = info.title,
               color = scheme.onSurface,
@@ -294,13 +286,26 @@ fun FileQuickMenuPopover(
               overflow = TextOverflow.Ellipsis,
             )
             if (info.folder.isNotEmpty()) {
-              Text(
-                text = info.folder.replace("/", " › "),
-                color = scheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-              )
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(PenLabSpacing.xs),
+              ) {
+                if (accentInt != null) {
+                  Box(
+                    Modifier
+                      .size(PenLabLayout.dot)
+                      .clip(CircleShape)
+                      .background(Color(accentInt)),
+                  )
+                }
+                Text(
+                  text = info.folder.replace("/", " › "),
+                  color = scheme.onSurfaceVariant,
+                  style = MaterialTheme.typography.bodySmall,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
             }
           }
           if (isCurrent) {

@@ -342,10 +342,22 @@ class MainActivity : ComponentActivity() {
   private val librarySearch by lazy { LibrarySearch(notebooks, resources.displayMetrics.xdpi / 25.4f) }
   private var libraryQuery by mutableStateOf("")
   private var libraryResults by mutableStateOf<List<LibrarySearch.Result>>(emptyList())
+  private var libraryResultsQuery by mutableStateOf("")
   private var libraryReading by mutableStateOf<Pair<Int, Int>?>(null)
 
   private fun searchLibrary() {
-    librarySearch.search(libraryQuery, library) { libraryResults = it }
+    val q = libraryQuery
+    if (q.isBlank()) {
+      libraryResultsQuery = q
+      libraryResults = emptyList()
+      return
+    }
+    librarySearch.search(q, library) { results ->
+      if (libraryQuery == q) {
+        libraryResultsQuery = q
+        libraryResults = results
+      }
+    }
   }
 
   /** The notebook whose finished PDF is waiting for the user to pick where it goes. */
@@ -591,7 +603,7 @@ class MainActivity : ComponentActivity() {
               libraryQuery = it
               searchLibrary()
             },
-            searchResults = libraryResults,
+            searchResults = if (libraryResultsQuery == libraryQuery) libraryResults else emptyList(),
             searchReading = libraryReading,
             onOpenResult = { result -> openNotebook(result.notebook, jumpTo = result.hit.line.rect) },
             notebooks = library,
@@ -2043,14 +2055,20 @@ private fun NoteScreen(
   var searchStatus by remember { mutableStateOf(search?.status ?: HandwritingIndex.Status.Ready) }
   fun runSearch() {
     searchHits = search?.search(searchQuery).orEmpty()
+    searchShown = searchShown?.let { idx ->
+      if (searchHits.isEmpty()) null else dev.penlab.app.ui.clampSearchStepperIndex(idx, searchHits.size)
+    }
   }
   var jumpBack by remember { mutableStateOf<Pair<FloatArray, Int>?>(null) }
-  fun showHit(index: Int) {
+  fun previewHit(index: Int) {
     val hit = searchHits.getOrNull(index) ?: return
     if (jumpBack == null) jumpBack = canvas.currentView() to canvas.currentPage
     searchShown = index
-    searchOpen = false
     canvas.showSearchHit(hit.line.rect)
+  }
+  fun showHit(index: Int) {
+    previewHit(index)
+    searchOpen = false
   }
   DisposableEffect(search) {
     search?.onStatus = { status ->
@@ -2987,6 +3005,8 @@ private fun NoteScreen(
             status = searchStatus,
             paged = isPaged,
             onOpen = ::showHit,
+            activeIndex = searchShown,
+            onStepHit = ::previewHit,
             isPalm = isPalm,
             modifier = Modifier.onGloballyPositioned { topBarBounds[3] = it.boundsInRoot() },
           )

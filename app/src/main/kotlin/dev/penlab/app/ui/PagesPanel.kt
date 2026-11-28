@@ -181,7 +181,7 @@ fun PagesPanelContent(
         Icon(
           imageVector = if (onlyBookmarked) PenLabIcons.BookmarkFilled else PenLabIcons.BookmarkOutline,
           contentDescription = null,
-          tint = if (onlyBookmarked) scheme.tertiary else scheme.onSurfaceVariant,
+          tint = if (onlyBookmarked) scheme.tertiary else scheme.onSurface,
           modifier = Modifier.size(PenLabLayout.iconSmall),
         )
         Text(
@@ -303,7 +303,7 @@ private fun PageTile(
           .background(scheme.surface)
           .border(
             width = if (current) 2.dp else 1.dp,
-            color = if (current) scheme.primary else scheme.outlineVariant,
+            color = if (current) scheme.primary else scheme.outline,
             shape = shape,
           )
           .combinedClickable(onClick = onJump, onLongClick = { menu = true })
@@ -338,13 +338,14 @@ private fun PageTile(
             Modifier
               .size(PenLabLayout.controlVisualSmall)
               .clip(CircleShape)
-              .background(scheme.surface.copy(alpha = 0.85f)),
+              .background(PenLabComponentTokens.chromePillBg.copy(alpha = 0.92f))
+              .border(0.5.dp, scheme.outline, CircleShape),
           contentAlignment = Alignment.Center,
         ) {
           Icon(
             imageVector = if (bookmarked) PenLabIcons.BookmarkFilled else PenLabIcons.BookmarkOutline,
             contentDescription = null,
-            tint = if (bookmarked) scheme.tertiary else scheme.onSurfaceVariant,
+            tint = if (bookmarked) scheme.tertiary else scheme.onSurface,
             modifier = Modifier.size(17.dp),
           )
         }
@@ -387,7 +388,7 @@ private fun PageTile(
     Spacer(Modifier.height(PenLabSpacing.xs))
     Text(
       text = "${page + 1}",
-      color = if (current) scheme.primary else scheme.onSurfaceVariant,
+      color = if (current) scheme.primary else scheme.onSurface,
       style =
         PenLabTextStyles.tabularMedium.copy(
           fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,

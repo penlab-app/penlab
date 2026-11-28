@@ -5,9 +5,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -52,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.penlab.app.search.HandwritingIndex
+import dev.penlab.app.ui.components.PenLabIconButton
 import dev.penlab.app.ui.components.PenLabPopoverSurface
 import dev.penlab.app.ui.theme.LocalPenLabColors
 import dev.penlab.app.ui.theme.PenLabColors
@@ -62,6 +66,10 @@ import dev.penlab.app.ui.theme.flatCardSurface
 import dev.penlab.app.ui.theme.PenLabShapes
 import dev.penlab.app.ui.theme.PenLabTextStyles
 import dev.penlab.app.ui.theme.floatingChromeSurface
+
+/** Clamps a search match index into `[0, count - 1]` (or `0` when there are no matches). */
+internal fun clampSearchStepperIndex(index: Int, count: Int): Int =
+  if (count <= 0) 0 else index.coerceIn(0, count - 1)
 
 /**
  * Handwriting search: a box, what the reader is doing, and the lines that matched.
@@ -77,6 +85,8 @@ fun SearchPanel(
   onOpen: (index: Int) -> Unit,
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
+  activeIndex: Int? = null,
+  onStepHit: ((index: Int) -> Unit)? = null,
 ) {
   val focus = remember { FocusRequester() }
   LaunchedEffect(Unit) { focus.requestFocus() }
@@ -91,6 +101,17 @@ fun SearchPanel(
       onValueChange = onQueryChange,
       singleLine = true,
       placeholder = { Text("A word you wrote…", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+      trailingIcon =
+        if (query.isNotEmpty()) {
+          {
+            PenLabIconButton(
+              icon = PenLabIcons.Close,
+              contentDescription = "Clear search",
+              iconSize = PenLabLayout.iconCompact,
+              onClick = { onQueryChange("") },
+            )
+          }
+        } else null,
       keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
       keyboardActions = KeyboardActions(onSearch = { if (hits.isNotEmpty()) onOpen(0) }),
       colors = OutlinedTextFieldDefaults.colors(
@@ -104,15 +125,34 @@ fun SearchPanel(
     )
     statusText(status)?.let { Text(it, color = PenLabColors.iconDisabled, style = MaterialTheme.typography.bodySmall) }
     if (query.isNotBlank()) {
-      Text(
-        when (hits.size) {
-          0 -> "No matches"
-          1 -> "1 match"
-          else -> "${hits.size} matches"
-        },
-        color = PenLabColors.icon,
-        style = MaterialTheme.typography.labelLarge,
-      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        val current = activeIndex?.let { clampSearchStepperIndex(it, hits.size) }
+        Text(
+          text =
+            when {
+              hits.isEmpty() -> "No matches"
+              current != null -> "${current + 1} of ${hits.size}"
+              hits.size == 1 -> "1 match"
+              else -> "${hits.size} matches"
+            },
+          color = PenLabColors.icon,
+          style = PenLabTextStyles.tabularLabel,
+          modifier = Modifier.weight(1f),
+        )
+        if (hits.isNotEmpty()) {
+          val step = onStepHit ?: onOpen
+          val idx = current ?: -1
+          StepperIconButton(PenLabIcons.Back, "Previous match", enabled = hits.size > 1 && idx > 0) {
+            step(clampSearchStepperIndex(idx - 1, hits.size))
+          }
+          StepperIconButton(PenLabIcons.ChevronRight, "Next match", enabled = idx < hits.lastIndex) {
+            step(clampSearchStepperIndex(if (idx < 0) 0 else idx + 1, hits.size))
+          }
+        }
+      }
     }
     LazyColumn(Modifier.heightIn(max = 360.dp)) {
       itemsIndexed(hits) { index, hit ->
@@ -134,6 +174,8 @@ fun SearchPanel(
 /** After jumping to a result: "2 of 7" with previous / next, and close. */
 @Composable
 fun SearchStepper(index: Int, count: Int, onStep: (Int) -> Unit, onClose: () -> Unit, isPalm: () -> Boolean, modifier: Modifier = Modifier) {
+  if (count <= 0) return
+  val safeIndex = clampSearchStepperIndex(index, count)
   Row(
     modifier
       .floatingChromeSurface(
@@ -148,9 +190,13 @@ fun SearchStepper(index: Int, count: Int, onStep: (Int) -> Unit, onClose: () -> 
       .padding(horizontal = 6.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    StepperIconButton(PenLabIcons.Back, "Previous match", enabled = index > 0) { onStep(index - 1) }
-    Text("${index + 1} of $count", color = MaterialTheme.colorScheme.onSurface, style = PenLabTextStyles.tabularLabel, modifier = Modifier.padding(horizontal = PenLabSpacing.sm))
-    StepperIconButton(PenLabIcons.ChevronRight, "Next match", enabled = index < count - 1) { onStep(index + 1) }
+    StepperIconButton(PenLabIcons.Back, "Previous match", enabled = safeIndex > 0) {
+      onStep(clampSearchStepperIndex(safeIndex - 1, count))
+    }
+    Text("${safeIndex + 1} of $count", color = MaterialTheme.colorScheme.onSurface, style = PenLabTextStyles.tabularLabel, modifier = Modifier.padding(horizontal = PenLabSpacing.sm))
+    StepperIconButton(PenLabIcons.ChevronRight, "Next match", enabled = safeIndex < count - 1) {
+      onStep(clampSearchStepperIndex(safeIndex + 1, count))
+    }
     StepperIconButton(PenLabIcons.Close, "Close search", enabled = true, onClick = onClose)
   }
 }
@@ -327,10 +373,14 @@ fun LibrarySearchResults(
   onOpen: (dev.penlab.app.search.LibrarySearch.Result) -> Unit,
   onOpenNotebook: (dev.penlab.app.notes.NotebookInfo) -> Unit,
 ) {
+  val uniqueTitles = remember(titleHits) { titleHits.distinctBy { it.id } }
   val groups = remember(results) { results.groupBy { it.notebook.id }.values.toList() }
-  LazyColumn(Modifier.fillMaxWidth().padding(horizontal = PenLabLayout.libraryGutter)) {
+  LazyColumn(
+    modifier = Modifier.fillMaxWidth().imePadding().padding(horizontal = PenLabLayout.libraryGutter),
+    contentPadding = PaddingValues(bottom = PenLabSpacing.xxl),
+  ) {
     item {
-      val count = searchSummary(query, titleHits.size, results.size, groups.size)
+      val count = searchSummary(query, uniqueTitles.size, results.size, groups.size)
       Column(Modifier.padding(vertical = PenLabSpacing.sm)) {
         Text(count, color = PenLabColors.icon, style = MaterialTheme.typography.titleSmall)
         if (reading != null) {
@@ -342,8 +392,8 @@ fun LibrarySearchResults(
         }
       }
     }
-    if (titleHits.isNotEmpty()) {
-      if (showTitlesHeading(titleHits.size, results.size)) {
+    if (uniqueTitles.isNotEmpty()) {
+      if (showTitlesHeading(uniqueTitles.size, results.size)) {
         item(key = "titles-heading") {
           Text(
             "Notebook titles",
@@ -353,7 +403,7 @@ fun LibrarySearchResults(
           )
         }
       }
-      items(titleHits, key = { "title-" + it.id }) { notebook ->
+      items(uniqueTitles, key = { "title-" + it.id }) { notebook ->
         Row(
           Modifier.fillMaxWidth().heightIn(min = PenLabSpacing.touchTarget).clip(PenLabShapes.small).clickable(role = Role.Button) { onOpenNotebook(notebook) }
             .padding(horizontal = PenLabSpacing.sm, vertical = PenLabSpacing.sm),

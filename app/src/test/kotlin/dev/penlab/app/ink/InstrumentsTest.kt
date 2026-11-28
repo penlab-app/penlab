@@ -12,7 +12,7 @@ class InstrumentsTest {
       bottomClearancePx = 48f,
     )
     assertTrue("Protractor ($protractorY) must sit above ruler ($rulerY)", protractorY < rulerY - 140f)
-    assertTrue("Protractor ($protractorY) must clear top chrome", protractorY >= 400f)
+    assertTrue("Protractor ($protractorY) must clear top status/chrome edge", protractorY >= 740f)
   }
 
   @Test

@@ -30,6 +30,8 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -2067,31 +2069,32 @@ fun LayersPanelContent(
     }
 
     Spacer(Modifier.height(2.dp))
-    Row(
+    Button(
+      onClick = onAdd,
+      shape = PenLabShapes.pill,
+      colors =
+        ButtonDefaults.buttonColors(
+          containerColor = scheme.primary,
+          contentColor = scheme.onPrimary,
+        ),
       modifier =
         Modifier
           .fillMaxWidth()
           .heightIn(min = PenLabSpacing.touchTarget)
-          .clip(PenLabShapes.small)
-          // Outlined, not tinted: the tinted fill is what marks the selected layer row above.
-          .border(PenLabLayout.hairline, scheme.outline, PenLabShapes.small)
-          .clickable(role = Role.Button, onClick = onAdd)
-          .padding(horizontal = PenLabSpacing.md)
           .semantics { contentDescription = "Add new layer" },
-      horizontalArrangement = Arrangement.Center,
-      verticalAlignment = Alignment.CenterVertically,
+      contentPadding = PaddingValues(horizontal = PenLabSpacing.md, vertical = PenLabSpacing.sm),
     ) {
       Icon(
         imageVector = PenLabIcons.Plus,
         contentDescription = null,
-        tint = scheme.onSurfaceVariant,
-        modifier = Modifier.size(PenLabLayout.iconCompact),
+        modifier = Modifier.size(PenLabLayout.iconSmall),
       )
-      Spacer(Modifier.width(PenLabSpacing.sm))
+      Spacer(Modifier.width(6.dp))
       Text(
         text = "New layer",
-        color = scheme.onSurface,
         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+        maxLines = 1,
+        softWrap = false,
       )
     }
   }

@@ -34,6 +34,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,7 +42,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -177,9 +182,32 @@ fun PenLabSectionHeader(
 }
 
 /**
+ * Shared Material 3 [Switch] colors across Light and Dark themes: crisp white thumb over a
+ * saturated accent track (avoiding dark/black thumbs on dark mode) and clean unchecked/disabled tokens.
+ */
+@Composable
+fun penLabSwitchColors(): SwitchColors {
+  val scheme = MaterialTheme.colorScheme
+  val isDark = LocalPenLabColors.current.isDark
+  return SwitchDefaults.colors(
+    checkedThumbColor = PenLabComponentTokens.switchCheckedThumb,
+    checkedTrackColor = PenLabComponentTokens.switchCheckedTrack,
+    checkedBorderColor = PenLabComponentTokens.switchCheckedBorder,
+    uncheckedThumbColor = scheme.outline,
+    uncheckedTrackColor = scheme.surfaceContainerHighest,
+    uncheckedBorderColor = scheme.outline,
+    disabledCheckedThumbColor = if (isDark) scheme.onSurfaceVariant else scheme.surface,
+    disabledCheckedTrackColor = scheme.onSurface.copy(alpha = 0.24f),
+    disabledCheckedBorderColor = Color.Transparent,
+    disabledUncheckedThumbColor = scheme.onSurface.copy(alpha = 0.38f),
+    disabledUncheckedTrackColor = scheme.surfaceContainerHighest.copy(alpha = 0.5f),
+    disabledUncheckedBorderColor = scheme.outlineVariant,
+  )
+}
+
+/**
  * Full-width switch row with >=48dp touch height, optional Phosphor Duotone leading icon and
- * supporting subtitle, and a Material 3 [Switch] tinted with [MaterialTheme.colorScheme.primary] /
- * [MaterialTheme.colorScheme.onPrimary] when checked.
+ * supporting subtitle, and a Material 3 [Switch] styled via [penLabSwitchColors].
  */
 @Composable
 fun PenLabSwitchRow(
@@ -246,20 +274,7 @@ fun PenLabSwitchRow(
       checked = checked,
       onCheckedChange = null,
       enabled = enabled,
-      colors =
-        SwitchDefaults.colors(
-          checkedThumbColor = scheme.onPrimary,
-          checkedTrackColor = scheme.primary,
-          checkedBorderColor = scheme.primary,
-          uncheckedThumbColor = scheme.outline,
-          uncheckedTrackColor = scheme.surfaceContainerHighest,
-          uncheckedBorderColor = scheme.outline,
-          disabledCheckedThumbColor = scheme.surface,
-          disabledCheckedTrackColor = scheme.onSurface.copy(alpha = 0.24f),
-          disabledUncheckedThumbColor = scheme.onSurface.copy(alpha = 0.38f),
-          disabledUncheckedTrackColor = scheme.surfaceContainerHighest.copy(alpha = 0.5f),
-          disabledUncheckedBorderColor = scheme.outlineVariant,
-        ),
+      colors = penLabSwitchColors(),
     )
   }
 }
@@ -368,12 +383,27 @@ fun PenLabSliderRow(
           }
         }
         if (onAddFavourite != null) {
+          val dashColor = if (enabled) scheme.outline else PenLabComponentTokens.toolIconDisabled
           Box(
             modifier =
               Modifier
                 .size(PenLabSpacing.touchTarget)
                 .clip(PenLabShapes.small)
-                .background(PenLabComponentTokens.chipIdleBg)
+                .drawBehind {
+                  val strokeWidth = 1.25.dp.toPx()
+                  val inset = strokeWidth / 2f
+                  val corner = PenLabSpacing.sm.toPx()
+                  drawRoundRect(
+                    color = dashColor,
+                    topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+                    size = androidx.compose.ui.geometry.Size(size.width - strokeWidth, size.height - strokeWidth),
+                    cornerRadius = CornerRadius(corner, corner),
+                    style = Stroke(
+                      width = strokeWidth,
+                      pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())),
+                    ),
+                  )
+                }
                 .clickable(enabled = enabled, role = Role.Button, onClick = onAddFavourite)
                 .semantics { contentDescription = addFavouriteDescription },
             contentAlignment = Alignment.Center,
@@ -381,7 +411,7 @@ fun PenLabSliderRow(
             Icon(
               imageVector = PenLabIcons.Plus,
               contentDescription = null,
-              tint = scheme.onSurface,
+              tint = if (enabled) scheme.primary else PenLabComponentTokens.toolIconDisabled,
               modifier = Modifier.size(PenLabLayout.iconCompact),
             )
           }
@@ -419,9 +449,9 @@ fun PenLabDialog(
       modifier =
         modifier
           .imePadding()
-          .padding(horizontal = PenLabSpacing.xl, vertical = 20.dp)
+          .padding(horizontal = PenLabSpacing.xl, vertical = PenLabSpacing.lg)
           .widthIn(min = 320.dp, max = maxWidth)
-          .heightIn(max = 660.dp)
+          .heightIn(max = 720.dp)
           .fillMaxWidth()
           .softShadow(PenLabShapes.extraLarge, elevation = 16.dp),
       shape = PenLabShapes.extraLarge,
@@ -480,11 +510,15 @@ fun PenLabDialog(
                 ButtonDefaults.buttonColors(
                   containerColor = scheme.error,
                   contentColor = scheme.onError,
+                  disabledContainerColor = PenLabComponentTokens.chipIdleBg,
+                  disabledContentColor = scheme.onSurfaceVariant,
                 )
               } else {
                 ButtonDefaults.buttonColors(
                   containerColor = scheme.primary,
                   contentColor = scheme.onPrimary,
+                  disabledContainerColor = PenLabComponentTokens.chipIdleBg,
+                  disabledContentColor = scheme.onSurfaceVariant,
                 )
               },
             modifier = Modifier.heightIn(min = PenLabSpacing.touchTarget),

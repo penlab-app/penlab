@@ -72,7 +72,7 @@ object PenLabLayout {
   val swatchSizeCompact = 36.dp
 
   /** Paper mini-preview tile (New notebook dialog): width-to-height of the paper swatch. */
-  const val paperPreviewAspect = 1.9f
+  const val paperPreviewAspect = 2.3f
 
   /** Cover-slot aspect for plain folders (A4 portrait, so folder and notebook rows line up). */
   const val a4PortraitAspect = 210f / 297f

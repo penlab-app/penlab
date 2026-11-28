@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import dev.penlab.app.ink.InkColors
 import dev.penlab.app.ink.PageBackground
 import dev.penlab.app.ink.PageStyle
@@ -88,7 +89,12 @@ internal fun LibraryMenu(expanded: Boolean, onDismiss: () -> Unit, content: @Com
 @Composable
 private fun CardMenuButton(label: String, open: Boolean, onOpen: () -> Unit, onDismiss: () -> Unit, menu: @Composable () -> Unit) {
   Box {
-    PenLabIconButton(icon = PenLabIcons.MoreVert, contentDescription = label, onClick = onOpen)
+    PenLabIconButton(
+      icon = PenLabIcons.MoreVert,
+      contentDescription = label,
+      tint = MaterialTheme.colorScheme.onSurfaceVariant,
+      onClick = onOpen,
+    )
     LibraryMenu(open, onDismiss, menu)
   }
 }
@@ -112,12 +118,15 @@ internal fun NotebookCard(
   place: String? = null,
   /** The folder's colour, as a small mark beside the place. */
   accent: Int? = null,
+  /** When set (e.g. Continue strip), locks every card thumbnail to the same top-aligned aspect ratio. */
+  uniformAspect: Float? = null,
 ) {
   var menu by remember { mutableStateOf(false) }
   val scheme = MaterialTheme.colorScheme
   val date = remember(notebook.modified) { cardDateLabel(System.currentTimeMillis(), notebook.modified) }
   val isPdf = notebook.pdfPages.isNotEmpty()
   val endless = notebook.kind == NotebookKind.INFINITE
+  val cleanPlace = place?.trim()?.ifEmpty { null }
   val detail = cardMeta(null, endless, notebook.pageCount, date)
   Column(
     modifier
@@ -126,11 +135,16 @@ internal fun NotebookCard(
       .semantics { contentDescription = "${notebook.title}, $detail. Long press or use the menu for options." }
   ) {
     val aspect = if (notebook.kind == NotebookKind.A4) notebook.pageWidthMm / notebook.pageHeightMm else PenLabLayout.canvasAspect
-    // Every cover sits in a box of the same height (a portrait sheet) so title and meta lines
-    // line up across a row; a landscape cover is letterboxed inside it.
-    Box(Modifier.fillMaxWidth().aspectRatio(COVER_BOX_ASPECT), contentAlignment = Alignment.Center) {
-      val fit = if (coverFillsBoxWidth(aspect)) Modifier.fillMaxWidth() else Modifier.fillMaxHeight()
-      Box(fit.aspectRatio(aspect)) {
+    val outerModifier =
+      if (uniformAspect != null) Modifier.fillMaxWidth().aspectRatio(uniformAspect)
+      else Modifier.fillMaxWidth().aspectRatio(COVER_BOX_ASPECT)
+    // Top-align covers so adjacent thumbnails share a crisp horizontal top edge; when uniformAspect
+    // is provided (Continue strip), every card fills the exact same thumbnail rectangle.
+    Box(outerModifier, contentAlignment = Alignment.TopCenter) {
+      val innerModifier =
+        if (uniformAspect != null) Modifier.fillMaxSize()
+        else (if (coverFillsBoxWidth(aspect)) Modifier.fillMaxWidth() else Modifier.fillMaxHeight()).aspectRatio(aspect)
+      Box(innerModifier) {
         // The real first page once there is a cover; the paper style until then.
         val cover by produceState(
           Covers.cachedVariant(notebook.id, darkPage, isPdf),
@@ -197,12 +211,12 @@ internal fun NotebookCard(
     }
     // A little air under a two-line title before the meta line.
     Row(Modifier.padding(top = PenLabSpacing.xs), verticalAlignment = Alignment.Top) {
-      if (place != null) {
+      if (cleanPlace != null) {
         Box(Modifier.padding(top = PenLabSpacing.xs).size(PenLabLayout.dot).background(accent?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
         Spacer(Modifier.width(PenLabSpacing.sm))
       }
       Text(
-        cardMeta(place, endless, notebook.pageCount, date),
+        cardMeta(cleanPlace, endless, notebook.pageCount, date),
         color = scheme.onSurfaceVariant,
         style = PenLabTextStyles.tabularMedium,
         maxLines = 2,
@@ -298,7 +312,7 @@ internal fun CourseShelf(
         Box(Modifier.size(PenLabLayout.dotLarge).background(color?.let { Color(it) } ?: scheme.onSurfaceVariant, CircleShape))
         Spacer(Modifier.width(PenLabSpacing.md))
         Text(name, color = scheme.onSurface, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        if (parent.isNotEmpty()) {
+        if (parent.isNotBlank()) {
           Spacer(Modifier.width(PenLabSpacing.sm))
           Text(parent, color = scheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -342,17 +356,20 @@ internal fun PaperPreview(
 ) {
   val paper = if (pdf) Color.White else Color(InkColors.pageOnScreen(darkPage))
   val ruling = Color(InkColors.onScreen(PageBackground.RULING_PAPER_COLOR, darkPage))
+  val minor = Color(InkColors.onScreen(PageBackground.MINOR_PAPER_COLOR, darkPage))
   val slideInk = MaterialTheme.colorScheme.outline
   Canvas(modifier.flatCardSurface(shape, paper, PenLabComponentTokens.cardBorder)) {
     val step = size.width / 16f
     val w = size.width
     val h = size.height
+    val linePx = 0.7.dp.toPx()
+    val accentLinePx = 1.25.dp.toPx()
     if (pdf) {
       // A stand-in for a slide until real covers exist: a title bar and a few text lines.
       drawRect(slideInk, topLeft = Offset(w * 0.12f, h * 0.16f), size = androidx.compose.ui.geometry.Size(w * 0.5f, h * 0.09f))
       for (i in 0 until 4) {
         val y = h * (0.4f + i * 0.12f)
-        drawLine(slideInk, Offset(w * 0.12f, y), Offset(w * (0.8f - i * 0.1f), y), strokeWidth = 2f)
+        drawLine(slideInk, Offset(w * 0.12f, y), Offset(w * (0.8f - i * 0.1f), y), strokeWidth = accentLinePx)
       }
       return@Canvas
     }
@@ -360,50 +377,82 @@ internal fun PaperPreview(
       PageStyle.BLANK -> Unit
       PageStyle.LINED -> {
         var y = step * 1.5f
-        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = 1f); y += step }
+        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = linePx); y += step }
       }
       PageStyle.DOTTED -> {
+        val dotRadius = 0.9.dp.toPx()
         var y = step
         while (y < h) {
           var x = step
-          while (x < w) { drawCircle(ruling, radius = 1.2f, center = Offset(x, y)); x += step }
+          while (x < w) { drawCircle(ruling, radius = dotRadius, center = Offset(x, y)); x += step }
           y += step
         }
       }
       PageStyle.CORNELL -> {
         var y = step * 1.5f
-        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = 1f); y += step }
-        drawLine(ruling, Offset(w * 0.3f, step * 1.5f), Offset(w * 0.3f, h * 0.8f), strokeWidth = 2f)
-        drawLine(ruling, Offset(0f, h * 0.8f), Offset(w, h * 0.8f), strokeWidth = 2f)
+        while (y < h) { drawLine(minor, Offset(0f, y), Offset(w, y), strokeWidth = 0.6.dp.toPx()); y += step }
+        drawLine(ruling, Offset(w * 0.3f, step * 1.5f), Offset(w * 0.3f, h * 0.8f), strokeWidth = accentLinePx)
+        drawLine(ruling, Offset(0f, h * 0.8f), Offset(w, h * 0.8f), strokeWidth = accentLinePx)
       }
       PageStyle.CP -> {
-        val faint = ruling.copy(alpha = 0.45f)
+        val minorPx = 0.5.dp.toPx()
         var x = 0f
-        while (x < w) { drawLine(faint, Offset(x, 0f), Offset(x, h), strokeWidth = 0.6f); x += step * 0.6f }
+        while (x < w) { drawLine(minor, Offset(x, 0f), Offset(x, h), strokeWidth = minorPx); x += step * 0.7f }
         var y = 0f
-        while (y < h) { drawLine(faint, Offset(0f, y), Offset(w, y), strokeWidth = 0.6f); y += step * 0.6f }
-        drawLine(ruling, Offset(0f, h * 0.1f), Offset(w, h * 0.1f), strokeWidth = 2f)
-        drawLine(ruling, Offset(w * 0.12f, h * 0.1f), Offset(w * 0.12f, h), strokeWidth = 2f)
+        while (y < h) { drawLine(minor, Offset(0f, y), Offset(w, y), strokeWidth = minorPx); y += step * 0.7f }
+        drawLine(ruling, Offset(0f, h * 0.12f), Offset(w, h * 0.12f), strokeWidth = accentLinePx)
+        drawLine(ruling, Offset(w * 0.14f, h * 0.12f), Offset(w * 0.14f, h), strokeWidth = accentLinePx)
       }
       PageStyle.ISOMETRIC -> {
-        val gap = step * 0.8f
+        val gap = step * 0.9f
+        val isoPx = 0.6.dp.toPx()
+        val isoColor = ruling.copy(alpha = 0.72f)
+        var x = 0f
+        while (x <= w) {
+          drawLine(isoColor, Offset(x, 0f), Offset(x, h), strokeWidth = isoPx)
+          x += gap * 0.866f
+        }
         var c = -w
         while (c < h + w) {
-          drawLine(ruling, Offset(0f, c), Offset(w, c + w * 0.577f), strokeWidth = 1f)
-          drawLine(ruling, Offset(0f, c), Offset(w, c - w * 0.577f), strokeWidth = 1f)
+          drawLine(isoColor, Offset(0f, c), Offset(w, c + w * 0.577f), strokeWidth = isoPx)
+          drawLine(isoColor, Offset(0f, c), Offset(w, c - w * 0.577f), strokeWidth = isoPx)
           c += gap
         }
       }
       PageStyle.GRID, PageStyle.ENGINEERING, PageStyle.GRAPH -> {
-        val cell = if (style == PageStyle.GRAPH) step / 2 else step * 0.6f
-        // Engineering pads and graph paper have a heavier line every fifth rule.
-        val heavyEvery = if (style == PageStyle.GRID) 0 else 5
+        // Distinct density & major/minor hierarchy: Grid (even), Engineering (4-cell heavy pad), Graph (fine 5-cell graph).
+        val cell =
+          when (style) {
+            PageStyle.GRID -> maxOf(step * 0.9f, 7.dp.toPx())
+            PageStyle.ENGINEERING -> maxOf(step * 0.65f, 5.dp.toPx())
+            PageStyle.GRAPH -> maxOf(step * 0.35f, 2.8.dp.toPx())
+            else -> step * 0.65f
+          }
+        val heavyEvery =
+          when (style) {
+            PageStyle.GRID -> 1
+            PageStyle.ENGINEERING -> 4
+            PageStyle.GRAPH -> 5
+            else -> 1
+          }
+        val minorPx = if (style == PageStyle.GRAPH) 0.45.dp.toPx() else 0.55.dp.toPx()
+        val majorPx = if (style == PageStyle.GRID) 0.75.dp.toPx() else 1.2.dp.toPx()
         var i = 0
         var x = 0f
-        while (x < w) { drawLine(ruling, Offset(x, 0f), Offset(x, h), strokeWidth = if (heavyEvery != 0 && i % heavyEvery == 0) 2f else 1f); x += cell; i++ }
+        while (x <= w) {
+          val heavy = i % heavyEvery == 0
+          drawLine(if (heavy) ruling else minor, Offset(x, 0f), Offset(x, h), strokeWidth = if (heavy) majorPx else minorPx)
+          x += cell
+          i++
+        }
         i = 0
         var y = 0f
-        while (y < h) { drawLine(ruling, Offset(0f, y), Offset(w, y), strokeWidth = if (heavyEvery != 0 && i % heavyEvery == 0) 2f else 1f); y += cell; i++ }
+        while (y <= h) {
+          val heavy = i % heavyEvery == 0
+          drawLine(if (heavy) ruling else minor, Offset(0f, y), Offset(w, y), strokeWidth = if (heavy) majorPx else minorPx)
+          y += cell
+          i++
+        }
       }
     }
   }

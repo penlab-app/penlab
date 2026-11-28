@@ -15,6 +15,40 @@ import dev.penlab.app.ink.PageLayout
 import dev.penlab.app.ink.PageStore
 import java.io.File
 
+/** Pure padded cover bounds for endless canvases (unit-tested). */
+internal data class EndlessCoverBounds(val left: Float, val top: Float, val right: Float, val bottom: Float) {
+  val width: Float get() = right - left
+  val height: Float get() = bottom - top
+}
+
+/**
+ * Expands tight stroke/item bounds on an endless canvas with generous breathing room and clamps
+ * aspect ratio so wide handwritten lines (e.g. a single name) aren't cropped by 4:3 card frames.
+ */
+internal fun computeEndlessCoverBounds(left: Float, top: Float, right: Float, bottom: Float): EndlessCoverBounds {
+  val rawW = (right - left).coerceAtLeast(1f)
+  val rawH = (bottom - top).coerceAtLeast(1f)
+  val padX = maxOf(rawW * 0.12f, 32f)
+  val padY = maxOf(rawH * 0.14f, 32f)
+  val paddedLeft = left - padX
+  val paddedRight = right + padX
+  var paddedTop = top - padY
+  var paddedBottom = bottom + padY
+  val paddedW = paddedRight - paddedLeft
+  val minAspectHeight = paddedW / (4f / 3f)
+  val maxAspectHeight = paddedW * 1.4f
+  val currentH = paddedBottom - paddedTop
+  if (currentH < minAspectHeight) {
+    val extra = (minAspectHeight - currentH) / 2f
+    paddedTop -= extra
+    paddedBottom += extra
+  } else if (currentH > maxAspectHeight) {
+    // Covers are portrait-ish cards: show the top of a tall canvas, not a thin strip.
+    paddedBottom = paddedTop + maxAspectHeight
+  }
+  return EndlessCoverBounds(paddedLeft, paddedTop, paddedRight, paddedBottom)
+}
+
 /**
  * Library covers for notebooks that don't have one yet (QC 22 Nov: most cards were blank dark
  * rectangles, so notebooks couldn't be told apart). Draws the first page (an endless canvas:
@@ -36,10 +70,9 @@ object CoverMaker {
       val layout = PageLayout.paged(info.pageWidthMm, info.pageHeightMm, info.pageCount, info.bookmarks, info.pdfPages)
       area = layout.rect(0, RectF())
     } else {
-      area = (strokes.map { it.bounds } + items.map { it.bounds(RectF()) }).fold(null as RectF?) { acc, b -> acc?.apply { union(b) } ?: RectF(b) }!!
-        .apply { inset(-width() * 0.05f, -height() * 0.05f) }
-      // Covers are portrait-ish cards: show the top of a tall canvas, not a thin strip.
-      if (area.height() > area.width() * 1.4f) area.bottom = area.top + area.width() * 1.4f
+      val raw = (strokes.map { it.bounds } + items.map { it.bounds(RectF()) }).fold(null as RectF?) { acc, b -> acc?.apply { union(b) } ?: RectF(b) }!!
+      val padded = computeEndlessCoverBounds(raw.left, raw.top, raw.right, raw.bottom)
+      area = RectF(padded.left, padded.top, padded.right, padded.bottom)
     }
     val scale = WIDTH / area.width()
     val bitmap = Bitmap.createBitmap(WIDTH, (area.height() * scale).toInt().coerceIn(1, WIDTH * 2), Bitmap.Config.ARGB_8888)

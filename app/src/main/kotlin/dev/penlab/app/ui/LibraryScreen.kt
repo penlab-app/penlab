@@ -295,11 +295,24 @@ private fun LibraryHeader(
   BoxWithConstraints(Modifier.fillMaxWidth()) {
     val narrow = maxWidth < PenLabLayout.headerNarrowBreakpoint
     val actions: @Composable () -> Unit = {
-      ImportMenuButton(current, importFormats, onImportPdf, onImportFolder)
-      PenLabIconButton(icon = PenLabIcons.FolderPlus, contentDescription = "New folder", onClick = onNewFolder)
-      PenLabIconButton(icon = PenLabIcons.Settings, contentDescription = "Settings", onClick = onOpenSettings)
-      Spacer(Modifier.width(PenLabSpacing.sm))
       val scheme = MaterialTheme.colorScheme
+      ImportMenuButton(current, importFormats, onImportPdf, onImportFolder)
+      Spacer(Modifier.width(PenLabSpacing.xs))
+      PenLabIconButton(
+        icon = PenLabIcons.FolderPlus,
+        contentDescription = "New folder",
+        containerColor = PenLabComponentTokens.chipIdleBg,
+        borderColor = scheme.outline,
+        onClick = onNewFolder,
+      )
+      PenLabIconButton(
+        icon = PenLabIcons.Settings,
+        contentDescription = "Settings",
+        containerColor = PenLabComponentTokens.chipIdleBg,
+        borderColor = scheme.outline,
+        onClick = onOpenSettings,
+      )
+      Spacer(Modifier.width(PenLabSpacing.xs))
       val label: @Composable RowScope.() -> Unit = {
         Icon(PenLabIcons.FilePlus, contentDescription = null, modifier = Modifier.size(PenLabLayout.iconMedium))
         Spacer(Modifier.width(PenLabSpacing.sm))
@@ -481,6 +494,7 @@ private fun LibraryGrid(
                 modifier = Modifier.width(PenLabLayout.continueCardWidth),
                 place = notebook.folder.substringAfterLast("/").ifEmpty { null },
                 accent = folderColor(notebook.folder, folderColors),
+                uniformAspect = PenLabLayout.canvasAspect,
               )
             }
           }
@@ -695,7 +709,13 @@ private fun TextPromptDialog(
   onConfirm: (String) -> Unit,
 ) {
   var value by remember { mutableStateOf(initial) }
-  PenLabDialog(title = title, onDismiss = onDismiss, primaryLabel = confirm, onPrimaryClick = { onConfirm(value) }) {
+  PenLabDialog(
+    title = title,
+    onDismiss = onDismiss,
+    primaryLabel = confirm,
+    primaryEnabled = canConfirmNamedInput(value),
+    onPrimaryClick = { onConfirm(value.trim()) },
+  ) {
     PenLabTextField(value, { value = it }, label)
   }
 }
@@ -704,16 +724,17 @@ private fun TextPromptDialog(
 internal fun PenLabTextField(
   value: String,
   onChange: (String) -> Unit,
-  label: String,
+  label: String?,
   minLines: Int = 1,
   placeholder: String? = null,
+  contentDescription: String = label ?: placeholder.orEmpty(),
   modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
   val focus = LocalFocusManager.current
   OutlinedTextField(
     value = value,
     onValueChange = onChange,
-    label = { Text(label) },
+    label = label?.let { { Text(it) } },
     placeholder = placeholder?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
     singleLine = minLines == 1,
     minLines = minLines,
@@ -732,7 +753,7 @@ internal fun PenLabTextField(
         unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
         cursorColor = MaterialTheme.colorScheme.primary,
       ),
-    modifier = modifier.semantics { contentDescription = label },
+    modifier = modifier.semantics { if (contentDescription.isNotEmpty()) this.contentDescription = contentDescription },
   )
 }
 

@@ -109,7 +109,8 @@ object PenLabPrimitives {
   val AmberLight = Color(0xFFD97706)
   val AmberLightContainer = Color(0xFFFEF3C7)
   val AmberLightOnContainer = Color(0xFF78350F)
-  val AmberLightHighlight = Color(0xFFF59E0B)
+  // Dark amber tuned for >= 5:1 contrast on Light white & warm stone surfaces.
+  val AmberLightHighlight = Color(0xFF9A4407)
   val AmberDark = Color(0xFFFFC34D)
   val AmberDarkContainer = Color(0xFF422F0A)
   val AmberDarkOnContainer = Color(0xFFFFE7B3)
@@ -557,6 +558,16 @@ object PenLabComponentTokens {
     @Composable @ReadOnlyComposable get() = LocalPenLabColors.current.floatingChromeBorder
   val selectionBarDestructive: Color
     @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.error
+
+  // Material 3 Switch checked tokens (crisp white thumb on saturated track in both Light & Dark)
+  val switchCheckedThumb: Color
+    @Composable @ReadOnlyComposable get() = PenLabPrimitives.Slate0
+  val switchCheckedTrack: Color
+    @Composable @ReadOnlyComposable get() =
+      if (LocalPenLabColors.current.isDark) Accent.theme.lightPrimary
+      else MaterialTheme.colorScheme.primary
+  val switchCheckedBorder: Color
+    @Composable @ReadOnlyComposable get() = MaterialTheme.colorScheme.primary
 }
 
 /**

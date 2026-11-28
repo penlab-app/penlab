@@ -91,4 +91,41 @@ class HistoryFileTest {
     val (undo, _) = history.saveableSteps(100)
     assertEquals(1, undo.size) // only the step after the closure
   }
+
+  @Test
+  fun layerEditsRoundTripHiddenAndCurrent() {
+    val before = SavedLayers(listOf("Base", "Notes", "Grid"), hidden = listOf(1, 2), current = 2)
+    val after = SavedLayers(listOf("Base", "Grid"), hidden = listOf(1), current = 1)
+    val history = SavedHistory(0, listOf(SavedEdit.Layers(before, after)), emptyList())
+    val bytes = ByteArrayOutputStream().also { HistoryFile.write(history, it) }.toByteArray()
+    val back = HistoryFile.read(ByteArrayInputStream(bytes))
+    val layers = back.undo.single() as SavedEdit.Layers
+    assertEquals(before, layers.before)
+    assertEquals(after, layers.after)
+  }
+
+  @Test
+  fun legacyV4LayerEditReadsWithoutCrashingAndMarksLegacyCurrent() {
+    val bytes = ByteArrayOutputStream().apply {
+      java.io.DataOutputStream(java.util.zip.GZIPOutputStream(this)).use { out ->
+        out.writeInt(0x47524853) // MAGIC
+        out.writeInt(4) // v4
+        out.writeInt(0) // strokeCount
+        out.writeInt(1) // undo count
+        out.writeByte(8) // LAYERS
+        out.writeInt(2)
+        out.writeUTF("Layer 1")
+        out.writeUTF("Layer 2")
+        out.writeInt(1)
+        out.writeUTF("Layer 1")
+        out.writeInt(0) // redo count
+      }
+    }.toByteArray()
+    val back = HistoryFile.read(ByteArrayInputStream(bytes))
+    val layers = back.undo.single() as SavedEdit.Layers
+    assertEquals(listOf("Layer 1", "Layer 2"), layers.before.names)
+    assertEquals(HistoryFile.LEGACY_LAYER_CURRENT, layers.before.current)
+    assertEquals(listOf("Layer 1"), layers.after.names)
+    assertEquals(HistoryFile.LEGACY_LAYER_CURRENT, layers.after.current)
+  }
 }

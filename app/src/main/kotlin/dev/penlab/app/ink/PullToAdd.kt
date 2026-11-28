@@ -113,6 +113,66 @@ internal object ViewSettle {
     return Level(scale, clampX(tx, pageWidth * scale, newW, leftInset, rightInset), clampTop(ty, topLimit))
   }
 
+  /** Delta (px) to shift `MTRANS_X` and `MTRANS_Y` so transformed pages stay in view. */
+  data class ClampDelta(val dx: Float, val dy: Float)
+
+  /**
+   * Computes the screen-space translation delta needed to keep a notebook's pages in view for
+   * any orientation (level, 90°/-90°, 180°, or arbitrary rotation).
+   *
+   * - Vertical clamping keeps the notebook's topmost screen corner at or below [topLimit].
+   * - Horizontal clamping uses the active page when near-vertical (`|cos| >= |sin|`) so tilted
+   *   multi-page notebooks don't drift sideways due to off-screen pages, and uses the full
+   *   notebook strip when turned sideways (`|sin| > |cos|`) so users can pan across all pages.
+   */
+  fun clampPagesInView(
+    matrixValues: FloatArray,
+    pageWidth: Float,
+    pageHeight: Float,
+    activePageTop: Float,
+    totalHeight: Float,
+    screenWidth: Float,
+    leftInset: Float,
+    rightInset: Float,
+    topLimit: Float,
+  ): ClampDelta {
+    val sx = matrixValues[0]
+    val kx = matrixValues[1]
+    val tx = matrixValues[2]
+    val ky = matrixValues[3]
+    val sy = matrixValues[4]
+    val ty = matrixValues[5]
+
+    var minY = Float.POSITIVE_INFINITY
+    fun checkY(px: Float, py: Float) {
+      val y = ky * px + sy * py + ty
+      if (y < minY) minY = y
+    }
+    checkY(0f, 0f)
+    checkY(pageWidth, 0f)
+    checkY(0f, totalHeight)
+    checkY(pageWidth, totalHeight)
+
+    val sideways = kotlin.math.abs(ky) > kotlin.math.abs(sx)
+    val y0 = if (sideways) 0f else activePageTop
+    val y1 = if (sideways) totalHeight else (activePageTop + pageHeight)
+    var minX = Float.POSITIVE_INFINITY
+    var maxX = Float.NEGATIVE_INFINITY
+    fun checkX(px: Float, py: Float) {
+      val x = sx * px + kx * py + tx
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+    }
+    checkX(0f, y0)
+    checkX(pageWidth, y0)
+    checkX(0f, y1)
+    checkX(pageWidth, y1)
+
+    val clampedLeft = clampX(minX, maxX - minX, screenWidth, leftInset, rightInset)
+    val clampedTop = clampTop(minY, topLimit)
+    return ClampDelta(dx = clampedLeft - minX, dy = clampedTop - minY)
+  }
+
   /** "Fitted" means within this share of the free width. */
   private const val FITTED_SHARE = 0.02f
 }

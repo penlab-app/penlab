@@ -136,4 +136,90 @@ class PullToAddTest {
     assertTrue(ViewSettle.isNearLevel(-1f))
     assertFalse(ViewSettle.isNearLevel(5f))
   }
+
+  @Test
+  fun clampPagesInViewCentersNarrowLevelAndTurnedA4Pages() {
+    // Landscape (turned) A4: 2970 x 2100 at 0.5x = 1485 px wide, narrower than 2560 px screen.
+    val m = floatArrayOf(0.5f, 0f, 50f, 0f, 0.5f, 200f, 0f, 0f, 1f)
+    val delta = ViewSettle.clampPagesInView(
+      matrixValues = m,
+      pageWidth = 2970f,
+      pageHeight = 2100f,
+      activePageTop = 0f,
+      totalHeight = 2100f,
+      screenWidth = 2560f,
+      leftInset = 0f,
+      rightInset = 0f,
+      topLimit = 120f,
+    )
+    assertEquals((2560f - 1485f) / 2f - 50f, delta.dx, 1e-3f)
+    assertEquals(120f - 200f, delta.dy, 1e-3f)
+  }
+
+  @Test
+  fun clampPagesInViewUsesSwappedDimensionsAt90Degrees() {
+    // 1-page Portrait A4 (2100 x 2970) rotated 90 deg CW at scale 1.0:
+    // screen width becomes 2970 (> 2560), screen height becomes 2100.
+    // Page [0..2100] x [0..2970] mapped by (sx=0, kx=-1, tx=3100, ky=1, sy=0, ty=160) occupies X=[130, 3100], Y=[160, 2260].
+    val m = floatArrayOf(0f, -1f, 3100f, 1f, 0f, 160f, 0f, 0f, 1f)
+    val delta = ViewSettle.clampPagesInView(
+      matrixValues = m,
+      pageWidth = 2100f,
+      pageHeight = 2970f,
+      activePageTop = 0f,
+      totalHeight = 2970f,
+      screenWidth = 2560f,
+      leftInset = 0f,
+      rightInset = 0f,
+      topLimit = 120f,
+    )
+    // Left edge was pulled inside (130 > 0) while page is 2970 px wide: clamps left edge back to 0.
+    assertEquals(-130f, delta.dx, 1e-3f)
+    // Top edge at 160 > topLimit 120: pulls top back to 120.
+    assertEquals(-40f, delta.dy, 1e-3f)
+  }
+
+  @Test
+  fun clampPagesInViewHandles180DegreesWithoutNegativeScaleBug() {
+    // Portrait A4 rotated 180 deg at scale 1.0: sx=-1, sy=-1, tx=2200, ty=3200 -> X=[100, 2200], Y=[230, 3200].
+    val m = floatArrayOf(-1f, 0f, 2200f, 0f, -1f, 3200f, 0f, 0f, 1f)
+    val delta = ViewSettle.clampPagesInView(
+      matrixValues = m,
+      pageWidth = 2100f,
+      pageHeight = 2970f,
+      activePageTop = 0f,
+      totalHeight = 2970f,
+      screenWidth = 2560f,
+      leftInset = 0f,
+      rightInset = 0f,
+      topLimit = 100f,
+    )
+    // 2100 px page centered in 2560 px screen sits at X=230; currently X=100 -> dx = +130.
+    assertEquals(130f, delta.dx, 1e-3f)
+    // Top edge at Y=230 > topLimit 100 -> dy = -130.
+    assertEquals(-130f, delta.dy, 1e-3f)
+  }
+
+  @Test
+  fun clampPagesInViewAllowsMultiPageHorizontalScrollAtMinus90Degrees() {
+    // 3-page A4 rotated -90 deg CCW at scale 0.5: ky=-1*0.5=-0.5, kx=0.5.
+    // X spans 0..totalHeight*0.5; shifted far right so minX > leftInset must clamp back to leftInset.
+    val totalH = 3 * 2970f + 2 * 120f
+    val m = floatArrayOf(0f, 0.5f, 200f, -0.5f, 0f, 1100f, 0f, 0f, 1f)
+    val delta = ViewSettle.clampPagesInView(
+      matrixValues = m,
+      pageWidth = 2100f,
+      pageHeight = 2970f,
+      activePageTop = 0f,
+      totalHeight = totalH,
+      screenWidth = 2560f,
+      leftInset = 80f,
+      rightInset = 0f,
+      topLimit = 100f,
+    )
+    // minX = 200 > leftInset 80 while strip width = totalH*0.5 = 4575 > free -> dx = -120.
+    assertEquals(-120f, delta.dx, 1e-3f)
+    // minY = 1100 - 2100*0.5 = 50 <= 100 -> dy = 0.
+    assertEquals(0f, delta.dy, 1e-3f)
+  }
 }

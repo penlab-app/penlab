@@ -19,8 +19,7 @@ fun PenLabTheme(content: @Composable () -> Unit) {
   val mode = Accent.themeMode
   val systemDark = isSystemInDarkTheme()
   val isDark = mode.resolveDark(systemDark)
-  // Keep Accent.isDark synchronized for non-composable/DrawScope bridges immediately and across system theme changes.
-  Accent.syncResolvedDark(isDark)
+  // Keep Accent.isDark synchronized for non-composable/DrawScope bridges only after composition commits.
   SideEffect { Accent.syncResolvedDark(isDark) }
 
   val scheme = penLabColorScheme(look, isDark)

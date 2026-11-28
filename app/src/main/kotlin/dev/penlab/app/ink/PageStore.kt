@@ -30,7 +30,7 @@ object HistoryStates {
   /** Page count, bookmarks, PDF pages: a [SavedPages]. */
   const val PAGES = 2
 
-  /** The layers' names: a `List<String>`. */
+  /** The layers' names, hidden indices, and current layer: a [SavedLayers]. */
   const val LAYERS = 3
 }
 
@@ -123,6 +123,42 @@ class PageStore(directory: File, fileName: String = "current-page.graphite") {
   /** Writes the snapshot in the background. Calls queue up and run in order. */
   fun save(snapshot: PageSnapshot) {
     io.execute { saveNow(snapshot) }
+  }
+
+  /**
+   * Clears history and writes [snapshot] strictly on [SAVE_THREAD] after any queued saves, then
+   * invokes [onComplete] on the main thread.
+   */
+  fun saveFresh(snapshot: PageSnapshot, onComplete: () -> Unit = {}) {
+    io.execute {
+      clearHistoryNow()
+      saveNow(snapshot)
+      main.post(onComplete)
+    }
+  }
+
+  /**
+   * Reads the latest saved page, transforms it via [transform], clears history, and saves the
+   * result strictly on [SAVE_THREAD] after any queued saves, then invokes [onComplete] on main.
+   */
+  fun transformAndSave(transform: (LoadedPage?) -> PageSnapshot?, onComplete: () -> Unit = {}) {
+    io.execute {
+      val current =
+        try {
+          file.openRead().use { PageFile.read(it) }.toLoadedPage(null)
+        } catch (_: FileNotFoundException) {
+          null
+        } catch (e: Exception) {
+          Log.e(TAG, "Saved page could not be read during transform", e)
+          null
+        }
+      val next = transform(current)
+      if (next != null) {
+        clearHistoryNow()
+        saveNow(next)
+      }
+      main.post(onComplete)
+    }
   }
 
   /** Writes the snapshot on the calling thread (for imports, which already run in the background). */
@@ -218,7 +254,7 @@ private fun StrokeHistory.Edit<InkStroke>.toSaved(): SavedEdit =
     is StrokeHistory.Edit.State ->
       when (kind) {
         HistoryStates.ITEMS -> SavedEdit.Items((before as List<PageItem>).map { it.toSaved() }, (after as List<PageItem>).map { it.toSaved() })
-        HistoryStates.LAYERS -> SavedEdit.Layers(before as List<String>, after as List<String>)
+        HistoryStates.LAYERS -> SavedEdit.Layers(before as SavedLayers, after as SavedLayers)
         else -> SavedEdit.Pages(before as SavedPages, after as SavedPages)
       }
     is StrokeHistory.Edit.Action -> error("closures are never saved") // saveableSteps leaves them out

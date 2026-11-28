@@ -235,8 +235,9 @@ class NotebookStore(private val location: LibraryLocation) {
     val id = UUID.randomUUID().toString()
     val dir = File(library, id).apply { mkdirs() }
     val pdf = imported.backgroundPdf
+    val hasPdfBackground = importedHasPdfBackground(imported)
     try {
-      if (pdf != null) {
+      if (hasPdfBackground && pdf != null) {
         val target = File(dir, PDF)
         if (!pdf.renameTo(target)) pdf.copyTo(target, overwrite = true)
       }
@@ -246,11 +247,12 @@ class NotebookStore(private val location: LibraryLocation) {
     }
     val pageCount = imported.pages.size
     val now = System.currentTimeMillis()
-    val pdfPages = if (pdf != null) imported.pages.map { it.backgroundPdfPage } else emptyList()
+    val pdfPages = resolveImportedPdfPages(imported)
     // Imported strokes may name layers beyond the first; the notebook gets one layer for each (capped).
     val layerCount = (imported.pages.maxOf { page -> page.strokes.maxOfOrNull { it.layer } ?: 0 } + 1).coerceIn(1, MAX_IMPORT_LAYERS)
+    val defaultTitle = if (hasPdfBackground) "Imported PDF" else "Imported notebook"
     val info = NotebookInfo(
-      id, imported.title.ifBlank { "Imported PDF" }, cleanFolder(folder), NotebookKind.A4, PageStyle.BLANK, pageCount, emptyList(), now, now,
+      id, imported.title.ifBlank { defaultTitle }, cleanFolder(folder), NotebookKind.A4, PageStyle.BLANK, pageCount, emptyList(), now, now,
       imported.pageWidthMm, imported.pageHeightMm, pdfPages, layerNames = List(layerCount) { "Layer ${it + 1}" },
     )
     write(info)

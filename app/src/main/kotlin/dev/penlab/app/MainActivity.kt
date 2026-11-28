@@ -98,6 +98,9 @@ import dev.penlab.app.notes.NotebookKind
 import dev.penlab.app.notes.NotebookStore
 import dev.penlab.app.notes.cleanFolder
 import dev.penlab.app.notes.IncomingPdf
+import dev.penlab.app.notes.syncNotebookMetadata
+import dev.penlab.app.notes.turnNotebookInfo
+import dev.penlab.app.notes.turnShiftDy
 import dev.penlab.app.ui.BarHeight
 import dev.penlab.app.ui.FileChromePill
 import dev.penlab.app.ui.ImportFailure
@@ -330,6 +333,11 @@ class MainActivity : ComponentActivity() {
       openState = value
       if (old !== value) onOpenChanged(old, value)
     }
+
+  /** Serializes portrait/landscape turns against concurrent opens and metadata updates (main thread). */
+  private val turningIds = HashSet<String>()
+  private var openGeneration = 0L
+  private var pendingOpenAfterTurnId: String? = null
 
   /** Projector view: shows only the page on a cabled projector or monitor (see projector/). */
   private val projector by lazy { dev.penlab.app.projector.ProjectorController(this) }
@@ -1159,6 +1167,7 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun deleteNotebook(info: NotebookInfo) {
+    if (pendingOpenAfterTurnId == info.id) pendingOpenAfterTurnId = null
     io.execute {
       notebooks.delete(info)
       refreshLibrary()
@@ -1453,37 +1462,53 @@ class MainActivity : ComponentActivity() {
    * stays, just off the paper). Undo history is cleared: its positions no longer fit.
    */
   private fun turnNotebook(info: NotebookInfo) {
-    if (info.kind != NotebookKind.A4 || info.pdfPages.isNotEmpty()) return
-    val store = notebooks.pageStore(info)
-    store.load { page ->
-      io.execute {
-        val old = PageLayout.paged(info.pageWidthMm, info.pageHeightMm, info.pageCount, info.bookmarks, emptyList())
-        val turned = info.copy(pageWidthMm = info.pageHeightMm, pageHeightMm = info.pageWidthMm, modified = System.currentTimeMillis())
-        val new = PageLayout.paged(turned.pageWidthMm, turned.pageHeightMm, info.pageCount, info.bookmarks, emptyList())
-        if (page != null) {
-          fun shift(y: Float): Float {
-            val p = old.pageAt(y)
-            return y - old.top(p) + new.top(p)
-          }
-          val strokes = page.strokes.map { s ->
-            val dy = shift(s.bounds.centerY()) - s.bounds.centerY()
-            if (dy == 0f) s else s.translated(0f, dy)
-          }
-          val items = page.items.map { item ->
-            val dy = shift(item.cy) - item.cy
-            item.mapped(android.graphics.Matrix().apply { setTranslate(0f, dy) })
-          }
-          store.clearHistoryNow()
-          store.saveNow(PageSnapshot(strokes, page.pageStyle, FloatArray(9).also { android.graphics.Matrix().getValues(it) }, items))
-        }
-        notebooks.write(turned)
-        refreshLibrary()
-      }
+    if (open?.info?.id == info.id) {
+      turnOpenNotebook()
+      return
     }
+    val latest = library.firstOrNull { it.id == info.id } ?: info
+    if (latest.id in turningIds) return
+    val turned = turnNotebookInfo(latest, System.currentTimeMillis()) ?: return
+    turningIds += latest.id
+    val store = notebooks.pageStore(latest)
+    store.transformAndSave(
+      transform = { page ->
+        page ?: return@transformAndSave null
+        val strokes = page.strokes.map { s ->
+          val dy = turnShiftDy(s.bounds.centerY(), latest.pageHeightMm, turned.pageHeightMm, latest.pageCount)
+          if (dy == 0f) s else s.translated(0f, dy)
+        }
+        val items = page.items.map { item ->
+          val dy = turnShiftDy(item.cy, latest.pageHeightMm, turned.pageHeightMm, latest.pageCount)
+          if (dy == 0f) item else item.mapped(android.graphics.Matrix().apply { setTranslate(0f, dy) })
+        }
+        PageSnapshot(strokes, page.pageStyle, FloatArray(9).also { android.graphics.Matrix().getValues(it) }, items)
+      },
+      onComplete = {
+        io.execute {
+          notebooks.write(turned)
+          writeCover(turned)
+          refreshLibrary()
+          main.post {
+            turningIds -= latest.id
+            if (pendingOpenAfterTurnId == latest.id) {
+              pendingOpenAfterTurnId = null
+              openNotebook(turned)
+            }
+          }
+        }
+      },
+    )
   }
 
   /** Opens [info] in a new canvas and loads its strokes in the background. */
   private fun openNotebook(info: NotebookInfo, jumpTo: RectF? = null) {
+    if (info.id in turningIds) {
+      pendingOpenAfterTurnId = info.id
+      return
+    }
+    pendingOpenAfterTurnId = null
+    openGeneration++
     // Some paths (a search result, a new or imported notebook, an intent) open without closing first. Replacing `open`
     // then skipped the save and leaked the old PDF renderer and search index (audit BUG-14): close it properly here.
     open?.let { previous ->
@@ -1533,7 +1558,14 @@ class MainActivity : ComponentActivity() {
       if (open !== notebook) return@load // closed again before it finished loading
       val t0 = android.os.SystemClock.uptimeMillis()
       canvas.awaitingLoad = false
-      if (page != null) canvas.load(page) else canvas.fitPageWidth()
+      if (page != null) {
+        canvas.load(page)
+        if (notebook.info.pageStyle != canvas.pageStyle) {
+          notebook.info = notebook.info.copy(pageStyle = canvas.pageStyle)
+        }
+      } else {
+        canvas.fitPageWidth()
+      }
       Log.i("PenLabPerf", "open: canvas.load ${android.os.SystemClock.uptimeMillis() - t0} ms (main thread), ${android.os.SystemClock.uptimeMillis() - openedAt} ms since tap")
       canvas.post { Log.i("PenLabPerf", "open: first frame after load ${android.os.SystemClock.uptimeMillis() - openedAt} ms since tap") }
       notebook.loaded = true
@@ -1573,39 +1605,55 @@ class MainActivity : ComponentActivity() {
 
   /**
    * Turns the currently open plain A4 notebook between portrait and landscape without racing with
-   * async saves: captures its live snapshot, shifts ink/items on [io], saves, and reopens cleanly.
+   * async saves or metadata edits: syncs live canvas metadata, captures its live snapshot, saves
+   * on [PageStore]'s serialized thread, writes metadata + cover, and reopens cleanly.
    */
   private fun turnOpenNotebook() {
     val current = open ?: return
-    val info = current.info
-    if (info.kind != NotebookKind.A4 || info.pdfPages.isNotEmpty()) return
+    if (!current.loaded) return
+    val synced = syncNotebookMetadata(
+      info = current.info,
+      pageStyle = current.canvas.pageStyle,
+      rulingMm = current.canvas.rulingMm,
+      layerNames = current.canvas.layers.names,
+      hiddenLayers = current.canvas.layers.hidden,
+      currentLayer = current.canvas.layers.current,
+      pageCount = current.canvas.pageLayout?.count ?: current.info.pageCount,
+      bookmarks = current.canvas.pageLayout?.bookmarks ?: current.info.bookmarks.toSet(),
+      pdfPages = current.canvas.pageLayout?.backgrounds ?: current.info.pdfPages,
+      now = System.currentTimeMillis(),
+    )
+    val turned = turnNotebookInfo(synced, synced.modified) ?: return
+    if (turned.id in turningIds) return
+    turningIds += turned.id
+    val turnGen = ++openGeneration
     main.removeCallbacks(saveNow)
     val snapshot = current.canvas.snapshot()
-    val store = current.pages ?: notebooks.pageStore(info)
+    val store = current.pages ?: notebooks.pageStore(synced)
     current.pdf?.close()
     current.search?.close()
     open = null
-    io.execute {
-      val old = PageLayout.paged(info.pageWidthMm, info.pageHeightMm, info.pageCount, info.bookmarks, emptyList())
-      val turned = info.copy(pageWidthMm = info.pageHeightMm, pageHeightMm = info.pageWidthMm, modified = System.currentTimeMillis())
-      val new = PageLayout.paged(turned.pageWidthMm, turned.pageHeightMm, info.pageCount, info.bookmarks, emptyList())
-      fun shift(y: Float): Float {
-        val p = old.pageAt(y)
-        return y - old.top(p) + new.top(p)
+    val strokes = snapshot.strokes.map { s ->
+      val dy = turnShiftDy(s.bounds.centerY(), synced.pageHeightMm, turned.pageHeightMm, synced.pageCount)
+      if (dy == 0f) s else s.translated(0f, dy)
+    }
+    val items = snapshot.items.map { item ->
+      val dy = turnShiftDy(item.cy, synced.pageHeightMm, turned.pageHeightMm, synced.pageCount)
+      if (dy == 0f) item else item.mapped(android.graphics.Matrix().apply { setTranslate(0f, dy) })
+    }
+    val turnedSnapshot = PageSnapshot(strokes, snapshot.pageStyle, FloatArray(9).also { android.graphics.Matrix().getValues(it) }, items)
+    store.saveFresh(turnedSnapshot) {
+      io.execute {
+        notebooks.write(turned)
+        writeCover(turned)
+        refreshLibrary()
+        main.post {
+          turningIds -= turned.id
+          val shouldReopen = (open == null && openGeneration == turnGen) || pendingOpenAfterTurnId == turned.id
+          if (pendingOpenAfterTurnId == turned.id) pendingOpenAfterTurnId = null
+          if (shouldReopen) openNotebook(turned)
+        }
       }
-      val strokes = snapshot.strokes.map { s ->
-        val dy = shift(s.bounds.centerY()) - s.bounds.centerY()
-        if (dy == 0f) s else s.translated(0f, dy)
-      }
-      val items = snapshot.items.map { item ->
-        val dy = shift(item.cy) - item.cy
-        item.mapped(android.graphics.Matrix().apply { setTranslate(0f, dy) })
-      }
-      store.clearHistoryNow()
-      store.saveNow(PageSnapshot(strokes, snapshot.pageStyle, FloatArray(9).also { android.graphics.Matrix().getValues(it) }, items))
-      notebooks.write(turned)
-      refreshLibrary()
-      main.post { openNotebook(turned) }
     }
   }
 
@@ -1637,6 +1685,8 @@ class MainActivity : ComponentActivity() {
   private fun switchTo(info: NotebookInfo) {
     val current = open ?: return openNotebook(info)
     if (current.info.id == info.id) return
+    pendingOpenAfterTurnId = null
+    openGeneration++
     pdfCropRequest = null
     save()
     saveCover(current)
@@ -1648,6 +1698,8 @@ class MainActivity : ComponentActivity() {
 
   /** Saves and goes back to the library. */
   private fun closeNotebook() {
+    pendingOpenAfterTurnId = null
+    openGeneration++
     pdfCropRequest = null
     cancelRunningPlugin()
     save()
@@ -1779,13 +1831,17 @@ class MainActivity : ComponentActivity() {
     if (!edited) return // only the view moved: the page file keeps it, nothing else changed
     reindex(notebook)
     val layers = notebook.canvas.layers
-    notebook.info = notebook.info.copy(
-      modified = System.currentTimeMillis(),
+    notebook.info = syncNotebookMetadata(
+      info = notebook.info,
       pageStyle = notebook.canvas.pageStyle,
       rulingMm = notebook.canvas.rulingMm,
       layerNames = layers.names,
-      hiddenLayers = layers.hidden.sorted(),
+      hiddenLayers = layers.hidden,
       currentLayer = layers.current,
+      pageCount = notebook.canvas.pageLayout?.count ?: notebook.info.pageCount,
+      bookmarks = notebook.canvas.pageLayout?.bookmarks ?: notebook.info.bookmarks.toSet(),
+      pdfPages = notebook.canvas.pageLayout?.backgrounds ?: notebook.info.pdfPages,
+      now = System.currentTimeMillis(),
     )
     val info = notebook.info
     io.execute { notebooks.write(info) }
@@ -2000,7 +2056,7 @@ private fun NoteScreen(
 
   var canUndo by remember { mutableStateOf(canvas.canUndo) }
   var canRedo by remember { mutableStateOf(canvas.canRedo) }
-  var canClear by remember { mutableStateOf(!canvas.isEmpty) }
+  var canClear by remember { mutableStateOf(canvas.canClearCurrentPage) }
   var selectionRect by remember { mutableStateOf<Rect?>(null) }
   var selectionMoreOpen by remember { mutableStateOf(false) }
   var hasClipboard by remember { mutableStateOf(canvas.hasClipboard) }
@@ -2249,10 +2305,19 @@ private fun NoteScreen(
   }
   DisposableEffect(canvas) {
     sendToolsToCanvas()
+    pageStyle = canvas.pageStyle
+    rulingMm = canvas.rulingMm
+    layerState = canvas.layers
+    canUndo = canvas.canUndo
+    canRedo = canvas.canRedo
+    canClear = canvas.canClearCurrentPage
+    canvas.onPageStyleChanged = { pageStyle = it }
     canvas.onHistoryChanged = {
       canUndo = canvas.canUndo
       canRedo = canvas.canRedo
-      canClear = !canvas.isEmpty
+      canClear = canvas.canClearCurrentPage
+      pageStyle = canvas.pageStyle
+      rulingMm = canvas.rulingMm
       contentVersion++
       onPageEdited()
       projector.markDirty() // stroke committed, undo/redo, items, pages, layers, paper: all end here
@@ -2269,7 +2334,10 @@ private fun NoteScreen(
         pasteMenuAt = Offset(x, y)
       }
     }
-    canvas.onCurrentPageChanged = { currentPage = it }
+    canvas.onCurrentPageChanged = {
+      currentPage = it
+      canClear = canvas.canClearCurrentPage
+    }
     canvas.onTextRequest = { id, existing ->
       textPlacementHintVisible = false
       editingText = id to existing
@@ -2277,6 +2345,7 @@ private fun NoteScreen(
     canvas.onNotice = { text -> if (!present) scope.launch { messages.currentSnackbarData?.dismiss(); messages.showSnackbar(text, duration = SnackbarDuration.Short) } }
     canvas.onLayersChanged = {
       layerState = canvas.layers
+      canClear = canvas.canClearCurrentPage
       onPageEdited() // worth saving
       projector.markDirty()
     }
@@ -2294,6 +2363,7 @@ private fun NoteScreen(
     }
 
     onDispose {
+      canvas.onPageStyleChanged = {}
       canvas.onHistoryChanged = {}
       canvas.onNotice = {}
       canvas.onPageTouched = {}
@@ -2322,7 +2392,10 @@ private fun NoteScreen(
 
   fun clearPageWithUndo() {
     openPanel = null
-    canvas.clear()
+    if (!canvas.clear()) {
+      canClear = canvas.canClearCurrentPage
+      return
+    }
     scope.launch {
       messages.currentSnackbarData?.dismiss()
       val result = messages.showSnackbar("Page cleared", actionLabel = "Undo", duration = SnackbarDuration.Short)

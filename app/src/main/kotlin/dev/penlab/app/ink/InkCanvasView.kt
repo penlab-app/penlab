@@ -481,6 +481,12 @@ class InkCanvasView(
   private val trueSizeZoom: Float =
     if (pageLayout == null) 1f else resources.displayMetrics.xdpi / 25.4f / PageLayout.UNITS_PER_MM
 
+  private val minZoom: Float
+    get() = minZoomFor(trueSizeZoom)
+
+  private val maxZoom: Float
+    get() = maxZoomFor(trueSizeZoom)
+
   /** Called when pages are added, removed or bookmarked (read [pageLayout] for the new state). */
   var onPagesChanged: () -> Unit = {}
 
@@ -525,12 +531,16 @@ class InkCanvasView(
       penPointerId != MotionEvent.INVALID_POINTER_ID ||
         SystemClock.uptimeMillis() - lastPenUpTime < PEN_NEARBY_GRACE_MS
 
+  /** Called when the paper style changes (either from UI or after async page load). */
+  var onPageStyleChanged: (PageStyle) -> Unit = {}
+
   /** The paper's ruling: blank, lined or dotted. */
   var pageStyle: PageStyle = PageStyle.BLANK
     set(value) {
       field = value
       finishedView.invalidate()
       invalidateProjectorContent()
+      onPageStyleChanged(value)
       onHistoryChanged() // worth saving too
     }
 
@@ -555,7 +565,29 @@ class InkCanvasView(
     get() = history.canRedo
 
   val isEmpty: Boolean
-    get() = history.strokes.isEmpty()
+    get() = history.strokes.isEmpty() && items.isEmpty()
+
+  /**
+   * True when the current page (or the endless canvas) contains at least one non-hidden stroke or
+   * any [PageItem] that [clear] will remove.
+   */
+  val canClearCurrentPage: Boolean
+    get() {
+      val layout = pageLayout
+      val top = layout?.top(currentPage) ?: 0f
+      val bottom = if (layout != null) top + layout.pitch else 0f
+      return canClearPage(
+        isPaged = layout != null,
+        pageTop = top,
+        pageBottom = bottom,
+        strokes = history.strokes,
+        items = items,
+        hiddenLayers = layers.hidden,
+        strokeLayer = { it.layer },
+        strokeCenterY = { chunkCache.boundsOf(it).centerY() },
+        itemCenterY = { it.cy },
+      )
+    }
 
   private val history = StrokeHistory<InkStroke>()
   private val chunkCache = StrokeChunkCache(CanvasStrokeRenderer.create(), ::screenVersion) { finishedView.postInvalidateOnAnimation() }
@@ -736,7 +768,7 @@ class InkCanvasView(
       when (kind) {
         HistoryStates.ITEMS -> setItems(state as List<PageItem>)
         HistoryStates.PAGES -> applyPages(state as SavedPages)
-        HistoryStates.LAYERS -> applyLayerNames(state as List<String>)
+        HistoryStates.LAYERS -> applyLayers(state as SavedLayers)
       }
     }
     history.listener =
@@ -775,9 +807,9 @@ class InkCanvasView(
 
   /**
    * Clears the page (can be undone). In an A4 notebook that is the page in the middle of the
-   * screen, not the whole notebook.
+   * screen, not the whole notebook. Returns true if anything was cleared.
    */
-  fun clear() {
+  fun clear(): Boolean {
     clearSelection()
     inProgressView.cancelUnfinishedStrokes()
     activeStrokeId = null
@@ -803,6 +835,7 @@ class InkCanvasView(
         }
       }
     if (cleared) pageChanged()
+    return cleared
   }
 
   fun undo() {
@@ -1776,16 +1809,22 @@ class InkCanvasView(
     val layout = pageLayout ?: return
     if (width == 0) return
     pageToScreen.getValues(matrixValues)
-    if (abs(matrixValues[Matrix.MSKEW_Y]) > 1e-3f || abs(matrixValues[Matrix.MSKEW_X]) > 1e-3f) return // turned: no rules
-    val zoom = matrixValues[Matrix.MSCALE_X]
-    val oldTx = matrixValues[Matrix.MTRANS_X]
-    val tx = ViewSettle.clampX(oldTx, layout.pageWidth * zoom, width.toFloat(), leftInset, rightInset)
-    val ty = ViewSettle.clampTop(matrixValues[Matrix.MTRANS_Y], topClearance())
-    if (tx != matrixValues[Matrix.MTRANS_X] || ty != matrixValues[Matrix.MTRANS_Y]) {
-      matrixValues[Matrix.MTRANS_X] = tx
-      matrixValues[Matrix.MTRANS_Y] = ty
+    val delta = ViewSettle.clampPagesInView(
+      matrixValues = matrixValues,
+      pageWidth = layout.pageWidth,
+      pageHeight = layout.pageHeight,
+      activePageTop = layout.top(currentPage),
+      totalHeight = layout.totalHeight,
+      screenWidth = width.toFloat(),
+      leftInset = leftInset,
+      rightInset = rightInset,
+      topLimit = topClearance(),
+    )
+    if (delta.dx != 0f || delta.dy != 0f) {
+      matrixValues[Matrix.MTRANS_X] += delta.dx
+      matrixValues[Matrix.MTRANS_Y] += delta.dy
       pageToScreen.setValues(matrixValues)
-      if (tx != oldTx) flingVx = 0f // hit a side: stop gliding sideways
+      if (delta.dx != 0f) flingVx = 0f // hit a side: stop gliding sideways
     }
   }
 
@@ -1799,7 +1838,7 @@ class InkCanvasView(
     stopFling()
     val middle = floatArrayOf(width / 2f, height / 2f)
     screenToPage.mapPoints(middle)
-    val zoom = ((width - leftInset - rightInset) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
+    val zoom = ((width - leftInset - rightInset) / layout.pageWidth).coerceIn(minZoom, maxZoom)
     pageToScreen.setScale(zoom, zoom)
     pageToScreen.postTranslate(leftInset, height / 2f - middle[1] * zoom)
     viewMoved()
@@ -1835,7 +1874,7 @@ class InkCanvasView(
       ViewSettle.Level(matrixValues[Matrix.MSCALE_X], matrixValues[Matrix.MTRANS_X], matrixValues[Matrix.MTRANS_Y]),
       layout.pageWidth, layout.totalHeight + layout.gap,
       oldw.toFloat(), oldh.toFloat(), w.toFloat(), h.toFloat(),
-      leftInset, rightInset, bottomInset, topClearance(), MIN_ZOOM, MAX_ZOOM,
+      leftInset, rightInset, bottomInset, topClearance(), minZoom, maxZoom,
     )
     pageToScreen.setScale(settled.scale, settled.scale)
     pageToScreen.postTranslate(settled.tx, settled.ty)
@@ -1869,7 +1908,7 @@ class InkCanvasView(
       return
     }
     val margin = FIT_MARGIN_DP * density
-    val zoom = ((width - 2 * margin) / layout.pageWidth).coerceIn(MIN_ZOOM, MAX_ZOOM)
+    val zoom = ((width - 2 * margin) / layout.pageWidth).coerceIn(minZoom, maxZoom)
     pageToScreen.setScale(zoom, zoom)
     // Start below the back / page / zoom buttons along the top.
     pageToScreen.postTranslate((width - layout.pageWidth * zoom) / 2f, topClearance())
@@ -2154,22 +2193,25 @@ class InkCanvasView(
     layersVisibilityChanged()
   }
 
+  private fun Layers.toSaved(): SavedLayers = SavedLayers(names, hidden.sorted(), current)
+
+  private fun SavedLayers.toLayers(): Layers = Layers(names, hidden.toSet(), current)
+
   /** Adds a layer on top and draws on it. One undo step. */
   fun addLayer() {
-    val before = layers.names
-    val after = before + "Layer ${before.size + 1}"
+    val before = layers.toSaved()
+    val after = addLayerSaved(before)
     history.recordState(HistoryStates.LAYERS, before, after)
-    layers = layers.copy(names = after, current = after.lastIndex)
+    layers = after.toLayers()
     layersVisibilityChanged()
     onHistoryChanged()
   }
 
   fun renameLayer(index: Int, name: String) {
-    if (index !in layers.names.indices || name.isBlank()) return
-    val before = layers.names
-    val after = before.toMutableList().also { it[index] = name.trim() }
+    val before = layers.toSaved()
+    val after = renameLayerSaved(before, index, name) ?: return
     history.recordState(HistoryStates.LAYERS, before, after)
-    layers = layers.copy(names = after)
+    layers = after.toLayers()
     onLayersChanged()
     onHistoryChanged()
   }
@@ -2179,10 +2221,9 @@ class InkCanvasView(
    * all back. The last layer cannot be deleted.
    */
   fun deleteLayer(index: Int) {
-    if (layers.names.size <= 1 || index !in layers.names.indices) return
+    val before = layers.toSaved()
+    val after = deleteLayerSaved(before, index) ?: return
     clearSelection()
-    val before = layers.names
-    val after = before.toMutableList().also { it.removeAt(index) }
     history.grouped {
       history.removeAll { it.layer == index }
       // Strokes on higher layers take the next number down.
@@ -2190,24 +2231,14 @@ class InkCanvasView(
       if (renumbered.isNotEmpty()) history.replace(renumbered)
       history.recordState(HistoryStates.LAYERS, before, after)
     }
-    val hidden = layers.hidden.filter { it != index }.map { if (it > index) it - 1 else it }.toSet()
-    val current = when {
-      layers.current > index -> layers.current - 1
-      layers.current == index -> (index - 1).coerceAtLeast(0)
-      else -> layers.current
-    }
-    layers = Layers(after, hidden, current.coerceIn(0, after.lastIndex))
+    layers = after.toLayers()
     layersVisibilityChanged()
     pageChanged()
   }
 
   /** Undo/redo of a layer list change (add, rename, delete). */
-  private fun applyLayerNames(names: List<String>) {
-    layers = layers.copy(
-      names = names,
-      hidden = layers.hidden.filter { it < names.size }.toSet(),
-      current = layers.current.coerceIn(0, names.lastIndex.coerceAtLeast(0)),
-    )
+  private fun applyLayers(state: SavedLayers) {
+    layers = applySavedLayers(layers.toSaved(), state).toLayers()
     layersVisibilityChanged()
   }
 
@@ -2834,7 +2865,7 @@ class InkCanvasView(
     if (!zoomLocked) {
       // Keep the total zoom inside the allowed range.
       val zoom = pageToScreen.mapRadius(1f)
-      val factor = (zoom * scaleFactor).coerceIn(MIN_ZOOM, MAX_ZOOM) / zoom
+      val factor = (zoom * scaleFactor).coerceIn(minZoom, maxZoom) / zoom
       pageToScreen.postScale(factor, factor, focusX, focusY)
     }
     viewMoved()
@@ -2847,7 +2878,7 @@ class InkCanvasView(
   fun setView(zoom: Float? = null, angleDegrees: Float? = null) {
     val center = floatArrayOf(width / 2f, height / 2f)
     screenToPage.mapPoints(center)
-    val newZoom = (zoom?.times(trueSizeZoom) ?: pageToScreen.mapRadius(1f)).coerceIn(MIN_ZOOM, MAX_ZOOM)
+    val newZoom = (zoom?.times(trueSizeZoom) ?: pageToScreen.mapRadius(1f)).coerceIn(minZoom, maxZoom)
     val newAngle = angleDegrees ?: this.angleDegrees
     pageToScreen.setTranslate(-center[0], -center[1])
     pageToScreen.postScale(newZoom, newZoom)
@@ -2857,6 +2888,7 @@ class InkCanvasView(
   }
 
   private fun viewMoved() {
+    pageToScreen.invert(screenToPage)
     keepPagesInView()
     pageToScreen.invert(screenToPage)
     if (ruler != null || protractor != null) instrumentView.invalidate()
@@ -3254,7 +3286,7 @@ class InkCanvasView(
     val target = history.strokes.lastOrNull()?.bounds ?: items.lastOrNull()?.bounds(RectF())
     val cx = target?.centerX() ?: 0f
     val cy = target?.centerY() ?: 0f
-    val zoom = trueSizeZoom.coerceIn(MIN_ZOOM, MAX_ZOOM)
+    val zoom = trueSizeZoom.coerceIn(minZoom, maxZoom)
     pageToScreen.setScale(zoom, zoom)
     pageToScreen.postTranslate(width / 2f - cx * zoom, height / 2f - cy * zoom)
     viewMoved()
@@ -3285,7 +3317,7 @@ class InkCanvasView(
     if (width == 0) return
     stopFling()
     val zoom = pageToScreen.mapRadius(1f)
-    val wanted = trueSizeZoom.coerceIn(MIN_ZOOM, MAX_ZOOM)
+    val wanted = trueSizeZoom.coerceIn(minZoom, maxZoom)
     if (zoom < wanted * 0.6f) pageToScreen.postScale(wanted / zoom, wanted / zoom)
     val point = floatArrayOf(rect.centerX(), rect.centerY())
     pageToScreen.mapPoints(point)
@@ -4364,8 +4396,8 @@ class InkCanvasView(
     /** An end drag shorter than this (screen dp) is a tap, not an edit. */
     const val MIN_LINE_DRAG_DP = 2f
 
-    const val MIN_ZOOM = 0.25f
-    const val MAX_ZOOM = 8f
+    const val MIN_ZOOM = BASE_MIN_ZOOM
+    const val MAX_ZOOM = BASE_MAX_ZOOM
 
     /** Search results: highlighted this long (ms) before fading; a soft amber on either page. */
     /** Playback glow: ink written in the last 4 s before the play position (and 0.3 s after). */

@@ -13,9 +13,16 @@ import java.util.zip.GZIPOutputStream
 /** The page count, bookmarks and PDF pages, as one undoable state (pages added or deleted). */
 data class SavedPages(val count: Int, val bookmarks: List<Int>, val backgrounds: List<Int>)
 
+/** The layers' names, hidden indices, and active layer index, as one undoable state. */
+data class SavedLayers(
+  val names: List<String>,
+  val hidden: List<Int> = emptyList(),
+  val current: Int = 0,
+)
+
 /**
  * One undo step as plain numbers, mirroring [StrokeHistory.Edit]: strokes added, removed,
- * swapped or inserted (with their positions), groups, and states (photos and text boxes, pages).
+ * swapped or inserted (with their positions), groups, and states (photos and text boxes, pages, layers).
  */
 sealed class SavedEdit {
   class Add(val index: Int, val stroke: SavedStroke) : SavedEdit()
@@ -32,7 +39,7 @@ sealed class SavedEdit {
 
   class Pages(val before: SavedPages, val after: SavedPages) : SavedEdit()
 
-  class Layers(val before: List<String>, val after: List<String>) : SavedEdit()
+  class Layers(val before: SavedLayers, val after: SavedLayers) : SavedEdit()
 }
 
 /**
@@ -49,12 +56,14 @@ class SavedHistory(val strokeCount: Int, val undo: List<SavedEdit>, val redo: Li
  */
 object HistoryFile {
   private const val MAGIC = 0x47524853 // "GRHS"
-  private const val VERSION = 4 // 2: strokes carry their layer; 3: and their audio mark; 4: and their line group
+  private const val VERSION = 5 // 2: strokes carry their layer; 3: and their audio mark; 4: and their line group; 5: layer edits carry hidden & current
+  internal const val LEGACY_LAYER_CURRENT = -1
 
   /** Whether the file being read stores layers (set per read; reads run one at a time). */
   @Volatile private var hasLayer = true
   @Volatile private var hasAudio = true
   @Volatile private var hasGroup = true
+  @Volatile private var hasLayerDetails = true
 
   private const val ADD = 1
   private const val REMOVE = 2
@@ -83,6 +92,7 @@ object HistoryFile {
       hasLayer = version >= 2
       hasAudio = version >= 3
       hasGroup = version >= 4
+      hasLayerDetails = version >= 5
       SavedHistory(data.readInt(), readList(data), readList(data))
     }
 
@@ -120,6 +130,22 @@ object HistoryFile {
 
   private fun readPages(data: DataInputStream) =
     SavedPages(data.readInt(), List(count(data)) { data.readInt() }, List(count(data)) { data.readInt() })
+
+  private fun writeLayers(out: DataOutputStream, l: SavedLayers) {
+    out.writeInt(l.names.size)
+    l.names.forEach(out::writeUTF)
+    out.writeInt(l.hidden.size)
+    l.hidden.forEach(out::writeInt)
+    out.writeInt(l.current)
+  }
+
+  private fun readLayers(data: DataInputStream): SavedLayers {
+    val names = List(count(data)) { data.readUTF() }
+    if (!hasLayerDetails) return SavedLayers(names, emptyList(), LEGACY_LAYER_CURRENT)
+    val hidden = List(count(data)) { data.readInt() }
+    val current = data.readInt()
+    return SavedLayers(names, hidden, current)
+  }
 
   private fun writeEdit(out: DataOutputStream, edit: SavedEdit) {
     when (edit) {
@@ -164,10 +190,8 @@ object HistoryFile {
       }
       is SavedEdit.Layers -> {
         out.writeByte(LAYERS)
-        for (list in listOf(edit.before, edit.after)) {
-          out.writeInt(list.size)
-          list.forEach(out::writeUTF)
-        }
+        writeLayers(out, edit.before)
+        writeLayers(out, edit.after)
       }
     }
   }
@@ -181,7 +205,7 @@ object HistoryFile {
       GROUP -> SavedEdit.Group(readList(data))
       ITEMS -> SavedEdit.Items(List(count(data)) { PageFile.readItem(data) }, List(count(data)) { PageFile.readItem(data) })
       PAGES -> SavedEdit.Pages(readPages(data), readPages(data))
-      LAYERS -> SavedEdit.Layers(List(count(data)) { data.readUTF() }, List(count(data)) { data.readUTF() })
+      LAYERS -> SavedEdit.Layers(readLayers(data), readLayers(data))
       else -> throw IOException("unknown step $tag")
     }
 }

@@ -3849,6 +3849,7 @@ class InkCanvasView(
       LassoGesture.MOVING -> {
         moveDx = eraserPoint[0] - moveStartX
         moveDy = eraserPoint[1] - moveStartY
+        keepMoveOnPaper()
       }
       LassoGesture.RESIZING -> {
         val x = eraserPoint[0]
@@ -3874,6 +3875,19 @@ class InkCanvasView(
       LassoGesture.LINE_END -> moveLineEnd(eraserPoint[0] + lineGrabDx, eraserPoint[1] + lineGrabDy)
       LassoGesture.NONE -> Unit
     }
+  }
+
+  /**
+   * In a notebook a dragged selection stops at the edges of the paper (first page's top to last
+   * page's bottom, and the page's sides). Off the paper, ink would vanish when zoomed out and never
+   * export; with edge scrolling the pen often rests in the dark margin past the last page.
+   */
+  private fun keepMoveOnPaper() {
+    val layout = pageLayout ?: return
+    val b = selectionBounds
+    if (b.isEmpty) return
+    if (b.width() <= layout.pageWidth) moveDx = moveDx.coerceIn(-b.left, layout.pageWidth - b.right)
+    if (b.height() <= layout.totalHeight) moveDy = moveDy.coerceIn(-b.top, layout.totalHeight - b.bottom)
   }
 
   // ---- Edge scrolling while dragging a selection -------------------------------------------
@@ -4455,6 +4469,13 @@ class InkCanvasView(
       hideSelection(false)
       finishedView.invalidate()
     }
+    // Forget the half-done move/resize/turn, or the box stays drawn where the pen left it while
+    // the ink is back in place (seen when Android took a drag for its swipe-up gesture).
+    moveDx = 0f
+    moveDy = 0f
+    resizeScaleX = 1f
+    resizeScaleY = 1f
+    rotateAngle = 0f
     linePreviewEnds = null
     linePreview = emptyList()
     lassoGesture = LassoGesture.NONE

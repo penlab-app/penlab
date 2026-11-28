@@ -68,4 +68,12 @@ class ViewSettingsLogicTest {
       assertEquals(preset, pressureSensitivityFromStorage(preset.name))
     }
   }
+
+  @Test
+  fun eraserVelocityScalingDefaultsToEnabledAndRespectsExplicitChoice() {
+    assertTrue(DEFAULT_ERASER_VELOCITY_SCALING)
+    assertTrue(eraserVelocityScalingDefault(storedChoice = null))
+    assertFalse(eraserVelocityScalingDefault(storedChoice = false))
+    assertTrue(eraserVelocityScalingDefault(storedChoice = true))
+  }
 }

@@ -15,8 +15,9 @@
 | **Stage 3** | Toolbar Pill Symmetry, Expand Icon, Selection Bar, Add from PDF & Text Box (`BUG-07`..`BUG-10`) | **FIXED & Tab S9 Visually Verified** | `ToolDock.kt`, `ToolPanels.kt`, `Icons.kt`, `InkCanvasView.kt`, `PdfCropDialog.kt`, `PdfCropGeometry.kt`, `RequestDialog.kt`, `LibraryScreen.kt`, `Instruments.kt`, `MainActivity.kt` |
 | **Stage 4** | Settings, Library, Search, Dialogs & Light-Theme Contrast (`BUG-11`..`BUG-13`) | **FIXED & Tab S9 Visually Verified** | `SettingsSheet.kt`, `ChromeComponents.kt`, `MenuAndDialogComponents.kt`, `LibraryScreen.kt`, `LibraryCards.kt`, `LibraryLogic.kt`, `SearchUi.kt`, `Covers.kt`, `CoverMaker.kt`, `NewNotebookDialog.kt`, `FirstLaunchSheet.kt`, `RequestDialog.kt`, `PagesPanel.kt`, `ToolPanels.kt`, `Color.kt`, `Instruments.kt`, `MainActivity.kt` |
 | **Stage 5** | Core Lifecycle, Data-Loss, Undo Hardening & Final Lint (`BUG-14`..`BUG-17`) | **FIXED & Tab S9 QA-Verified (`BUG-14..17` + `TEST-PLAN-2026-11-27` A/C/D/E)** | `MainActivity.kt`, `InkCanvasView.kt`, `InkCanvasHelpers.kt`, `PageStore.kt`, `HistoryFile.kt`, `PullToAdd.kt`, `NotebookStore.kt`, `NotebookTurn.kt`, `Covers.kt`, `Theme.kt` |
-| **Stage 6** | Tablet `requests.md` (4 items) + Tap-to-Select Non-Stroke Objects (`ImageItem`/`TextItem`/`PluginPageItem`) | Next | `InkCanvasView.kt`, `MainActivity.kt`, `ToolPanels.kt`, `ViewSettings.kt` |
-| **Stage 7** | Production Hardening, Multi-Layout QA, `:app:lintRelease` & Universal Signed APK | Planned | Full release gate before `main` merge |
+| **Stage 6** | Tablet `requests.md` (4 items) + Tap-to-Select Non-Stroke Objects + Live Rubber-Band Hold-to-Snap Line (`6.1`–`6.6`) | **FIXED & Tab S9 QA-Verified (`6.1`–`6.6` PASS)** | `InkCanvasView.kt`, `InkCanvasHelpers.kt`, `ViewSettings.kt`, `ToolPanels.kt`, `MainActivity.kt` |
+| **Stage 7** | Production Hardening, Multi-Layout QA, `:app:lintRelease` & Universal Signed APK | **Next** | Full release gate before `main` merge |
+| **Stage 8** | Optional Library Trash Manager & Sort Controls on `feat/library-trash-and-sort` | Optional (Post-Stage 7) | Dedicated feature branch |
 
 ---
 
@@ -78,6 +79,21 @@
 | **BUG-15** | `P0` | Drawing strokes while async `PageStore.load` is in flight gets wiped when `load` completes. | `MainActivity.kt`, `InkCanvasView.kt` | Fixed in `9f1c8e4` (`InkCanvasView.awaitingLoad` gates stylus authoring until page load finishes while keeping finger scroll active); Tab S9 `A1` guard PASS. |
 | **BUG-16** | `P0` | `Covers.forget()` mutates Compose `mutableStateMapOf` off the main thread. | `Covers.kt`, `MainActivity.kt` | Fixed in `9f1c8e4` (`Covers.forget` dispatches state revision updates onto main thread); Tab S9 `A8` live cover refresh PASS within 2.5s. |
 | **BUG-17** | `P0/P2` | `turnOpenNotebook`/`turnNotebook` race; `canClearCurrentPage` ignores items-only/blank subpages; `Layers` undo drops `hidden` layer state; `pageStyle` desyncs after async `load`; `keepPagesInView` clamps rotated dimensions inaccurately; `MAX_ZOOM` under-scales high-DPI tablets; `createFromImport` misflags non-PDF imports; `Theme.kt` side effects mutate window unconditionally. | `MainActivity.kt`, `InkCanvasView.kt`, `InkCanvasHelpers.kt`, `PageStore.kt`, `HistoryFile.kt`, `PullToAdd.kt`, `NotebookStore.kt`, `NotebookTurn.kt`, `Theme.kt` | Serialized `saveFresh`/`transformAndSave` on `SAVE_THREAD` with `turningIds`/`openGeneration` guards; added `canClearPage` & `clear(): Boolean`; bumped `HistoryFile.VERSION = 5` (`SavedLayers` preserving `hidden` & `current` across undo/redo/reload); synced `pageStyle` via `onPageStyleChanged`; added arbitrary-angle `ViewSettle.clampPagesInView`; scaled `minZoomFor`/`maxZoomFor` with `trueSizeZoom` (`800%` deep zoom on 340 dpi Tab S9); gated `importedHasPdfBackground` on `any { it.backgroundPdfPage >= 0 }`; wrapped `Accent.syncResolvedDark` in `SideEffect`. Verified with `595` multi-module tests + Tab S9 live QA (`TEST-PLAN` A, C, D, E all PASS). |
+
+---
+
+## Stage 6 — User Requests (`requests.md`), Tap-to-Select Objects & Live Rubber-Band Line (**FIXED & Tab S9 QA-Verified**)
+
+> **Status (`6.1`–`6.6`):** **FIXED & Tab S9 QA-Verified** (`62` suites, `603` multi-module unit tests passing, `0` failures, `13.4 MiB` `arm64-v8a` R8 APK verified on Tab S9 with `0` `logcat` exceptions; `gfxinfo` `4.86%` jank, `p50=7ms`).
+
+| ID | Feature / Fix | Primary Files | Implemented Behavior & Verification |
+|---|---|---|---|
+| **6.1** | **Line-Extension Axis Snapping** | `InkCanvasHelpers.kt`, `InkCanvasView.kt` | Added `snapPointToLineRay` (`±6°` / `14.dp` perpendicular slop, forward ray only) in `moveLineEnd`; Tab S9 handle drag extended colinearly cleanly (`PASS`). |
+| **6.2** | **Velocity-Scaled Eraser** | `InkCanvasHelpers.kt`, `InkCanvasView.kt`, `ViewSettings.kt`, `ToolPanels.kt`, `MainActivity.kt` | Persisted `eraserVelocityScaling` (`Speed-scaled size`, default `true`) in Eraser panel + `computeVelocityScaledFactor` (`1.0x` ≤ `250 dp/s` up to `2.2x` @ `1400 dp/s`, EMA-smoothed) driving cursor & hit-test radius (`PASS`). |
+| **6.3** | **Plugin Diagram Placement Scale** | `InkCanvasHelpers.kt`, `InkCanvasView.kt` | Added `computePluginPlacementTransform` (`!wasEmpty`: scale oversized diagrams toward `~1.15x` selection max dimension with `40mm` floor; `wasEmpty`: clamp `<= 65%` viewport) wired into `placePluginItems` (`CanvasInvariantsTest` PASS). |
+| **6.4** | **Panning During Claude Generation** | `InkCanvasView.kt`, `MainActivity.kt` | Audited overlays (no PenLab scrim blocks pan during background plugin jobs) and fixed `handleSelectionFinger` `ACTION_POINTER_DOWN` via `panZoomDetector.adopt` so touching inside an active selection before pinching pans/zooms smoothly; confirmed full-screen touch routing during interactive prompts occurs only when foreground `penlab-extras` Activity holds window focus (`PASS`). |
+| **6.5** | **Tap-to-Select Non-Stroke Objects** | `InkCanvasHelpers.kt`, `InkCanvasView.kt` | Added reverse z-order `hitTestTopItem` (`ImageItem`, `TextItem`, `PluginPageItem`) + `selectSingleItem`: single-tapping in Select mode or finger-tapping in pen modes (`drawWithFinger == false`) selects objects directly with handles + `SelectionActions` without switching tools (`Text` tool still edits text boxes; palm & tap-swallow guarded; Tab S9 `PASS`). |
+| **6.6** | **Live Rubber-Band Hold-to-Snap Line** | `InkCanvasHelpers.kt`, `InkCanvasView.kt` | `replaceWithShape()` enters `liveRubberLine` preview on `RecognizedShape.Kind.LINE` with fixed start anchor, free 360° `ACTION_MOVE` endpoint aiming in `SelectionView.onDraw` (preserving `LineType`, color, alpha, 0 allocations), and single-undo commit on `ACTION_UP` (`PASS`). |
 
 ---
 

@@ -1537,6 +1537,7 @@ class MainActivity : ComponentActivity() {
     canvas.rotationLocked = viewSettings.rotationLocked
     canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
     canvas.pressureSensitivity = viewSettings.pressureSensitivity
+    canvas.eraserVelocityScalingEnabled = viewSettings.eraserVelocityScaling
     canvas.fingerDrawEnabled = { viewSettings.drawWithFinger }
     canvas.pageStyle = info.pageStyle
     canvas.rulingMm = info.rulingMm
@@ -2759,6 +2760,8 @@ private fun NoteScreen(
               },
               onPickEyedropper = { startEyedropper(shownPanel) },
               isPalm = isPalm,
+              eraserVelocityScalingOn = viewSettings.eraserVelocityScaling,
+              onEraserVelocityScalingChanged = viewSettings::setEraserVelocityScaling,
             )
           }
         }
@@ -3318,6 +3321,7 @@ private fun NoteScreen(
     canvas.rotationLocked = viewSettings.rotationLocked
     canvas.shapeSnappingEnabled = viewSettings.shapeSnapping
     canvas.pressureSensitivity = viewSettings.pressureSensitivity
+    canvas.eraserVelocityScalingEnabled = viewSettings.eraserVelocityScaling
 
     colorWheelFor?.let { slot ->
       val tool = tools.getOrNull(slot)

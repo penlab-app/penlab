@@ -72,6 +72,25 @@ class ViewSettings(context: Context) {
     prefs.edit().putString(KEY_PRESSURE_SENSITIVITY, sensitivity.name).apply()
   }
 
+  /** Speed-scaled eraser preference (on by default). */
+  private var _eraserVelocityScaling by mutableStateOf(
+    eraserVelocityScalingDefault(
+      if (prefs.contains(KEY_ERASER_VELOCITY_SCALING)) {
+        prefs.getBoolean(KEY_ERASER_VELOCITY_SCALING, DEFAULT_ERASER_VELOCITY_SCALING)
+      } else {
+        null
+      },
+    ),
+  )
+
+  val eraserVelocityScaling: Boolean
+    get() = _eraserVelocityScaling
+
+  fun setEraserVelocityScaling(enabled: Boolean) {
+    _eraserVelocityScaling = enabled
+    prefs.edit().putBoolean(KEY_ERASER_VELOCITY_SCALING, enabled).apply()
+  }
+
   /** Call for every touch or hover event: remembers the first time a pen shows up. */
   fun noteMotionEvent(event: MotionEvent) {
     if (stylusSeen) return // cheap exit for the rest of the app's life
@@ -125,6 +144,7 @@ class ViewSettings(context: Context) {
     const val KEY_FINGER_DRAW = "finger_draw"
     const val KEY_SHAPE_SNAPPING = "shape_snapping"
     const val KEY_PRESSURE_SENSITIVITY = "pressure_sensitivity"
+    const val KEY_ERASER_VELOCITY_SCALING = "eraser_velocity_scaling"
   }
 }
 
@@ -135,6 +155,14 @@ const val DEFAULT_SHAPE_SNAPPING = true
  * The "Hold to snap shapes" rule: an explicit [storedChoice] wins, otherwise defaults to on.
  */
 fun shapeSnappingDefault(storedChoice: Boolean?): Boolean = storedChoice ?: DEFAULT_SHAPE_SNAPPING
+
+/** Default for "Speed-scaled size" on the eraser when the user has never changed the switch. */
+const val DEFAULT_ERASER_VELOCITY_SCALING = true
+
+/**
+ * The "Speed-scaled size" eraser rule: an explicit [storedChoice] wins, otherwise defaults to on.
+ */
+fun eraserVelocityScalingDefault(storedChoice: Boolean?): Boolean = storedChoice ?: DEFAULT_ERASER_VELOCITY_SCALING
 
 /**
  * Resolves whether a notebook canvas renders in dark-paper mode.

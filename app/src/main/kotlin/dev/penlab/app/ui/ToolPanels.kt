@@ -200,6 +200,8 @@ fun ToolOptionsPanel(
   isPalm: () -> Boolean,
   modifier: Modifier = Modifier,
   onPickEyedropper: (() -> Unit)? = null,
+  eraserVelocityScalingOn: Boolean = DEFAULT_ERASER_VELOCITY_SCALING,
+  onEraserVelocityScalingChanged: ((Boolean) -> Unit)? = null,
 ) {
   val scheme = MaterialTheme.colorScheme
   val palette = InkTools.colorsFor(tool.kind)
@@ -362,6 +364,16 @@ fun ToolOptionsPanel(
           onRemoveFavourite = onRemoveFavourite,
           onAddFavourite = onAddFavourite,
           addFavouriteDescription = "Save current size as favourite",
+        )
+      }
+
+      if (tool.isEraser && onEraserVelocityScalingChanged != null) {
+        PanelDivider()
+        PenLabSwitchRow(
+          label = "Speed-scaled size",
+          subtitle = "Expand the eraser when sweeping fast.",
+          checked = eraserVelocityScalingOn,
+          onCheckedChange = onEraserVelocityScalingChanged,
         )
       }
 

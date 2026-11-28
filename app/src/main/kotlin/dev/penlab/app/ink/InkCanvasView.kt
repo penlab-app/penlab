@@ -316,31 +316,83 @@ class InkCanvasView(
   fun placePluginItems(items: List<dev.penlab.app.plugins.StagedItem>, strokes: List<dev.penlab.plugin.PluginStroke>, wasEmpty: Boolean) {
     if (items.isEmpty() && strokes.isEmpty()) return
     val k = itemMm
-    var dx = 0f
-    var dy = 0f
-    if (wasEmpty) {
-      val union = RectF()
-      var any = false
-      for (item in items) {
-        if (any) union.union(item.item.boundsMm) else union.set(item.item.boundsMm)
-        any = true
+    var hasUnion = false
+    var uLeft = 0f
+    var uTop = 0f
+    var uRight = 0f
+    var uBottom = 0f
+    fun includeBox(l: Float, t: Float, r: Float, b: Float) {
+      if (!hasUnion) {
+        uLeft = l
+        uTop = t
+        uRight = r
+        uBottom = b
+        hasUnion = true
+      } else {
+        uLeft = minOf(uLeft, l)
+        uTop = minOf(uTop, t)
+        uRight = maxOf(uRight, r)
+        uBottom = maxOf(uBottom, b)
       }
-      dev.penlab.app.plugins.PluginStrokes.boundsMm(strokes)?.let { b ->
-        if (any) union.union(b[0], b[1], b[2], b[3]) else union.set(b[0], b[1], b[2], b[3])
-        any = true
-      }
-      val visible = RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
-      dx = visible.centerX() - (union.centerX() * k)
-      dy = visible.centerY() - (union.centerY() * k)
     }
+    for (item in items) {
+      val b = item.item.boundsMm
+      if (b.width() > 0f || b.height() > 0f) {
+        includeBox(b.left * k, b.top * k, b.right * k, b.bottom * k)
+      }
+    }
+    dev.penlab.app.plugins.PluginStrokes.boundsMm(strokes)?.let { b ->
+      includeBox(b[0] * k, b[1] * k, b[2] * k, b[3] * k)
+    }
+    val visible = RectF(0f, 0f, width.toFloat(), height.toFloat()).also { screenToPage.mapRect(it) }
+    val transform =
+      computePluginPlacementTransform(
+        incomingLeft = uLeft,
+        incomingTop = uTop,
+        incomingRight = uRight,
+        incomingBottom = uBottom,
+        wasEmpty = wasEmpty,
+        selectionLeft = selectionBounds.left,
+        selectionTop = selectionBounds.top,
+        selectionRight = selectionBounds.right,
+        selectionBottom = selectionBounds.bottom,
+        visibleLeft = visible.left,
+        visibleTop = visible.top,
+        visibleRight = visible.right,
+        visibleBottom = visible.bottom,
+        minFloorPage = PLUGIN_MIN_FLOOR_MM * k,
+      )
+    val anchorMmX = transform.anchorX / k
+    val anchorMmY = transform.anchorY / k
+    val scaledItems =
+      if (transform.scale == 1f) items
+      else items.map { scaleStagedPluginItem(it, transform.scale, anchorMmX, anchorMmY) }
+    val scaledStrokes =
+      if (transform.scale == 1f) strokes
+      else strokes.map { scalePluginStroke(it, transform.scale, anchorMmX, anchorMmY) }
     val byId = this.items.associateBy { it.id }
-    val made = items.map { dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(it, k, dx, dy, it.item.replaces?.let(byId::get)) }
-    val ink = dev.penlab.app.plugins.PluginStrokes.inDrawOrder(strokes.mapNotNull { dev.penlab.app.plugins.PluginStrokes.toInk(it, k, dx, dy, layers.current, layers.names.size) })
+    val made =
+      scaledItems.map { staged ->
+        val pageItem = dev.penlab.app.plugins.PluginItemMaterialiser.toPageItem(staged, k, transform.dx, transform.dy, staged.item.replaces?.let(byId::get))
+        if (transform.scale < 1f && pageItem is TextItem && (staged.item.boundsMm.width() > 0f || staged.item.boundsMm.height() > 0f)) {
+          val scaledSize = (pageItem.textSize * transform.scale).coerceAtLeast(minOf(pageItem.textSize, 2.8f * k))
+          val resized = pageItem.copy(textSize = scaledSize)
+          val measuredH = TextItems.measureHeight(resized)
+          val top = staged.item.boundsMm.top * k + transform.dy
+          resized.copy(cy = top + measuredH / 2f, height = measuredH)
+        } else {
+          pageItem
+        }
+      }
+    val ink =
+      dev.penlab.app.plugins.PluginStrokes.inDrawOrder(
+        scaledStrokes.mapNotNull { dev.penlab.app.plugins.PluginStrokes.toInk(it, k, transform.dx, transform.dy, layers.current, layers.names.size) },
+      )
     if (made.isEmpty() && ink.isEmpty()) return
     var swapped = emptyMap<String, String>()
     history.grouped {
       if (made.isNotEmpty()) {
-        val placement = dev.penlab.app.plugins.PluginItemMaterialiser.place(this.items, made.zip(items.map { it.item.replaces }))
+        val placement = dev.penlab.app.plugins.PluginItemMaterialiser.place(this.items, made.zip(scaledItems.map { it.item.replaces }))
         swapped = placement.swapped
         changeItems { list ->
           list.clear()
@@ -356,6 +408,68 @@ class InkCanvasView(
       selectionView.invalidate()
       reportSelection()
     }
+  }
+
+  private fun scaleRectMm(r: RectF, scale: Float, anchorMmX: Float, anchorMmY: Float): RectF =
+    if (r.width() <= 0f && r.height() <= 0f) RectF(r)
+    else RectF(
+      anchorMmX + (r.left - anchorMmX) * scale,
+      anchorMmY + (r.top - anchorMmY) * scale,
+      anchorMmX + (r.right - anchorMmX) * scale,
+      anchorMmY + (r.bottom - anchorMmY) * scale,
+    )
+
+  private fun scaleStagedPluginItem(
+    staged: dev.penlab.app.plugins.StagedItem,
+    scale: Float,
+    anchorMmX: Float,
+    anchorMmY: Float,
+  ): dev.penlab.app.plugins.StagedItem {
+    val item = staged.item
+    val scaledItem =
+      dev.penlab.plugin.PluginItem(
+        typeId = item.typeId,
+        boundsMm = scaleRectMm(item.boundsMm, scale, anchorMmX, anchorMmY),
+        payload = item.payload,
+        id = item.id,
+        rotationDeg = item.rotationDeg,
+        unrotatedBoundsMm = scaleRectMm(item.unrotatedBoundsMm, scale, anchorMmX, anchorMmY),
+        replaces = item.replaces,
+      )
+    return dev.penlab.app.plugins.StagedItem(scaledItem, staged.imageFile, staged.aspect)
+  }
+
+  private fun scalePluginStroke(
+    stroke: dev.penlab.plugin.PluginStroke,
+    scale: Float,
+    anchorMmX: Float,
+    anchorMmY: Float,
+  ): dev.penlab.plugin.PluginStroke {
+    val xs = FloatArray(stroke.xs.size) { i ->
+      val x = stroke.xs[i]
+      if (x.isFinite()) anchorMmX + (x - anchorMmX) * scale else x
+    }
+    val ys = FloatArray(stroke.ys.size) { i ->
+      val y = stroke.ys[i]
+      if (y.isFinite()) anchorMmY + (y - anchorMmY) * scale else y
+    }
+    val widthMm =
+      if (stroke.widthMm.isFinite()) {
+        (stroke.widthMm * scale).coerceAtLeast(minOf(stroke.widthMm, 0.2f))
+      } else {
+        stroke.widthMm
+      }
+    return dev.penlab.plugin.PluginStroke(
+      xs = xs,
+      ys = ys,
+      pressures = stroke.pressures,
+      times = stroke.times,
+      tool = stroke.tool,
+      argb = stroke.argb,
+      widthMm = widthMm,
+      family = stroke.family,
+      layer = stroke.layer,
+    )
   }
 
   /** The folder the notebook's pictures live in (null for a stress test, which must not write). */
@@ -511,6 +625,9 @@ class InkCanvasView(
 
   /** Whether the eraser (tool or side button) cuts strokes instead of removing whole ones. */
   var partialErase: Boolean = false
+
+  /** Whether sweeping the eraser quickly scales up its radius via [computeVelocityScaledFactor]. */
+  var eraserVelocityScalingEnabled: Boolean = true
 
   /**
    * Set by the screen when the press now starting closed a panel, menu or the wheel; that pen
@@ -722,6 +839,16 @@ class InkCanvasView(
 
   /** The stroke under the pen as the projector draws it live; reads [strokePoints] (see [LiveStrokeMirror]). */
   private val liveMirror = LiveStrokeMirror(strokePoints)
+  private class LiveRubberLine(
+    var geometry: RubberBandLineState,
+    val tool: InkTool,
+    val paperBrush: Brush,
+    val screenColor: Int,
+    val pressure: Float,
+    val strokeDownUptime: Long,
+  )
+
+  private var liveRubberLine: LiveRubberLine? = null
   private var holdAnchorX = 0f
   private var holdAnchorY = 0f
   private var shapeSnapped = false
@@ -811,6 +938,7 @@ class InkCanvasView(
    */
   fun clear(): Boolean {
     clearSelection()
+    cancelRubberLine()
     inProgressView.cancelUnfinishedStrokes()
     activeStrokeId = null
     pendingStrokes.clear()
@@ -990,7 +1118,7 @@ class InkCanvasView(
       )
     }
     panZoomDetector.onTouchEvent(event, penNearby || fingerPenActive)
-    trackFingerTap(event)
+    if (!runningFingerPenCopy) trackFingerTap(event)
     if (fingerPenActive && !runningFingerPenCopy && runFingerPenCopy(event)) return true
 
     when (event.actionMasked) {
@@ -1038,6 +1166,10 @@ class InkCanvasView(
         val index = event.findPointerIndex(penPointerId)
         if (index < 0) return true
         predictor.record(event)
+        if (liveRubberLine != null) {
+          updateRubberLine(event, index)
+          return true
+        }
         if (shapeSnapped) return true // the stroke became a shape; the rest of the gesture is ignored
         if (rulerInstrument != null) {
           continueRulerStroke(event, index)
@@ -1063,8 +1195,11 @@ class InkCanvasView(
       MotionEvent.ACTION_POINTER_UP -> {
         if (event.getPointerId(event.actionIndex) == penPointerId) {
           val id = activeStrokeId
-          if (id != null && rulerInstrument != null) finishRulerStroke(event, id)
-          else if (id != null) {
+          if (liveRubberLine != null) {
+            finishRubberLine()
+          } else if (id != null && rulerInstrument != null) {
+            finishRulerStroke(event, id)
+          } else if (id != null) {
             inProgressView.finishStroke(event, penPointerId, id)
             // Pen-up: the projector keeps the line it drew live until the committed stroke arrives.
             if (projectorSink != null) liveMirror.lift(id, SystemClock.uptimeMillis()) else liveMirror.end(id)
@@ -1075,6 +1210,7 @@ class InkCanvasView(
       }
 
       MotionEvent.ACTION_CANCEL -> {
+        cancelRubberLine()
         cancelStroke(event)
         cancelLasso()
         endPenGesture(event)
@@ -2016,6 +2152,30 @@ class InkCanvasView(
     val shape = ShapeRecognizer.recognize(strokePoints) ?: return
 
     val pressure = pressureSum / strokePoints.size
+    if (shape.kind == RecognizedShape.Kind.LINE && shape.points.size >= 2) {
+      val anchor = shape.points.first()
+      val end = shape.points.last()
+      val onLight = pageLayout?.let { isLightPage(it.pageAt(anchor.y)) } ?: false
+      val screenColor = InkColors.onScreen(pending.tool.paperColor, darkPage && !onLight)
+      liveRubberLine =
+        LiveRubberLine(
+          geometry = RubberBandLineState(anchor.x, anchor.y, end.x, end.y),
+          tool = pending.tool,
+          paperBrush = pending.paperBrush,
+          screenColor = screenColor,
+          pressure = pressure,
+          strokeDownUptime = strokeDownUptime,
+        )
+      liveMirror.end(strokeId)
+      performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+      pendingStrokes.remove(strokeId)
+      activeStrokeId = null
+      shapeSnapped = true
+      selectionView.invalidate()
+      postOnAnimation { inProgressView.cancelStroke(strokeId) }
+      return
+    }
+
     val clean = strokeAlong(shape.points, pending.paperBrush, pressure, spacing = SHAPE_POINT_SPACING_PX / zoom)
     // The shape replaces the hand-drawn line, so it carries the mark of when that line was begun.
     addToPage(InkStroke.from(clean, pending.tool.isHighlighter, layers.current, mediaMarkNow { SystemClock.uptimeMillis() - strokeDownUptime }), pending.tool)
@@ -2029,6 +2189,40 @@ class InkCanvasView(
     activeStrokeId = null
     shapeSnapped = true
     postOnAnimation { inProgressView.cancelStroke(strokeId) }
+  }
+
+  private fun updateRubberLine(event: MotionEvent, index: Int) {
+    val line = liveRubberLine ?: return
+    pointBuffer[0] = event.getX(index)
+    pointBuffer[1] = event.getY(index)
+    screenToPage.mapPoints(pointBuffer)
+    line.geometry = updateRubberBandLineEnd(line.geometry, pointBuffer[0], pointBuffer[1])
+    selectionView.invalidate()
+  }
+
+  private fun finishRubberLine() {
+    val line = liveRubberLine ?: return
+    liveRubberLine = null
+    selectionView.invalidate()
+    val zoom = pageToScreen.mapRadius(1f).coerceAtLeast(1e-3f)
+    val points = finalizeRubberBandLinePoints(line.geometry)
+    val clean = strokeAlong(points, line.paperBrush, line.pressure, spacing = SHAPE_POINT_SPACING_PX / zoom)
+    addToPage(
+      InkStroke.from(
+        clean,
+        line.tool.isHighlighter,
+        layers.current,
+        mediaMarkNow { SystemClock.uptimeMillis() - line.strokeDownUptime },
+      ),
+      line.tool,
+    )
+    pageChanged()
+  }
+
+  private fun cancelRubberLine() {
+    if (liveRubberLine == null) return
+    liveRubberLine = null
+    selectionView.invalidate()
   }
 
   private fun paperBrush(tool: InkTool, detail: Float): Brush =
@@ -2287,6 +2481,7 @@ class InkCanvasView(
   }
 
   private fun cancelStroke(event: MotionEvent) {
+    cancelRubberLine()
     activeStrokeId?.let {
       inProgressView.cancelStroke(it, event)
       pendingStrokes.remove(it)
@@ -2561,6 +2756,7 @@ class InkCanvasView(
 
   private fun endPenGesture(event: MotionEvent) {
     erasingGesture = false
+    resetEraserVelocity()
     // The erase drag becomes an undo step only here, after the last report of the drag saw an empty
     // undo stack: report again, or the Undo button stays grey until the next action.
     if (history.endGroup()) onHistoryChanged()
@@ -2602,9 +2798,22 @@ class InkCanvasView(
    * button mid-gesture keeps erasing instead of switching back to ink.
    */
   private var erasingGesture = false
+  private var lastEraserScreenX = 0f
+  private var lastEraserScreenY = 0f
+  private var lastEraserTimeMs = 0L
+  private var eraserScaleFactor = 1f
+
+  private fun resetEraserVelocity() {
+    lastEraserTimeMs = 0L
+    eraserScaleFactor = 1f
+  }
 
   private fun startErasing(event: MotionEvent, index: Int) {
     erasingGesture = true
+    resetEraserVelocity()
+    lastEraserScreenX = event.getX(index)
+    lastEraserScreenY = event.getY(index)
+    lastEraserTimeMs = event.eventTime
     readPagePosition(event, index)
     lastEraserX = eraserPoint[0]
     lastEraserY = eraserPoint[1]
@@ -2619,8 +2828,27 @@ class InkCanvasView(
    * The circle keeps its size on screen: zoom in to erase more precisely.
    */
   private fun eraseAlong(event: MotionEvent, index: Int) {
-    val eraserRadiusPx = eraserRadiusDp * resources.displayMetrics.density
-    eraserCursor.show(event.getX(index), event.getY(index), eraserRadiusPx)
+    val sx = event.getX(index)
+    val sy = event.getY(index)
+    val nowMs = event.eventTime
+    val dtMs = if (lastEraserTimeMs > 0L) (nowMs - lastEraserTimeMs).toFloat() else 0f
+    if (dtMs > 0f) {
+      val distDp = hypot(sx - lastEraserScreenX, sy - lastEraserScreenY) / density
+      val speedDpPerSec = distDp * 1000f / dtMs
+      eraserScaleFactor = computeVelocityScaledFactor(
+        speedDpPerSec = speedDpPerSec,
+        prevFactor = eraserScaleFactor,
+        dtMs = dtMs,
+        enabled = eraserVelocityScalingEnabled,
+      )
+    } else if (!eraserVelocityScalingEnabled) {
+      eraserScaleFactor = 1f
+    }
+    lastEraserScreenX = sx
+    lastEraserScreenY = sy
+    lastEraserTimeMs = nowMs
+    val eraserRadiusPx = eraserRadiusDp * eraserScaleFactor * resources.displayMetrics.density
+    eraserCursor.show(sx, sy, eraserRadiusPx)
     readPagePosition(event, index)
     val x = eraserPoint[0]
     val y = eraserPoint[1]
@@ -3206,6 +3434,7 @@ class InkCanvasView(
 
   private var selectionFingerId = MotionEvent.INVALID_POINTER_ID
   private var tapDownTime = 0L
+  private var tapDownEventDownTime = 0L
   private var tapDownX = 0f
   private var tapDownY = 0f
   private var tapCandidate = false
@@ -3219,7 +3448,7 @@ class InkCanvasView(
       MotionEvent.ACTION_DOWN -> {
         val index = event.actionIndex
         val finger = event.getToolType(index) == MotionEvent.TOOL_TYPE_FINGER
-        if (finger && !penNearby && isOnSelection(event, index)) {
+        if (finger && !penNearby && !pressOnlyClosed(event.downTime, closedSomethingAt) && isOnSelection(event, index)) {
           selectionFingerId = event.getPointerId(index)
           startLasso(event, index) // starts a move or resize, since it is on the selection
           return true
@@ -3228,8 +3457,12 @@ class InkCanvasView(
       MotionEvent.ACTION_POINTER_DOWN -> {
         // A second finger joins: hand the gesture back to pan/zoom and drop the drag.
         if (selectionFingerId != MotionEvent.INVALID_POINTER_ID) {
+          val adoptedId = selectionFingerId
           selectionFingerId = MotionEvent.INVALID_POINTER_ID
           cancelLasso()
+          if (!event.isPen(event.actionIndex)) {
+            event.findPointerIndex(adoptedId).takeIf { it >= 0 }?.let { panZoomDetector.adopt(event, it) }
+          }
         }
       }
       MotionEvent.ACTION_MOVE -> {
@@ -3436,13 +3669,30 @@ class InkCanvasView(
     canvas.restore()
   }
 
-  /** A quick one-finger tap on the page lets go of the selection and closes menus. */
+  /** Selects a single non-stroke [PageItem], replacing any active selection and showing handles/actions. */
+  private fun selectSingleItem(item: PageItem) {
+    if (presenting) return
+    if (lassoGesture.changesSelection) hideSelection(false)
+    selection.clear()
+    selectedItems.clear()
+    selectedItems += item.id
+    lassoGesture = LassoGesture.NONE
+    lassoPath.clear()
+    updateSelectionBounds()
+    selectionView.invalidate()
+    finishedView.invalidate()
+    reportSelection()
+  }
+
+  /** A quick one-finger tap on the page selects tapped objects or closes menus / clears Select mode. */
   private fun trackFingerTap(event: MotionEvent) {
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         val finger = event.getToolType(event.actionIndex) == MotionEvent.TOOL_TYPE_FINGER
-        tapCandidate = finger && !penNearby
+        val onlyCloses = pressOnlyClosed(event.downTime, closedSomethingAt)
+        tapCandidate = finger && !penNearby && !isPenWriting && !onlyCloses
         tapDownTime = event.eventTime
+        tapDownEventDownTime = event.downTime
         tapDownX = event.x
         tapDownY = event.y
       }
@@ -3450,26 +3700,48 @@ class InkCanvasView(
       MotionEvent.ACTION_MOVE ->
         if (hypot(event.x - tapDownX, event.y - tapDownY) > holdSlopPx) tapCandidate = false
       MotionEvent.ACTION_UP -> {
+        val validTap =
+          tapCandidate &&
+            event.eventTime - tapDownTime < FINGER_TAP_MS &&
+            !penNearby &&
+            !isPenWriting &&
+            !pressOnlyClosed(tapDownEventDownTime, closedSomethingAt)
         // A media plugin is on: a finger tap on ink that was written while recording plays the audio from there.
         val seek = onMediaSeek
-        if (tapCandidate && seek != null && event.eventTime - tapDownTime < FINGER_TAP_MS) {
+        if (validTap && seek != null) {
           val mark = mediaMarkAt(event.x, event.y)
           if (mark != MediaMark.NONE && seek(MediaMark.recording(mark), MediaMark.positionMs(mark))) {
             tapCandidate = false
             return
           }
         }
-        if (tapCandidate && event.eventTime - tapDownTime < FINGER_TAP_MS) {
-          clearSelection()
-          onPageTouched()
-          // A second quick tap close to the first: fit the page to the screen.
-          if (event.eventTime - lastTapUpTime < DOUBLE_TAP_MS && hypot(event.x - lastTapX, event.y - lastTapY) < doubleTapSlopPx) {
-            fitPage()
+        if (validTap) {
+          val tapTarget =
+            if (!presenting && !tool.isText && (tool.isLasso || !fingerDrawEnabled())) {
+              eraserPoint[0] = event.x
+              eraserPoint[1] = event.y
+              screenToPage.mapPoints(eraserPoint)
+              val tolerancePage = ITEM_TAP_TOLERANCE_DP * density / pageToScreen.mapRadius(1f)
+              hitTestTopItem(items, eraserPoint[0], eraserPoint[1], hiddenItems, tolerancePage)
+            } else {
+              null
+            }
+          if (tapTarget != null) {
+            selectSingleItem(tapTarget)
+            onPageTouched()
             lastTapUpTime = 0L
           } else {
-            lastTapUpTime = event.eventTime
-            lastTapX = event.x
-            lastTapY = event.y
+            if (tool.isLasso) clearSelection()
+            onPageTouched()
+            // A second quick tap close to the first: fit the page to the screen.
+            if (event.eventTime - lastTapUpTime < DOUBLE_TAP_MS && hypot(event.x - lastTapX, event.y - lastTapY) < doubleTapSlopPx) {
+              fitPage()
+              lastTapUpTime = 0L
+            } else {
+              lastTapUpTime = event.eventTime
+              lastTapX = event.x
+              lastTapY = event.y
+            }
           }
         }
         tapCandidate = false
@@ -3769,11 +4041,27 @@ class InkCanvasView(
     return StraightLine.distanceToSegment(screenX, screenY, onScreen) <= (SELECTION_PAD_DP + SELECTION_GRAB_DP) * density
   }
 
-  /** The pen moved the dragged end to (x, y) (page units): rebuilds the preview line. */
+  /** The pen moved the dragged end to (x, y) (page units): snaps along the line ray when near colinear and rebuilds preview. */
   private fun moveLineEnd(x: Float, y: Float) {
     val line = lineSelection ?: return
     val template = lineTemplate ?: return
-    val ends = StraightLine.moveEnd(line, lineEnd, x, y, StraightLine.MIN_LENGTH_MM * itemMm) ?: return
+    val anchorX = if (lineEnd == 0) line.bx else line.ax
+    val anchorY = if (lineEnd == 0) line.by else line.ay
+    val origEndX = if (lineEnd == 0) line.ax else line.bx
+    val origEndY = if (lineEnd == 0) line.ay else line.by
+    val perpSlopPage = LINE_SNAP_PERP_SLOP_DP * density / pageToScreen.mapRadius(1f)
+    val (snappedX, snappedY) =
+      snapPointToLineRay(
+        anchorX = anchorX,
+        anchorY = anchorY,
+        origEndX = origEndX,
+        origEndY = origEndY,
+        rawX = x,
+        rawY = y,
+        cosThreshold = LINE_SNAP_COS_THRESHOLD,
+        screenPerpSlopPage = perpSlopPage,
+      )
+    val ends = StraightLine.moveEnd(line, lineEnd, snappedX, snappedY, StraightLine.MIN_LENGTH_MM * itemMm) ?: return
     linePreviewEnds = ends
     linePreview = buildLine(template, ends)
     // Built straight away and kept out of the mesh cache: a drag makes hundreds of throwaway lines.
@@ -4087,10 +4375,19 @@ class InkCanvasView(
   }
 
   private fun selectInsideLasso() {
-    if (presenting || lassoPath.size < 2) return
+    if (presenting || lassoPath.isEmpty()) return
+    val zoom = pageToScreen.mapRadius(1f)
+    val tapTolerance = ITEM_TAP_TOLERANCE_DP * resources.displayMetrics.density / zoom
     val loopBounds = lassoBounds()
+    if (lassoPath.size < 2 || maxOf(loopBounds.width(), loopBounds.height()) < tapTolerance) {
+      hitTestTopItem(items, lassoPath[0].x, lassoPath[0].y, hiddenItems, tapTolerance)?.let { hit ->
+        selectedItems += hit.id
+        updateSelectionBounds()
+      }
+      return
+    }
     // About 10 dp on screen, in page units: how near a drawn line must pass to pick something up.
-    val tolerance = 10f * resources.displayMetrics.density / pageToScreen.mapRadius(1f)
+    val tolerance = 10f * resources.displayMetrics.density / zoom
     if (isOpenLine(lassoPath, loopBounds)) {
       // A line, not a loop: everything it crosses.
       if (maxOf(loopBounds.width(), loopBounds.height()) < tolerance) return // a tap, not a line
@@ -4211,10 +4508,46 @@ class InkCanvasView(
     private val box = RectF()
     private val movedMatrix = Matrix()
     private var lassoScreenPoints = FloatArray(64)
+    private val rubberPoints = FloatArray(4)
+    private val rubberPaint =
+      Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+      }
+    private var lastRubberLineType: LineType? = null
+    private var lastRubberUnitPx = -1f
+    private var lastRubberDashEffect: DashPathEffect? = null
+
+    private fun drawLiveRubberLine(canvas: Canvas) {
+      val line = liveRubberLine ?: return
+      val g = line.geometry
+      rubberPoints[0] = g.anchorX
+      rubberPoints[1] = g.anchorY
+      rubberPoints[2] = g.endX
+      rubberPoints[3] = g.endY
+      pageToScreen.mapPoints(rubberPoints)
+      val zoom = pageToScreen.mapRadius(1f)
+      val strokeWidthPx = (line.paperBrush.size * zoom).coerceAtLeast(1f)
+      rubberPaint.color = line.screenColor
+      rubberPaint.strokeWidth = strokeWidthPx
+      val lineType = if (line.tool.kind == InkTool.Kind.PEN) line.tool.line else LineType.SOLID
+      val unitPx = maxOf(strokeWidthPx, MIN_DASH_UNIT_MM * itemMm * zoom)
+      if (lineType != lastRubberLineType || abs(unitPx - lastRubberUnitPx) > 0.25f) {
+        lastRubberLineType = lineType
+        lastRubberUnitPx = unitPx
+        val pattern = lineType.pattern
+        lastRubberDashEffect =
+          if (pattern == null) null
+          else DashPathEffect(FloatArray(pattern.size) { i -> if (pattern[i] == 0f) 0.1f else pattern[i] * unitPx }, 0f)
+      }
+      rubberPaint.pathEffect = lastRubberDashEffect
+      canvas.drawLine(rubberPoints[0], rubberPoints[1], rubberPoints[2], rubberPoints[3], rubberPaint)
+    }
 
     override fun onDraw(canvas: Canvas) {
       drawSearchHit(canvas)
       drawPlayback(canvas)
+      drawLiveRubberLine(canvas)
       if (lassoGesture == LassoGesture.DRAWING && lassoPath.size > 1) {
         path.rewind()
         val count = lassoPath.size

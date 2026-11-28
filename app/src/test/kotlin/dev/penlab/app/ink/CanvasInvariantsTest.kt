@@ -3,8 +3,11 @@ package dev.penlab.app.ink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 class CanvasInvariantsTest {
@@ -180,5 +183,244 @@ class CanvasInvariantsTest {
     val mdpiTrueSize = 160f / 25.4f / PageLayout.UNITS_PER_MM
     assertEquals(25, (minZoomFor(mdpiTrueSize) / mdpiTrueSize * 100f).roundToInt())
     assertTrue(maxZoomFor(mdpiTrueSize) >= BASE_MAX_ZOOM)
+  }
+
+  // ---- snapPointToLineRay --------------------------------------------------------------------
+
+  @Test
+  fun snapPointToLineRaySnapsWithinAngleOrPerpSlopAndReleasesOutside() {
+    // Horizontal ray from (0, 0) through (100, 0): extending to ~500 units at 3° (tan(3°) ≈ 0.0524 -> y ≈ 26.2)
+    // exceeds perp slop (14) yet stays within ±6° -> snaps onto axis (y = 0).
+    val (sx1, sy1) = snapPointToLineRay(
+      anchorX = 0f,
+      anchorY = 0f,
+      origEndX = 100f,
+      origEndY = 0f,
+      rawX = 500f,
+      rawY = 26f,
+      cosThreshold = LINE_SNAP_COS_THRESHOLD,
+      screenPerpSlopPage = 14f,
+    )
+    assertEquals(500f, sx1, 1e-3f)
+    assertEquals(0f, sy1, 1e-4f)
+
+    // Short drag at ~11° (x = 50, y = 10 -> perp = 10 <= slop 14) -> snaps via perpendicular slop.
+    val (sx2, sy2) = snapPointToLineRay(
+      anchorX = 0f,
+      anchorY = 0f,
+      origEndX = 100f,
+      origEndY = 0f,
+      rawX = 50f,
+      rawY = 10f,
+      cosThreshold = LINE_SNAP_COS_THRESHOLD,
+      screenPerpSlopPage = 14f,
+    )
+    assertEquals(50f, sx2, 1e-3f)
+    assertEquals(0f, sy2, 1e-4f)
+
+    // Deliberate 20° rotation far from anchor (x = 200, y = 73 -> cos ≈ 0.939 < 0.9945 and perp = 73 > 14) -> breaks free.
+    val (sx3, sy3) = snapPointToLineRay(
+      anchorX = 0f,
+      anchorY = 0f,
+      origEndX = 100f,
+      origEndY = 0f,
+      rawX = 200f,
+      rawY = 73f,
+      cosThreshold = LINE_SNAP_COS_THRESHOLD,
+      screenPerpSlopPage = 14f,
+    )
+    assertEquals(200f, sx3, 1e-4f)
+    assertEquals(73f, sy3, 1e-4f)
+  }
+
+  @Test
+  fun snapPointToLineRayNeverSnapsBackwardBehindAnchor() {
+    val (sx, sy) = snapPointToLineRay(
+      anchorX = 100f,
+      anchorY = 50f,
+      origEndX = 200f,
+      origEndY = 50f,
+      rawX = 80f,
+      rawY = 52f,
+      cosThreshold = LINE_SNAP_COS_THRESHOLD,
+      screenPerpSlopPage = 20f,
+    )
+    assertEquals(80f, sx, 1e-4f)
+    assertEquals(52f, sy, 1e-4f)
+  }
+
+  // ---- computeVelocityScaledFactor -----------------------------------------------------------
+
+  @Test
+  fun velocityScaledEraserHandlesDisabledSlowFastClampAndEmaSmoothing() {
+    // Disabled always returns 1.0 immediately.
+    assertEquals(1.0f, computeVelocityScaledFactor(speedDpPerSec = 2000f, prevFactor = 1.9f, dtMs = 16f, enabled = false), 1e-6f)
+
+    // Slow speed <= 250 dp/s stays 1.0 when starting at 1.0.
+    assertEquals(1.0f, computeVelocityScaledFactor(speedDpPerSec = 200f, prevFactor = 1.0f, dtMs = 16f, enabled = true), 1e-6f)
+    assertEquals(1.0f, computeVelocityScaledFactor(speedDpPerSec = 250f, prevFactor = 1.0f, dtMs = 16f, enabled = true), 1e-6f)
+
+    // EMA smoothing at 16 ms for fast sweep (>= 1400 dp/s): moves partway from 1.0 toward 2.2.
+    val step1 = computeVelocityScaledFactor(speedDpPerSec = 1800f, prevFactor = 1.0f, dtMs = 16f, enabled = true)
+    assertTrue(step1 > 1.0f && step1 < ERASER_VEL_MAX_FACTOR)
+    val step2 = computeVelocityScaledFactor(speedDpPerSec = 1800f, prevFactor = step1, dtMs = 16f, enabled = true)
+    assertTrue(step2 > step1 && step2 < ERASER_VEL_MAX_FACTOR)
+
+    // Very fast sweep over sufficient time clamps cleanly at 2.2f.
+    val clamped = computeVelocityScaledFactor(speedDpPerSec = 5000f, prevFactor = 1.0f, dtMs = 120f, enabled = true)
+    assertEquals(ERASER_VEL_MAX_FACTOR, clamped, 1e-6f)
+    assertEquals(ERASER_VEL_MAX_FACTOR, computeVelocityScaledFactor(5000f, ERASER_VEL_MAX_FACTOR, 16f, true), 1e-6f)
+
+    // Slowing back down decays smoothly toward 1.0f.
+    val decayed = computeVelocityScaledFactor(speedDpPerSec = 100f, prevFactor = 2.0f, dtMs = 16f, enabled = true)
+    assertTrue(decayed < 2.0f && decayed > 1.0f)
+  }
+
+  // ---- computePluginPlacementTransform -------------------------------------------------------
+
+  @Test
+  fun pluginPlacementScalesOversizedSelectionDiagramsDownWithReadableFloor() {
+    // Selection is 600x400; diagram is 1800x1200 (> 1.35x * 600 = 810) -> scales toward 1.15x * 600 = 690.
+    val oversized = computePluginPlacementTransform(
+      incomingLeft = 100f,
+      incomingTop = 100f,
+      incomingRight = 1900f,
+      incomingBottom = 1300f,
+      wasEmpty = false,
+      selectionLeft = 200f,
+      selectionTop = 200f,
+      selectionRight = 800f,
+      selectionBottom = 600f,
+      visibleLeft = 0f,
+      visibleTop = 0f,
+      visibleRight = 2100f,
+      visibleBottom = 2970f,
+      minFloorPage = 400f,
+    )
+    assertEquals(690f / 1800f, oversized.scale, 1e-4f)
+    assertEquals(1000f, oversized.anchorX, 1e-4f)
+    assertEquals(700f, oversized.anchorY, 1e-4f)
+    assertEquals(0f, oversized.dx, 1e-4f)
+    assertEquals(0f, oversized.dy, 1e-4f)
+
+    // Reasonable diagram (750 <= 1.35 * 600 = 810) stays 1:1.
+    val normal = computePluginPlacementTransform(
+      incomingLeft = 200f,
+      incomingTop = 200f,
+      incomingRight = 950f,
+      incomingBottom = 600f,
+      wasEmpty = false,
+      selectionLeft = 200f,
+      selectionTop = 200f,
+      selectionRight = 800f,
+      selectionBottom = 600f,
+      visibleLeft = 0f,
+      visibleTop = 0f,
+      visibleRight = 2100f,
+      visibleBottom = 2970f,
+      minFloorPage = 400f,
+    )
+    assertEquals(1f, normal.scale, 1e-6f)
+
+    // Tiny text snippet (80x40) with 400-unit floor and 1200-unit diagram scales to floor (400 / 1200), not 92 / 1200.
+    val tiny = computePluginPlacementTransform(
+      incomingLeft = 0f,
+      incomingTop = 0f,
+      incomingRight = 1200f,
+      incomingBottom = 800f,
+      wasEmpty = false,
+      selectionLeft = 100f,
+      selectionTop = 100f,
+      selectionRight = 180f,
+      selectionBottom = 140f,
+      visibleLeft = 0f,
+      visibleTop = 0f,
+      visibleRight = 2100f,
+      visibleBottom = 2970f,
+      minFloorPage = 400f,
+    )
+    assertEquals(400f / 1200f, tiny.scale, 1e-4f)
+  }
+
+  @Test
+  fun pluginPlacementClampsOversizedEmptySelectionDiagramsToViewportAndCenters() {
+    // Visible viewport: 1000x800 centered at (600, 500). Max allowed: 650 x 520.
+    // Incoming diagram: 1300x1040 -> scale = min(650/1300, 520/1040) = 0.5f.
+    val t = computePluginPlacementTransform(
+      incomingLeft = 0f,
+      incomingTop = 0f,
+      incomingRight = 1300f,
+      incomingBottom = 1040f,
+      wasEmpty = true,
+      selectionLeft = 0f,
+      selectionTop = 0f,
+      selectionRight = 0f,
+      selectionBottom = 0f,
+      visibleLeft = 100f,
+      visibleTop = 100f,
+      visibleRight = 1100f,
+      visibleBottom = 900f,
+      minFloorPage = 400f,
+    )
+    assertEquals(0.5f, t.scale, 1e-5f)
+    assertEquals(650f, t.anchorX, 1e-4f)
+    assertEquals(520f, t.anchorY, 1e-4f)
+    // Centered in visible viewport: anchor + dx == visCx (600), anchor + dy == visCy (500)
+    assertEquals(600f, t.anchorX + t.dx, 1e-4f)
+    assertEquals(500f, t.anchorY + t.dy, 1e-4f)
+  }
+
+  // ---- hitTestTopItem ------------------------------------------------------------------------
+
+  @Test
+  fun hitTestTopItemPicksTopmostVisibleObjectAndSkipsHiddenAndMisses() {
+    val bottomImg = ImageItem(id = "img1", fileName = "a.png", cx = 200f, cy = 200f, width = 120f, height = 80f)
+    val midText = TextItem(id = "txt1", text = "hi", paperColor = 0, textSize = 30f, cx = 210f, cy = 210f, width = 100f, height = 60f)
+    val topPlugin = PluginPageItem(id = "plg1", kind = 3, content = "x\ny", color = 0, textSize = 0f, cx = 220f, cy = 220f, width = 100f, height = 60f)
+    val items = listOf(bottomImg, midText, topPlugin)
+
+    // Reverse z-order picks topPlugin when all overlap.
+    assertSame(topPlugin, hitTestTopItem(items, pageX = 215f, pageY = 215f))
+
+    // Hidden topPlugin is skipped -> midText is returned.
+    assertSame(midText, hitTestTopItem(items, pageX = 215f, pageY = 215f, hiddenItemIds = setOf("plg1")))
+
+    // Tolerance expands bounds cleanly (bottomImg covers x in 140..260; with tol 15 -> 125..275).
+    assertSame(bottomImg, hitTestTopItem(items, pageX = 130f, pageY = 170f, tolerancePage = 15f))
+    assertNull(hitTestTopItem(items, pageX = 130f, pageY = 170f, tolerancePage = 0f))
+
+    // Miss outside all items returns null.
+    assertNull(hitTestTopItem(items, pageX = 900f, pageY = 900f, tolerancePage = 10f))
+  }
+
+  // ---- RubberBandLineState (6.6 live hold-to-snap straight line) -----------------------------
+
+  @Test
+  fun rubberBandLineKeepsAnchorFixedWhileUpdatingEndFreelyAndFinalizesCleanly() {
+    val initial = RubberBandLineState(anchorX = 120f, anchorY = 240f, endX = 320f, endY = 240f)
+
+    // Move freely to an arbitrary 360-degree angle (e.g. up-left, ~135°): anchor must stay fixed, no angle snap.
+    val aimed1 = updateRubberBandLineEnd(initial, newEndX = 40f, newEndY = 160f)
+    assertEquals(120f, aimed1.anchorX, 0f)
+    assertEquals(240f, aimed1.anchorY, 0f)
+    assertEquals(40f, aimed1.endX, 0f)
+    assertEquals(160f, aimed1.endY, 0f)
+
+    // Move freely again to stretch downward-right (~37°, arbitrary non-axis angle).
+    val aimed2 = updateRubberBandLineEnd(aimed1, newEndX = 520f, newEndY = 540f)
+    assertEquals(120f, aimed2.anchorX, 0f)
+    assertEquals(240f, aimed2.anchorY, 0f)
+    assertEquals(520f, aimed2.endX, 0f)
+    assertEquals(540f, aimed2.endY, 0f)
+
+    val committed = finalizeRubberBandLinePoints(aimed2)
+    assertEquals(listOf(Point(120f, 240f), Point(520f, 540f)), committed)
+
+    // Degenerate zero-length release back onto anchor nudges slightly so Ink stroke remains valid.
+    val collapsed = updateRubberBandLineEnd(initial, newEndX = 120f, newEndY = 240f)
+    val collapsedPts = finalizeRubberBandLinePoints(collapsed)
+    assertEquals(2, collapsedPts.size)
+    assertEquals(Point(120f, 240f), collapsedPts[0])
+    assertTrue(hypot(collapsedPts[1].x - collapsedPts[0].x, collapsedPts[1].y - collapsedPts[0].y) > 0f)
   }
 }

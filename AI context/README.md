@@ -1,8 +1,8 @@
 # PenLab UI Redesign — AI Agent Handoff Context
 
 > **Branch:** `ui/redesign` (forked from `main` @ `c0c15ae`)  
-> **Status:** **Stages 0, 2, 3, 4 & 5 COMPLETE, Tab S9 QA-VERIFIED, AND PUSHED on `ui/redesign`** (`BUG-00`..`BUG-17` all closed; [`notes/TEST-PLAN-2026-11-27.md`](notes/TEST-PLAN-2026-11-27.md) Parts A, C, D, E verified PASS on Tab S9).  
-> **Next Stage:** **Stage 6 — Tablet `requests.md` (4 items) + Tap-to-Select for Non-Stroke Objects** (`ImageItem`/`TextItem`/`PluginPageItem`), followed by **Stage 7 (Production hardening, `:app:lintRelease` & universal signed release APK)** before merging `ui/redesign` to `main`. See [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
+> **Status:** **Stages 0, 2, 3, 4, 5 & 6 COMPLETE, Tab S9 QA-VERIFIED, AND PUSHED on `ui/redesign`** (`BUG-00`..`BUG-17` closed; [`notes/TEST-PLAN-2026-11-27.md`](notes/TEST-PLAN-2026-11-27.md) Parts A, C, D, E verified PASS; all 6 Stage 6 features `6.1`–`6.6` verified PASS).  
+> **Next Stage:** **Stage 7 (Production hardening: `:app:lintRelease`, multi-module tests, universal signed release APK & landscape/portrait stress QA)** before merging `ui/redesign` to `main` (plus optional post-release **Stage 8** `feat/library-trash-and-sort`). See [`notes/OVERNIGHT-AUDIT-2026-11-27.md`](notes/OVERNIGHT-AUDIT-2026-11-27.md).
 
 ---
 
@@ -105,8 +105,18 @@
 - **Verified:** `:app:testDebugUnitTest` (**56 suites, 522 tests, 0 failures** — including `ThemeTokensTest`, `CoversTest`, `LibraryLogicTest`, `InstrumentsTest`, `ToolPanelHelpersTest`, `TypographyDisciplineTest`), `13.38 MB` `arm64-v8a` R8 APK, and Light/Dark Tab S9 visual QA (`logcat` clean).
 
 ### Stage 5 (Production Fix Pass — 28 Nov 2026, QA-Verified on Tab S9)
-- **Fixed all `BUG-17` Core Invariants (building on `9f1c8e4` `BUG-14`..`16`):** Serialized `PageStore.saveFresh` & `transformAndSave` on `SAVE_THREAD` with `turningIds`/`openGeneration` turn guards (`NotebookTurn.kt`, `PageStore.kt`, `MainActivity.kt`); added `canClearPage` & `InkCanvasView.clear(): Boolean` (`InkCanvasHelpers.kt`) so items-only pages clear cleanly with undo; bumped `HistoryFile.VERSION = 5` (`SavedLayers` preserving `hidden` & `current` across undo/redo/reload); synced `pageStyle` after async load via `onPageStyleChanged`; replaced rotation bounds clamp with `ViewSettle.clampPagesInView` (`PullToAdd.kt`); scaled `minZoomFor`/`maxZoomFor` with `trueSizeZoom`; gated `importedHasPdfBackground` on `any { it.backgroundPdfPage >= 0 }` (`NotebookStore.kt`); wrapped `Accent.syncResolvedDark` in `SideEffect` (`Theme.kt`).
+- **Fixed all `BUG-17` Core Invariants (`e4ba417`, building on `9f1c8e4` `BUG-14`..`16`):** Serialized `PageStore.saveFresh` & `transformAndSave` on `SAVE_THREAD` with `turningIds`/`openGeneration` turn guards (`NotebookTurn.kt`, `PageStore.kt`, `MainActivity.kt`); added `canClearPage` & `InkCanvasView.clear(): Boolean` (`InkCanvasHelpers.kt`) so items-only pages clear cleanly with undo; bumped `HistoryFile.VERSION = 5` (`SavedLayers` preserving `hidden` & `current` across undo/redo/reload); synced `pageStyle` after async load via `onPageStyleChanged`; replaced rotation bounds clamp with `ViewSettle.clampPagesInView` (`PullToAdd.kt`); scaled `minZoomFor`/`maxZoomFor` with `trueSizeZoom`; gated `importedHasPdfBackground` on `any { it.backgroundPdfPage >= 0 }` (`NotebookStore.kt`); wrapped `Accent.syncResolvedDark` in `SideEffect` (`Theme.kt`).
 - **Verified:** Multi-module `./gradlew testDebugUnitTest` (**62 suites, 595 tests, 0 failures** — `:app` 541, `:plugin-api` 7, `:plugin-sdk` 47; new `CanvasInvariantsTest` & `NotebookInvariantsTest`), `14.03 MB` `arm64-v8a` R8 APK (`CN=PenLab, O=penlab-app`), and live Tab S9 QA PASS across all `BUG-17` invariants + `TEST-PLAN-2026-11-27.md` Parts **A (`A1–A10`)**, **C (`C1–C2`)**, **D (`D1–D5`)**, and **E (`E1–E7`)** (`0` `logcat` exceptions).
+
+### Stage 6 (User Requests, Tap-to-Select & Rubber-Band Snap Line — 28 Nov 2026, QA-Verified on Tab S9)
+- **Implemented Items `6.1`–`6.6` (`InkCanvasHelpers.kt`, `InkCanvasView.kt`, `ViewSettings.kt`, `ToolPanels.kt`, `MainActivity.kt`):**
+  - `6.1` **Line-extension axis snapping** (`snapPointToLineRay`, `±6°` / `14.dp` forward ray projection in `moveLineEnd`).
+  - `6.2` **Velocity-scaled eraser** (`eraserVelocityScaling` persisted toggle `"Speed-scaled size"`, `computeVelocityScaledFactor` `1.0x`–`2.2x` EMA speed multiplier driving cursor & erase hit-test radius).
+  - `6.3` **Plugin diagram placement scale** (`computePluginPlacementTransform` proportional to active selection bbox / `<= 65%` viewport).
+  - `6.4` **Canvas panning while plugins run** (audited overlay guards + fixed `handleSelectionFinger` `panZoomDetector.adopt` multi-touch transition).
+  - `6.5` **Tap-to-select non-stroke objects** (reverse z-order `hitTestTopItem` for `ImageItem`/`TextItem`/`PluginPageItem` in Select mode and finger-while-writing mode, keeping pen tool active).
+  - `6.6` **Live 360° rubber-band hold-to-snap straight line** (`liveRubberLine` preview on `RecognizedShape.Kind.LINE` keeping start anchor fixed until `ACTION_UP`).
+- **Verified:** Multi-module `./gradlew testDebugUnitTest` (**62 suites, 603 tests, 0 failures** — `:app` 549, `:plugin-api` 7, `:plugin-sdk` 47) and live Tab S9 QA PASS across all 6 features (`0` `logcat` exceptions, `4.86%` jank, `p50=7ms`).
 
 ---
 
